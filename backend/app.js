@@ -26,3 +26,17 @@ app.use(express.urlencoded({ extended: true }));
 app.listen(8000, () => console.log('Server running on port http://localhost:8000'));
 
 
+// import and use exported routes from groupRouter 
+import friendsRoutes from './routers/friendsRouter.js';
+import mapRoutes from './routers/mapRouter.js';
+import restaurantRoutes from './routers/restaurantRouter.js';
+import searchRoutes from './routers/searchRouter.js';
+import userRoutes from './routers/userRouter.js';
+
+
+
+app.use('/friends', friendsRoutes);
+app.use('/map', mapRoutes);
+app.use('/restaurants', restaurantRoutes);
+app.use('/search', searchRoutes);
+app.use('/users',userRoutes);
