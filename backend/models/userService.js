@@ -6,3 +6,8 @@ import supabase from "./connection.js";
 // edit profile 
 
 
+
+
+export{
+    
+}
