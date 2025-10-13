@@ -39,4 +39,4 @@ app.use('/friends', friendsRoutes);
 app.use('/map', mapRoutes);
 app.use('/restaurants', restaurantRoutes);
 app.use('/search', searchRoutes);
-app.use('/users',userRoutes);
+app.use('/user',userRoutes);
