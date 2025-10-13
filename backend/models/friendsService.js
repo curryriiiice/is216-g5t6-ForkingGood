@@ -62,6 +62,7 @@ const getFriendRecs = async (user_email) => {
 //tested, works 
 // returns an array of JSONs containing the user's friends’ post id, lat, long
 
+
 export{
     getFriends, 
     getFriendRecs
