@@ -19,6 +19,7 @@ const getFriends = async (user_email) => {
 
 const getFriendRecs = async (user_email) => {
     let friends_posts = []; 
+    // get list of friends' emails 
     const {data: friend_lst, error: getFriendsError} = await getFriends(user_email);
     
     if(getFriendsError){
