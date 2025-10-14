@@ -11,7 +11,7 @@ import {
 //router.post etc etc for each of the routes
 // eg router.post('/getGroups',getGroups);
 
-router.post("/getFriendsCuisines", cuisineFilter);
+router.post("/cuisineFilter", cuisineFilter);
 router.post("/getPostbyCuisine", getPostbyCuisine);
 
 export default router;
