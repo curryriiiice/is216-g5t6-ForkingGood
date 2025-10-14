@@ -1,4 +1,5 @@
 import supabase from "./connection.js";
+import {getRestaurantbyId} from "./restaurantService.js"
 
 // get user's posts
 // get user's liked posts 
@@ -12,18 +13,20 @@ const getPostbyId = async (post_id) => {
 		return {error};
 	}
 
-    // process post to replace poster_email with poster_username
+
+    // process post to replace poster_email with poster_username and add restaurant_id 
     const post = data[0];
     const { data: usernameData, error: usernameError } = await getUsernamebyEmail(post.poster_email);
+    const {data: restaurantData, error: getRestError} = await getRestaurantbyId(post.restaurant_id); 
     
-    if (usernameError) {
-        // if there's error getting username, keep original post data
+    if (usernameError || getRestError) {
+        // if there's error getting username or restaurant data, keep original post data
         return {data: [post]};
     }
     
     // create new object without poster_email and add poster_username
     const { poster_email, ...postWithoutEmail } = post;
-    const processedPost = {...postWithoutEmail,poster_username: usernameData};
+    const processedPost = {...postWithoutEmail,poster_username: usernameData, cuisine_type:restaurantData.cuisine_type};
 
     return {data: processedPost};
 }
