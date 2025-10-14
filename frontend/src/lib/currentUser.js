@@ -1,0 +1,1 @@
+export const ACTIVE_EMAIL = 'clarice.lim.2024@computing.smu.edu.sg'
