@@ -5,6 +5,7 @@ import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import axios from 'axios'
 import { useRoute } from 'vue-router'
+import { useRouter } from 'vue-router'
 
 // === Backend config ===
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -17,22 +18,64 @@ const posts = ref([])
 const trendingSlides = ref([])
 const showAdd = ref(false)
 const currentUser = ref({ email: ACTIVE_EMAIL })
-const index = ref(0)
 
 // When you click the post in map it directs you to the post here
 
 const route = useRoute()
+const router = useRouter()
 
 async function scrollToPostIfAny() {
   const postId = route.query.postId
   if (!postId) return
   await nextTick()
   const el = document.getElementById(`post-${postId}`)
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    el.classList.add('highlight')
-    setTimeout(() => el.classList.remove('highlight'), 2000)
+  if (!el) return
+  const header = document.querySelector('.navbar, header.sticky')
+  const headerOffset = header ? Math.max(header.clientHeight, 56) : 56
+  const pad = 12
+  const viewport = window.innerHeight
+  const rect = el.getBoundingClientRect()
+  const elTopAbs = rect.top + window.pageYOffset
+  const elHeight = el.offsetHeight
+  const available = viewport - headerOffset - pad * 2
+  let y
+  if (elHeight <= available) {
+    const extra = (available - elHeight) / 2
+    y = elTopAbs - headerOffset - pad - extra
+  } else {
+    y = elTopAbs - headerOffset - pad
   }
+  window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
+  el.classList.add('highlight')
+  if (typeof el.focus === 'function') {
+    el.setAttribute('tabindex', '-1')
+    el.focus({ preventScroll: true })
+  }
+  // Re-adjust once after images/content settle
+  setTimeout(() => {
+    const rect2 = el.getBoundingClientRect()
+    const elTopAbs2 = rect2.top + window.pageYOffset
+    const elHeight2 = el.offsetHeight
+    let y2
+    if (elHeight2 <= available) {
+      const extra2 = (available - elHeight2) / 2
+      y2 = elTopAbs2 - headerOffset - pad - extra2
+    } else {
+      y2 = elTopAbs2 - headerOffset - pad
+    }
+    window.scrollTo({ top: Math.max(0, y2), behavior: 'auto' })
+  }, 350)
+  // Clear the query and end highlight
+  setTimeout(() => {
+    el.classList.remove('highlight')
+    clearPostQuery()
+  }, 1400)
+}
+
+function clearPostQuery() {
+  const q = { ...route.query }
+  delete q.postId
+  router.replace({ query: q })
 }
 
 watch(() => route.query.postId, () => {
@@ -177,56 +220,87 @@ function handleAdded() {
   load() // refresh after posting
 }
 
-function current() {
-  if (!trendingSlides.value.length) return { title: 'Loading...' }
-  return trendingSlides.value[index.value]
-}
-
-function go(dir) {
-  const len = trendingSlides.value.length
-  if (len === 0) return
-  if (dir === 'next') index.value = (index.value + 1) % len
-  else if (dir === 'prev') index.value = (index.value - 1 + len) % len
-}
 
 onMounted(load)
 </script>
 
 <template>
-  <div class="page">
+  <div class="page sage-bg">
     <!-- Trending Section -->
 
     <section class="hero">
       <h2 class="section-title">Trending Food</h2>
 
-      <div class="carousel">
-        <button class="car-btn left" aria-label="Previous" @click="go('prev')">‹</button>
+      <div id="trendingCarousel" class="carousel slide sage-glass" data-bs-ride="carousel">
+        <div class="carousel-indicators" v-if="trendingSlides.length > 1">
+          <button
+            v-for="(s, i) in trendingSlides"
+            :key="s.id || i"
+            type="button"
+            data-bs-target="#trendingCarousel"
+            :data-bs-slide-to="i"
+            :class="{ active: i === 0 }"
+            :aria-current="i === 0 ? 'true' : undefined"
+            :aria-label="`Slide ${i+1}`"
+          ></button>
+        </div>
 
-        <div class="car-track">
-          <div class="car-slide">
-            <div class="slide-placeholder">
-              <div class="slide-wrap">
-                <span class="slide-text">{{ current().title }}</span>
-                <span v-if="current().avgRating" class="slide-sub"
-                  >⭐ {{ current().avgRating }}</span
-                >
-                <span v-if="current().subtitle" class="slide-sub">{{ current().subtitle }}</span>
+        <div class="carousel-inner">
+          <div
+            v-for="(s, i) in trendingSlides"
+            :key="s.id || i"
+            :class="['carousel-item', { active: i === 0 }]"
+          >
+            <div class="d-flex align-items-center justify-content-center trend-slide">
+              <div class="text-center">
+                <span class="slide-text">{{ s.title || 'Loading…' }}</span>
+                <span v-if="s.avgRating" class="slide-sub d-block mt-1">⭐ {{ s.avgRating }}</span>
+                <span v-if="s.subtitle" class="slide-sub d-block">{{ s.subtitle }}</span>
               </div>
             </div>
           </div>
         </div>
 
-        <button class="car-btn right" aria-label="Next" @click="go('next')">›</button>
+        <button class="carousel-control-prev" type="button" data-bs-target="#trendingCarousel" data-bs-slide="prev" v-if="trendingSlides.length > 1">
+          <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+          <span class="visually-hidden">Previous</span>
+        </button>
+        <button class="carousel-control-next" type="button" data-bs-target="#trendingCarousel" data-bs-slide="next" v-if="trendingSlides.length > 1">
+          <span class="carousel-control-next-icon" aria-hidden="true"></span>
+          <span class="visually-hidden">Next</span>
+        </button>
       </div>
     </section>
 
     <!-- Posts Feed -->
     <section class="feed">
       <h3 class="feed-title">Posts</h3>
-      <div class="feed-shell">
+      <div class="feed-shell sage-glass">
         <template v-if="posts.length">
-          <div v-for="p in posts" :key="p.id" :id="`post-${p.id}`">
-            <PostCard :post="p" />
+          <div
+            v-for="p in posts"
+            :key="p.id"
+            :id="`post-${p.id}`"
+            class="card themed-card card-hover mb-3"
+          >
+            <div class="card-body">
+              <div class="d-flex align-items-center mb-2">
+                <h5 class="card-title mb-0 flex-grow-1 text-truncate">{{ p.restaurant?.name || 'Restaurant' }}</h5>
+                <span v-if="Number.isFinite(Number(p.rating))" class="rating-pill ms-2">
+                  ⭐ {{ Number(p.rating).toFixed(1) }}
+                </span>
+              </div>
+              <div class="d-flex flex-wrap gap-2 mb-2">
+                <span v-if="p.restaurant?.cuisine_type" class="post-chip post-chip--cuisine">
+                  {{ p.restaurant.cuisine_type }}
+                </span>
+                <span v-if="p.restaurant?.address" class="post-chip post-chip--addr">
+                  {{ p.restaurant.address }}
+                </span>
+              </div>
+              <!-- Keep your existing PostCard content -->
+              <PostCard :post="p" />
+            </div>
           </div>
         </template>
         <div v-else class="empty">No posts yet. Create one!</div>
@@ -234,8 +308,8 @@ onMounted(load)
     </section>
 
     <!-- Floating Create button -->
-    <button class="fab" aria-label="Create Post" @click="showAdd = true">+</button>
-    <div class="fab-label">Create Post</div>
+    <button class="fab fab-terracotta" aria-label="Create Post" @click="showAdd = true">+</button>
+    <div class="fab-label sage-chip">Create Post</div>
 
     <!-- Bottom social bar -->
     <footer class="bottom-bar">
@@ -259,7 +333,7 @@ onMounted(load)
 <style scoped>
 .page {
   min-height: calc(100vh - 56px);
-  background: #cfe8f7;
+  background: transparent;
   padding: 16px 0 80px;
 }
 .hero {
@@ -269,33 +343,7 @@ onMounted(load)
 .section-title {
   font-weight: 800;
   margin: 0 0 10px 8px;
-  color: #1f2937;
-}
-.carousel {
-  position: relative;
-  height: 260px;
-  background: #cfe8f7;
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-}
-.car-track {
-  width: 86%;
-  height: 78%;
-  background: #5f6a75;
-  border-radius: 4px;
-  display: grid;
-  place-items: center;
-}
-.slide-placeholder {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
-}
-.slide-wrap {
-  text-align: center;
+  color: var(--charcoal);
 }
 .slide-text {
   font-size: clamp(22px, 5vw, 40px);
@@ -310,29 +358,15 @@ onMounted(load)
   color: #e5e7eb;
   font-weight: 600;
 }
-.car-btn {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.25);
-  color: #fff;
-  border: 0;
-  cursor: pointer;
-  font-size: 28px;
-  display: grid;
-  place-items: center;
-}
-.car-btn.left {
-  left: 26px;
-}
-.car-btn.right {
-  right: 26px;
-}
-.car-btn:hover {
-  background: rgba(0, 0, 0, 0.35);
+
+.trend-slide{
+  height: 260px;
+  width: 100%;
+  background: linear-gradient(180deg, var(--sage-500) 0%, var(--sage-600) 100%);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  margin: 12px auto;
+  max-width: 86%;
 }
 .feed {
   width: min(900px, 92vw);
@@ -340,18 +374,15 @@ onMounted(load)
 }
 .feed-title {
   font-weight: 800;
-  color: #1f2937;
+  color: var(--charcoal);
   margin: 0 0 12px 8px;
 }
 .feed-shell {
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 6px;
   padding: 18px 18px 8px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 .empty {
   text-align: center;
-  color: #555;
+  color: var(--ink-400);
   font-weight: 500;
   padding: 20px 0;
 }
@@ -359,26 +390,15 @@ onMounted(load)
   position: fixed;
   right: 28px;
   bottom: 86px;
-  width: 56px;
-  height: 56px;
-  border-radius: 999px;
-  background: #111;
-  color: #fff;
   border: none;
   cursor: pointer;
-  font-size: 28px;
-  font-weight: 700;
   display: grid;
   place-items: center;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
 }
 .fab-label {
   position: fixed;
   right: 28px;
   bottom: 54px;
-  font-size: 14px;
-  color: #111;
-  font-weight: 600;
 }
 .bottom-bar {
   position: fixed;
@@ -409,12 +429,15 @@ onMounted(load)
 
 /* When you click the post in map it directs you to the post here */
 .highlight {
-  animation: flash 1.2s ease;
-  background-color: #fff3bf;
+  animation: flash 1s ease forwards;
 }
 
 @keyframes flash {
   0% { background-color: #fff3bf; }
   100% { background-color: transparent; }
+}
+
+.themed-card:hover{
+  transform: none !important;
 }
 </style>
