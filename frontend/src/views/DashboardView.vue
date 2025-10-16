@@ -1,33 +1,172 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import PostCard from '@/components/PostCard.vue'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
+import axios from 'axios'
+import { useRoute } from 'vue-router'
 
-import api from '@/lib/api'
+// === Backend config ===
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
+
+// TEMP: until auth is wired, use a fixed user for friends feed
+const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
 
 const posts = ref([])
 const trendingSlides = ref([])
 const showAdd = ref(false)
-const currentUser = ref(null)
+const currentUser = ref({ email: ACTIVE_EMAIL })
 const index = ref(0)
+
+// When you click the post in map it directs you to the post here
+
+const route = useRoute()
+
+async function scrollToPostIfAny() {
+  const postId = route.query.postId
+  if (!postId) return
+  await nextTick()
+  const el = document.getElementById(`post-${postId}`)
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('highlight')
+    setTimeout(() => el.classList.remove('highlight'), 2000)
+  }
+}
+
+watch(() => route.query.postId, () => {
+  scrollToPostIfAny()
+})
+
+// -------- Helpers to call your backend (same as MapView style) --------
+async function getFriendRecs(userEmail) {
+  try {
+    const r = await api.post('/friends/getFriendRecs', { user_email: userEmail })
+    return Array.isArray(r.data?.data) ? r.data.data : []
+  } catch (e) {
+    console.error(
+      '[Dashboard] getFriendRecs failed:',
+      e.response?.status,
+      e.response?.data || e.message,
+    )
+    return []
+  }
+}
+
+async function getPostById(postId) {
+  const url = '/user/getPostbyId'
+  const id = String(postId)
+  // Try common shapes the backend may accept
+  const tries = [
+    () => api.post(url, { post_id: id }),
+    () => api.post(url, { postID: id }),
+    () => api.post(url, { postid: id }),
+    () => api.get(url, { params: { post_id: id } }),
+    () => api.get(url, { params: { postID: id } }),
+    () => api.get(url, { params: { postid: id } }),
+  ]
+  for (const t of tries) {
+    try {
+      const r = await t()
+      return (Array.isArray(r.data?.data) ? r.data.data[0] : r.data?.data) || null
+    } catch (err) {
+      if (err?.response?.status && err.response.status !== 400) {
+        console.warn(
+          '[Dashboard] getPostById failed try:',
+          err.response.status,
+          err.response.data || err.message,
+        )
+      }
+    }
+  }
+  return null
+}
+
+function toNicePost(pin, detail) {
+  // Some backends use `longitude`; others used `longtitude`
+  const lng = Number(pin.longitude ?? pin.longtitude)
+  const lat = Number(pin.latitude)
+  return {
+    id: detail?.postid || pin.postid,
+    text: detail?.review || '',
+    rating: Number(detail?.rating) || 0,
+    photos: [],
+    user: {
+      id: detail?.poster_email,
+      name: detail?.poster_username || detail?.poster_email,
+      username: detail?.poster_username || detail?.poster_email,
+      avatar: '/images/avatar1.png',
+    },
+    restaurant: {
+      id: pin.restaurant_id,
+      name: detail?.restaurant_name || pin.restaurant_id,
+      address: detail?.restaurant_address || '',
+      cuisine_type: detail?.cuisine_type || '',
+      latitude: Number.isFinite(lat) ? lat : undefined,
+      longitude: Number.isFinite(lng) ? lng : undefined,
+    },
+    likes: 0,
+    raw: {
+      created_at: detail?.created_at,
+      upvote_count: 0,
+      user_has_upvoted: false,
+      comments: [],
+    },
+  }
+}
 
 async function load() {
   try {
-    // 1) current user/profile from your dedicated backend
-    //    backend should read the Supabase JWT from Authorization header
-    //    and return either { user: {...} } or the profile directly
-    const meRes = await api.get('/me')
-    currentUser.value = meRes.data?.user || meRes.data || null
-    if (!currentUser.value) return
+    // 1) Build feed using the same flow as MapView: friends → post details
+    const pinsRaw = await getFriendRecs(ACTIVE_EMAIL)
+    console.log('[Dashboard] pinsRaw', pinsRaw)
 
-    // 2) trending slides
-    const trendingRes = await api.get('/trending')
-    trendingSlides.value = trendingRes.data?.trending ?? trendingRes.data ?? []
+    const details = await Promise.all(pinsRaw.map((p) => getPostById(p.postid)))
+    console.log('[Dashboard] details', details)
 
-    // 3) dashboard feed
-    const feedRes = await api.get('/feed')
-    posts.value = feedRes.data?.feed ?? feedRes.data ?? []
+    const feed = []
+    pinsRaw.forEach((p, i) => feed.push(toNicePost(p, details[i])))
+
+    // newest first by created_at if available
+    feed.sort((a, b) => new Date(b.raw.created_at || 0) - new Date(a.raw.created_at || 0))
+
+    posts.value = feed
+
+    await nextTick()
+    await scrollToPostIfAny()
+
+    // 2) Compute a simple trending list client-side (group by restaurant)
+    const byRest = new Map()
+    for (const post of feed) {
+      const r = post.restaurant
+      if (!r?.id) continue
+      if (!byRest.has(r.id))
+        byRest.set(r.id, {
+          id: r.id,
+          title: r.name,
+          address: r.address,
+          cuisine: r.cuisine_type,
+          ratings: [],
+          cover: post.photos?.[0] || null,
+        })
+      const entry = byRest.get(r.id)
+      entry.ratings.push(Number(post.rating) || 0)
+      if (!entry.cover && post.photos?.[0]) entry.cover = post.photos[0]
+    }
+    const slides = Array.from(byRest.values()).map((s) => {
+      const avg = s.ratings.length
+        ? (s.ratings.reduce((a, b) => a + b, 0) / s.ratings.length).toFixed(1)
+        : '—'
+      return {
+        ...s,
+        avgRating: avg,
+        subtitle: `${s.cuisine || ''}${s.cuisine && s.address ? ' • ' : ''}${s.address || ''}`,
+      }
+    })
+    trendingSlides.value = slides
+      .sort((a, b) => Number(b.avgRating) - Number(a.avgRating))
+      .slice(0, 6)
   } catch (e) {
     console.error('Dashboard load failed:', e)
   }
@@ -56,6 +195,7 @@ onMounted(load)
 <template>
   <div class="page">
     <!-- Trending Section -->
+
     <section class="hero">
       <h2 class="section-title">Trending Food</h2>
 
@@ -85,7 +225,9 @@ onMounted(load)
       <h3 class="feed-title">Posts</h3>
       <div class="feed-shell">
         <template v-if="posts.length">
-          <PostCard v-for="p in posts" :key="p.id" :post="p" />
+          <div v-for="p in posts" :key="p.id" :id="`post-${p.id}`">
+            <PostCard :post="p" />
+          </div>
         </template>
         <div v-else class="empty">No posts yet. Create one!</div>
       </div>
@@ -263,5 +405,16 @@ onMounted(load)
   font-size: 14px;
   color: #111;
   font-weight: 600;
+}
+
+/* When you click the post in map it directs you to the post here */
+.highlight {
+  animation: flash 1.2s ease;
+  background-color: #fff3bf;
+}
+
+@keyframes flash {
+  0% { background-color: #fff3bf; }
+  100% { background-color: transparent; }
 }
 </style>
