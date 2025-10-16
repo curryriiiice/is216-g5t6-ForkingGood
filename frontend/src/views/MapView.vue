@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import axios from 'axios'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
@@ -8,11 +8,10 @@ import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 const API_BASE = 'http://localhost:8000'
 const ACTIVE_EMAIL = 'clarice.lim.2024@computing.smu.edu.sg' // TEMP: replace when auth is ready
 
-const api = axios.create({ baseURL: API_BASE });
+const api = axios.create({ baseURL: API_BASE })
 
 const route = useRoute()
-
-
+const router = useRouter()
 
 // --- FILTERS --- //
 
@@ -33,9 +32,11 @@ function inferArea(address = '', pinArea = '') {
 const cuisineOptions = computed(() => {
   const set = new Set()
   // Prefer cuisines on pins
-  pins.value.forEach(p => { if (p.cuisine) set.add(p.cuisine) })
+  pins.value.forEach((p) => {
+    if (p.cuisine) set.add(p.cuisine)
+  })
   // Fallback to feed (if any posts didn’t produce pins yet)
-  feedPosts.value.forEach(fp => {
+  feedPosts.value.forEach((fp) => {
     const c = fp.restaurant?.cuisine_type ?? fp.cuisine_type
     if (c) set.add(c)
   })
@@ -59,7 +60,7 @@ const filteredPins = computed(() => {
   })
 })
 
-/** When filters change, rebuild markers hiiiii*/
+/** When filters change, rebuild markers */
 watch([selectedCuisine, selectedArea], async () => {
   selectedPost.value = null
   selected.value = null
@@ -71,11 +72,20 @@ watch([selectedCuisine, selectedArea], async () => {
 async function rebuildMarkers() {
   await nextTick()
   if (!map.value) return
-  // clear existing
+
+  // Sweep and remove any orphan markers that aren't tracked in markers.value
+  console.log('[rebuild] sweeping ALL_MARKERS:', ALL_MARKERS.size)
+  ALL_MARKERS.forEach(m => m && m.setMap && m.setMap(null))
+  ALL_MARKERS.clear()
+
+  // clear existing (tracked) markers
+  console.log('[rebuild] clearing', markers.value.length, 'markers')
   markers.value.forEach((m) => m.setMap(null))
   markers.value = []
+
   const { Marker: GMarker } = await google.maps.importLibrary('marker')
-  addPinsWith(GMarker) // this will read filteredPins
+  addPinsWith(GMarker) // this reads filteredPins
+  console.log('[rebuild] added', markers.value.length, 'markers for', filteredPins.value.length, 'filtered pins')
 }
 
 /* -----------------
@@ -84,6 +94,8 @@ async function rebuildMarkers() {
 const mapEl = ref(null)
 const map = ref(null)
 const markers = ref([])
+// Track every Google Marker ever created (survives HMR), so we can fully clear
+const ALL_MARKERS = (window.__ALL_MARKERS ||= new Set())
 const infoWindow = ref(null)
 const loading = ref(true)
 const error = ref('')
@@ -100,7 +112,6 @@ const placeCache = new Map() // placeId -> { name, address }
 
 // Cache for reverse-geocoded areas (neighborhoods)
 const areaCache = new Map() // key: "lat,lng" (rounded) -> area string
-
 
 /* -----------------
    Selection/drawers
@@ -168,7 +179,6 @@ watch(
   },
 )
 
-
 // Unified POST for /user/getPostbyId
 async function getPostById(postId) {
   const { data } = await api.post('/user/getPostbyId', { post_id: String(postId) })
@@ -188,7 +198,8 @@ function normalizeCoords(latRaw, lngRaw) {
   let lat = Number(latRaw)
   let lng = Number(lngRaw)
 
-  const fixMicro = (v) => (Number.isFinite(v) && Math.abs(v) > 1000 && Math.abs(v) < 1e8 ? v / 1e6 : v)
+  const fixMicro = (v) =>
+    Number.isFinite(v) && Math.abs(v) > 1000 && Math.abs(v) < 1e8 ? v / 1e6 : v
   lat = fixMicro(lat)
   lng = fixMicro(lng)
 
@@ -207,9 +218,11 @@ async function enrichPinsWithPlaces(pinArr) {
   if (!map.value || !window.google?.maps?.places) return
   const svc = new google.maps.places.PlacesService(map.value)
 
-  const needs = pinArr.filter((p) => (
-    (!p.name || p.name === 'Unknown' || p.name === p.restaurant_id) && String(p.restaurant_id).startsWith('ChI')
-  ))
+  const needs = pinArr.filter(
+    (p) =>
+      (!p.name || p.name === 'Unknown' || p.name === p.restaurant_id) &&
+      String(p.restaurant_id).startsWith('ChI'),
+  )
 
   for (const p of needs) {
     const pid = String(p.restaurant_id)
@@ -245,7 +258,8 @@ async function enrichPinsWithAreas(pinArr) {
   const geocoder = new google.maps.Geocoder()
 
   const targets = pinArr.filter(
-    p => !p.area && p.position && Number.isFinite(p.position.lat) && Number.isFinite(p.position.lng)
+    (p) =>
+      !p.area && p.position && Number.isFinite(p.position.lat) && Number.isFinite(p.position.lng),
   )
 
   for (const p of targets) {
@@ -259,14 +273,17 @@ async function enrichPinsWithAreas(pinArr) {
       geocoder.geocode({ location: p.position }, (results, status) => {
         if (status === 'OK' && Array.isArray(results) && results.length) {
           const comps = results[0].address_components || []
-          const pick = (type) => comps.find(c => c.types.includes(type))?.long_name
+          const pick = (type) => comps.find((c) => c.types.includes(type))?.long_name
           let areaName =
             pick('neighborhood') ||
             pick('sublocality_level_1') ||
             pick('sublocality') ||
-            pick('locality') || ''
+            pick('locality') ||
+            ''
           if (!areaName) {
-            areaName = String(results[0].formatted_address || '').split(',')[0].trim()
+            areaName = String(results[0].formatted_address || '')
+              .split(',')[0]
+              .trim()
           }
           p.area = areaName || 'Unknown'
           areaCache.set(key, p.area)
@@ -288,24 +305,23 @@ async function enrichPinsWithAreas(pinArr) {
 // Backend expects POST /friends/getFriendRecs with JSON { user_email }
 async function getFriendRecs(userEmail) {
   try {
-    const r = await api.post('/friends/getFriendRecs', { user_email: userEmail });
-    return Array.isArray(r.data?.data) ? r.data.data : [];
+    const r = await api.post('/friends/getFriendRecs', { user_email: userEmail })
+    return Array.isArray(r.data?.data) ? r.data.data : []
   } catch (e) {
-    console.error('getFriendRecs failed:', e.response?.status, e.response?.data || e.message);
-    return [];
+    console.error('getFriendRecs failed:', e.response?.status, e.response?.data || e.message)
+    return []
   }
 }
-
 
 async function init() {
   try {
     // 1) Build feed from existing backend endpoints
     //    a) Get friend recommendations (postids + coords)
-    const pinsRaw = await getFriendRecs(ACTIVE_EMAIL);
+    const pinsRaw = await getFriendRecs(ACTIVE_EMAIL)
     console.log('[init] pinsRaw', pinsRaw)
 
     //    b) Fetch details for each postid
-    const details = await Promise.all(pinsRaw.map(p => getPostById(p.postid)))
+    const details = await Promise.all(pinsRaw.map((p) => getPostById(p.postid)))
     console.log('[init] details', details)
 
     const feed = []
@@ -324,7 +340,7 @@ async function init() {
           id: p.restaurant_id,
           name: p.restaurant_id,
           address: '',
-          cuisine_type: d?.cuisine_type || '',   // <-- take from getPostById result
+          cuisine_type: d?.cuisine_type || '', // <-- take from getPostById result
           latitude: Number.isFinite(lat) ? lat : undefined,
           longitude: Number.isFinite(lng) ? lng : undefined,
         },
@@ -351,15 +367,21 @@ async function init() {
     }
     postsByRestaurant.value = byRest
     // Populate cuisine filter options from backend
-    
 
     // pins (REAL coords from DB) — one pin PER POST so clicking a pin shows that exact post
     const pinList = []
     for (const p of feed) {
       const r = p.restaurant || {}
-      const { lat, lng, ok } = normalizeCoords(parseNum(r?.latitude), parseNum(r?.longitude ?? r?.longtitude))
+      const { lat, lng, ok } = normalizeCoords(
+        parseNum(r?.latitude),
+        parseNum(r?.longitude ?? r?.longtitude),
+      )
       if (!ok) {
-        console.warn('Pin dropped (bad coords):', { rid: r?.id, lat: r?.latitude, lng: r?.longitude ?? r?.longtitude })
+        console.warn('Pin dropped (bad coords):', {
+          rid: r?.id,
+          lat: r?.latitude,
+          lng: r?.longitude ?? r?.longtitude,
+        })
         continue
       }
       pinList.push({
@@ -415,7 +437,7 @@ async function init() {
     // Try to resolve restaurant names/addresses from Place IDs
     await enrichPinsWithPlaces(pins.value)
     await enrichPinsWithAreas(pins.value)
-    addPinsWith(GMarker)
+    
 
     // ensure filtered view renders markers according to defaults
     await rebuildMarkers()
@@ -436,8 +458,7 @@ async function init() {
    Markers & focus
 ------------------*/
 function addPinsWith(GMarker) {
-  markers.value.forEach((m) => m.setMap(null))
-  markers.value = []
+  
   console.log('[markers] filteredPins', filteredPins.value)
 
   for (const pin of filteredPins.value) {
@@ -466,6 +487,7 @@ function addPinsWith(GMarker) {
         })
       })
     })
+    ALL_MARKERS.add(marker)
     markers.value.push(marker)
   }
 }
@@ -505,13 +527,18 @@ function openDrawerFor(restaurantId) {
 
   // Fallback to the grouped map (if present)
   const arr = postsByRestaurant.value.get(restaurantId) || []
-  selected.value = arr[0]?.restaurant ? {
-    restaurant_id: restaurantId,
-    name: arr[0].restaurant.name || restaurantId,
-    address: arr[0].restaurant.address || '',
-    cuisine: arr[0].restaurant.cuisine_type || 'Unknown',
-    position: { lat: Number(arr[0].restaurant.latitude) || 0, lng: Number(arr[0].restaurant.longitude) || 0 }
-  } : null
+  selected.value = arr[0]?.restaurant
+    ? {
+        restaurant_id: restaurantId,
+        name: arr[0].restaurant.name || restaurantId,
+        address: arr[0].restaurant.address || '',
+        cuisine: arr[0].restaurant.cuisine_type || 'Unknown',
+        position: {
+          lat: Number(arr[0].restaurant.latitude) || 0,
+          lng: Number(arr[0].restaurant.longitude) || 0,
+        },
+      }
+    : null
   selectedPost.value = null
   selectedPosts.value = arr
 }
@@ -537,16 +564,28 @@ function renderInfoWindow(pin) {
   `
 }
 
+function goToPost(postId) {
+  if (!postId) return
+  // quick visual feedback by briefly dimming the drawer
+  const drawer = document.querySelector('aside.side')
+  if (drawer) {
+    drawer.classList.add('clicking')
+    setTimeout(() => drawer.classList.remove('clicking'), 180)
+  }
+  // Navigate to Dashboard with a query param the home page can use to highlight/scroll
+  router.push({ path: '/dashboard', query: { postId: String(postId) } })
+}
+
 /* -----------------
    Refresh after add
 ------------------*/
 // 🔁 Re-fetch feed, rebuild postsByRestaurant, rebuild pins from real lat/lng, and redraw markers
 async function refreshPinsAndMarkers() {
   // 1) Re-fetch via backend endpoints and rebuild feed
-  const pinsRaw = await getFriendRecs(ACTIVE_EMAIL);
+  const pinsRaw = await getFriendRecs(ACTIVE_EMAIL)
   console.log('[refresh] pinsRaw', pinsRaw)
 
-  const details = await Promise.all(pinsRaw.map(p => getPostById(p.postid)))
+  const details = await Promise.all(pinsRaw.map((p) => getPostById(p.postid)))
   console.log('[refresh] details', details)
 
   const feed = []
@@ -564,7 +603,7 @@ async function refreshPinsAndMarkers() {
         id: p.restaurant_id,
         name: p.restaurant_id,
         address: '',
-        cuisine_type: d?.cuisine_type || '',   // <-- take from getPostById result
+        cuisine_type: d?.cuisine_type || '', // <-- take from getPostById result
         latitude: Number.isFinite(lat) ? lat : undefined,
         longitude: Number.isFinite(lng) ? lng : undefined,
       },
@@ -593,14 +632,20 @@ async function refreshPinsAndMarkers() {
   postsByRestaurant.value = byRest
   // Refresh cuisine filter options from backend
 
-
   // 3) Build pins from restaurant coordinates (✅ use real DB lat/lng) — one pin PER POST
   const nextPins = []
   for (const p of feed) {
     const r = p.restaurant || {}
-    const { lat, lng, ok } = normalizeCoords(parseNum(r?.latitude), parseNum(r?.longitude ?? r?.longtitude))
+    const { lat, lng, ok } = normalizeCoords(
+      parseNum(r?.latitude),
+      parseNum(r?.longitude ?? r?.longtitude),
+    )
     if (!ok) {
-      console.warn('Pin dropped (bad coords):', { rid: r?.id, lat: r?.latitude, lng: r?.longitude ?? r?.longtitude })
+      console.warn('Pin dropped (bad coords):', {
+        rid: r?.id,
+        lat: r?.latitude,
+        lng: r?.longitude ?? r?.longtitude,
+      })
       continue
     }
     nextPins.push({
@@ -620,14 +665,8 @@ async function refreshPinsAndMarkers() {
   console.log('[refresh] nextPins', nextPins)
 
   // 4) Redraw markers for the current filters
-  await nextTick()
-  if (!map.value) return
-  markers.value.forEach((m) => m.setMap(null))
-  markers.value = []
-  const { Marker: GMarker } = await google.maps.importLibrary('marker')
-  await enrichPinsWithPlaces(pins.value)
-  await enrichPinsWithAreas(pins.value)
-  addPinsWith(GMarker)
+  await rebuildMarkers()
+  await fitMapToFilteredPins()
 
   // 5) Optionally, focus the newly added restaurant if you track it (skip if not needed)
   // if (nextPins.length) {
@@ -657,7 +696,6 @@ function getUserLocation() {
     )
   })
 }
-
 
 function escapeHtml(str = '') {
   return String(str).replace(
@@ -704,6 +742,13 @@ async function fitMapToFilteredPins() {
     map.value.fitBounds(bounds, 80) // padding px
   }
 }
+
+function clearFilters() {
+  selectedCuisine.value = 'All'
+  selectedArea.value = 'All'
+  // Rebuild markers and refit after resetting filters
+  rebuildMarkers().then(() => fitMapToFilteredPins())
+}
 </script>
 
 <template>
@@ -711,20 +756,45 @@ async function fitMapToFilteredPins() {
     <!-- Map -->
     <div ref="mapEl" class="map"></div>
 
-    <!-- Filter bar (floating on map) -->
-    <div class="filter-bar">
-      <div class="filter-group">
-        <label class="filter-label">Cuisine</label>
-        <select v-model="selectedCuisine" class="filter-select">
-          <option v-for="c in cuisineOptions" :key="c" :value="c">{{ c }}</option>
-        </select>
-      </div>
+    <!-- Filter bar (Bootstrap card) -->
+    <div class="position-absolute top-0 start-50 translate-middle-x mt-3" style="z-index: 95">
+      <div class="card shadow-sm" style="min-width: 340px; border-radius: 12px">
+        <div class="card-body py-2">
+          <div class="d-flex justify-content-center align-items-end gap-3 flex-wrap">
+            <div style="min-width: 160px">
+              <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
+              <select v-model="selectedCuisine" class="form-select form-select-sm text-center">
+                <option v-for="c in cuisineOptions" :key="c" :value="c">{{ c }}</option>
+              </select>
+            </div>
 
-      <div class="filter-group">
-        <label class="filter-label">Area</label>
-        <select v-model="selectedArea" class="filter-select">
-          <option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</option>
-        </select>
+            <div style="min-width: 160px">
+              <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
+              <select v-model="selectedArea" class="form-select form-select-sm text-center">
+                <option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</option>
+              </select>
+            </div>
+
+            <div class="d-flex gap-2 mt-2">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary px-3"
+                @click="clearFilters"
+              >
+                <!-- Resets filters to show all pins again -->
+                Clear
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-primary px-3"
+                @click="fitMapToFilteredPins"
+              >
+                <!-- Zooms and pans map to show all current filtered pins -->
+                Fit
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -759,28 +829,62 @@ async function fitMapToFilteredPins() {
         <section class="post">
           <h3 class="c-title">Posts</h3>
           <div v-if="selectedPosts.length">
-            <div v-for="p in selectedPosts" :key="p.id" class="post">
-              <div class="post-head">
-                <img :src="p.user?.avatar || '/images/avatar1.png'" class="avatar" alt="" />
-                <div class="who">
-                  <div class="uname">{{ p.user?.name || p.user?.username || p.user?.id }}</div>
-                  <div class="by">Recommended this place</div>
+            <div
+              v-for="p in selectedPosts"
+              :key="p.id"
+              class="card mb-3 shadow-sm border-0 card-clickable"
+              role="button"
+              tabindex="0"
+              @click="goToPost(p.id)"
+              @keydown.enter="goToPost(p.id)"
+            >
+              <div class="card-body">
+                <div class="d-flex align-items-center mb-2">
+                  <img
+                    :src="p.user?.avatar || '/images/avatar1.png'"
+                    class="rounded-circle me-2"
+                    style="width: 36px; height: 36px; object-fit: cover"
+                    alt=""
+                  />
+                  <div>
+                    <div class="fw-bold text-dark">
+                      {{ p.user?.name || p.user?.username || p.user?.id }}
+                    </div>
+                    <div class="text-muted small">Recommended this place</div>
+                  </div>
+                  <div class="ms-auto">
+                    <span
+                      class="badge text-bg-warning-subtle border border-warning-subtle text-dark"
+                    >
+                      ⭐ {{ Number(p.rating || 0).toFixed(1) }}
+                    </span>
+
+                  </div>
+                </div>
+
+                <p v-if="p.text" class="mb-2">{{ p.text }}</p>
+
+                <div v-if="p.photos?.length" class="row g-2 mb-2">
+                  <div v-for="(ph, i) in p.photos" :key="i" class="col-6">
+                    <img :src="ph" class="img-fluid rounded" alt="" />
+                  </div>
+                </div>
+
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                  <span class="badge text-bg-secondary">
+                    {{ p.restaurant?.cuisine_type || selected?.cuisine || 'Unknown' }}
+                  </span>
+                  <span
+                    v-if="p.restaurant?.address || selected?.address"
+                    class="badge text-bg-light border"
+                  >
+                    📍 {{ p.restaurant?.address || selected?.address }}
+                  </span>
+                  <span v-if="p.raw?.created_at" class="text-muted small ms-auto">
+                    {{ new Date(p.raw.created_at).toLocaleString() }}
+                  </span>
                 </div>
               </div>
-
-              <p v-if="p.text" class="text">{{ p.text }}</p>
-
-              <div v-if="p.photos?.length" class="photos">
-                <img v-for="(ph, i) in p.photos" :key="i" :src="ph" alt="" />
-              </div>
-
-              <div class="actions">
-                <span>🍽️ {{ p.restaurant?.cuisine_type || selected?.cuisine || 'Unknown' }}</span>
-                <span style="margin-left:12px">⭐ {{ Number(p.rating || 0).toFixed(1) }}</span>
-                <span style="margin-left:8px;color:#6b7280">{{ p.raw?.created_at || '' }}</span>
-              </div>
-
-              <div class="divider"></div>
             </div>
           </div>
           <div v-else class="c-empty">No posts yet.</div>
@@ -1024,43 +1128,19 @@ async function fitMapToFilteredPins() {
   transform: translateX(100%);
 }
 
-/* Filter bar */
-.filter-bar {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 95;
-  display: flex;
-  gap: 10px;
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(6px);
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+/* Click feedback for post cards */
+.card-clickable {
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .2s ease, background-color .2s ease;
 }
-.filter-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.card-clickable:hover {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.821);
+  background-color: #f8fafc;
 }
-.filter-label {
-  font-size: 12px;
-  color: #374151;
-  font-weight: 700;
-}
-.filter-select {
-  appearance: none;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background: #fff;
-  font-size: 14px;
-  color: #111827;
-  outline: none;
-}
-.filter-select:focus {
-  border-color: #94a3b8;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.2);
-}
+.card-clickable:active { transform: translateY(1px); }
+.go-badge { opacity: 0; transition: opacity .2s ease; }
+.card-clickable:hover .go-badge { opacity: 1; }
+
+/* Brief dim on drawer when clicking a card to navigate */
+aside.side.clicking { filter: brightness(0.5); transition: filter .18s ease; }
 </style>

@@ -82,7 +82,12 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import api from '@/lib/api'
+import axios from 'axios'
+const http = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
+  withCredentials: true,
+  headers: { 'Content-Type': 'application/json' }
+})
 
 /* ------------------------- Props & Emits ------------------------- */
 const props = defineProps({
@@ -140,7 +145,7 @@ const performSearch = debounce(async (value) => {
   showDropdown.value = true
 
   try {
-    const { data } = await api.get('/search', { params: { q: value } })
+    const { data } = await http.get('/search', { params: { q: value } })
     searchResults.value = data?.results || []
   } catch (e) {
     console.error('Search error:', e)
@@ -165,7 +170,7 @@ function handleOutsideClick(ev) {
 async function handleLogout() {
   loading.value = true
   try {
-    await api.post('/auth/logout')
+    await http.post('/auth/logout')
     localUser.value = null
     router.push('/login')
   } catch (e) {
@@ -183,7 +188,7 @@ onMounted(async () => {
   // If parent didn't pass a user, load from backend
   if (!localUser.value) {
     try {
-      const { data } = await api.get('/me')
+      const { data } = await http.get('/me')
       localUser.value = data?.user || data || null
     } catch (e) {
       console.error('Failed to load navbar user:', e)
