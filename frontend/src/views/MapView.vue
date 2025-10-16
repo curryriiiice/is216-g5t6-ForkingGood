@@ -59,7 +59,7 @@ const filteredPins = computed(() => {
   })
 })
 
-/** When filters change, rebuild markers */
+/** When filters change, rebuild markers hiiiii*/
 watch([selectedCuisine, selectedArea], async () => {
   selectedPost.value = null
   selected.value = null
