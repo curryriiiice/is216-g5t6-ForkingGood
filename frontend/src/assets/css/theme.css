@@ -1,0 +1,310 @@
+/* =====================================================================
+   ForkingGood Theme — Sage / Terracotta
+   Primary:    #8B9D83 (sage)
+   Secondary:  #FAF9F6 (warm white)
+   Accent:     #D4816F (terracotta)
+   Dark:       #2C3333 (charcoal)
+   Light:      #F5F3EE (soft cream)
+   ===================================================================== */
+
+:root {
+  /* Palette */
+  --sage-600: #8B9D83;
+  --sage-500: #A8B9A5;
+  --cream-50: #FAF9F6;
+  --cream-100: #F5F3EE;
+  --terra-500: #D4816F;
+  --terra-600: #C07261;
+  --charcoal: #2C3333;
+  --ink-400: #6B7280;
+  --ink-300: #9CA3AF;
+  --line-200: #E8E6E1;
+
+  /* Shape & effects */
+  --radius-lg: 24px;
+  --radius-md: 16px;
+  --glass-blur: 20px;
+  --shadow-deep: 0 20px 60px rgba(44, 51, 51, 0.12), 0 0 0 1px rgba(139,157,131,0.10);
+  --shadow-card: 0 12px 32px rgba(44, 51, 51, 0.08);
+}
+
+/* --- Utilities --- */
+
+/* Page background gradient */
+.sage-bg {
+  background: linear-gradient(135deg, var(--cream-100) 0%, #E8E6E1 100%) !important;
+}
+
+/* Small label chip (used for FAB label) */
+.sage-chip {
+  font-size: 13px;
+  color: var(--charcoal);
+  font-weight: 600;
+  background: rgba(250, 249, 246, 0.95);
+  padding: 6px 14px;
+  border-radius: 10px;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(139, 157, 131, 0.2);
+}
+
+/* Floating Action Button (terracotta gradient) */
+.fab-terracotta {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--terra-500) 0%, var(--terra-600) 100%) !important;
+  box-shadow: 0 12px 40px rgba(212, 129, 111, 0.4), 0 0 0 1px rgba(212, 129, 111, 0.1);
+}
+
+/* Glass card (filter bar) */
+.sage-glass {
+  background: rgba(250, 249, 246, 0.95) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid rgba(139, 157, 131, 0.2) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 8px 32px rgba(44, 51, 51, 0.08) !important;
+}
+
+/* Map card elevation & rounding */
+.sage-map {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-deep);
+  background: #fff;
+}
+
+/* Button variants for filter actions */
+.btn-clear {
+  border: 1.5px solid var(--line-200) !important;
+  background: #fff !important;
+  color: var(--ink-400) !important;
+  border-radius: 12px !important;
+  font-weight: 600;
+}
+.btn-clear:hover { filter: brightness(0.98); }
+
+.btn-fit {
+  border: none !important;
+  background: var(--sage-600) !important;
+  color: #fff !important;
+  border-radius: 12px !important;
+  font-weight: 700;
+}
+.btn-fit:hover { filter: brightness(1.02); }
+
+/* Drawer look (warm white + soft shadow) */
+.side {
+  background: var(--cream-50) !important;
+  box-shadow: -8px 0 40px rgba(44, 51, 51, 0.12) !important;
+  padding: 28px 24px !important;
+}
+.close {
+  top: 20px !important;
+  right: 20px !important;
+  width: 36px !important;
+  height: 36px !important;
+  background: rgba(139, 157, 131, 0.10) !important;
+  border-radius: 10px !important;
+  color: var(--charcoal) !important;
+}
+
+/* Card hover (post items in drawer) */
+.card-hover {
+  border: 1px solid rgba(139, 157, 131, 0.15) !important;
+  border-radius: 16px !important;
+  transition: transform .12s ease, box-shadow .2s ease, border-color .2s ease !important;
+}
+.card-hover:hover {
+  border-color: rgba(139, 157, 131, 0.30) !important;
+}
+
+/* Rating pill */
+.badge.text-bg-warning-subtle {
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%) !important;
+  color: #92400E !important;
+  font-weight: 700 !important;
+  border-radius: 10px !important;
+}
+
+/* Backdrop tint to match charcoal */
+.backdrop {
+  background: rgba(44, 51, 51, 0.25) !important;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* Form styles (Bootstrap-friendly refinements) */
+.form-select.form-select-sm.text-center {
+  padding: 10px 14px;
+  border: 1.5px solid var(--line-200);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--charcoal);
+  background-color: #fff;
+  outline: none;
+}
+
+/* Label style used in filter bar */
+.form-label.small,
+.form-label.mb-1.small,
+.form-label.mb-1.small.fw-semibold,
+.form-label.mb-1.small.fw-semibold.text-secondary {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-400);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+/* Optional: navbar polish (use if you want a matching header)
+.navbar { background: #fff; box-shadow: 0 6px 20px rgba(44, 51, 51, 0.06); }
+.link { color: var(--charcoal); }
+.link:hover { color: var(--terra-500); }
+.search-wrap { background: #E9EBEE; border: 1px solid rgba(139,157,131,0.15); }
+.logout { background: var(--terra-500); }
+.logout:hover { background: var(--terra-600); }
+*/
+
+/* Graceful fallback if blur unsupported */
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
+  .sage-glass,
+  .sage-chip,
+  .backdrop {
+    background: #ffffffee; /* near-solid fallback */
+  }
+}
+
+/* Motion respect */
+@media (prefers-reduced-motion: reduce) {
+  .card-hover,
+  .themed-card,
+  .btn-clear,
+  .btn-fit { transition: none !important; }
+}
+
+/* === InfoWindow styling (Google Maps popup) === */
+
+.map-info {
+  max-width: 240px;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Inter, Arial;
+  color: var(--charcoal);
+}
+
+.map-info img {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  box-shadow: 0 2px 10px rgba(44, 51, 51, 0.15);
+}
+
+.map-info .title {
+  font-weight: 800;
+  font-size: 15px;
+  color: var(--charcoal);
+  margin: 4px 0 2px;
+}
+
+.map-info .meta {
+  color: var(--ink-400);
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.map-info .rating {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  margin-bottom: 10px;
+  color: var(--terra-500);
+  font-weight: 700;
+}
+
+.map-info button {
+  background: var(--sage-600);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s ease;
+}
+
+.map-info button:hover {
+  background: var(--sage-500);
+}
+
+/* === Card and Feed Styles === */
+.themed-card {
+  padding: 16px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-md);
+  background: rgba(250, 249, 246, 0.95);
+  box-shadow: var(--shadow-card);
+  border: 1px solid rgba(139, 157, 131, 0.15);
+  transition: transform .12s ease, box-shadow .2s ease;
+}
+.themed-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(44, 51, 51, 0.08);
+}
+
+.themed-card-header {
+  margin-bottom: 12px;
+}
+
+.themed-card .title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.themed-card .title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--charcoal);
+  flex: 1;
+}
+
+.rating-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
+  color: #92400E;
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.themed-card .meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.post-chip {
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.post-chip--cuisine {
+  background: rgba(139, 157, 131, 0.15);
+  color: var(--sage-600);
+}
+
+.post-chip--addr {
+  background: rgba(212, 129, 111, 0.1);
+  color: var(--terra-500);
+}
