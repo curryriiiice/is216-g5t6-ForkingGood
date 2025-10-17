@@ -2,8 +2,9 @@ import express from "express";
 const router = express.Router();
 //import {task1,task2,etc} from "../controllers/taskController";
 import {
-    cuisineFilter, 
-    getPostbyCuisine,
+    getAllCuisines, 
+    getFilteredPosts,
+    getAllLocations,
 
 }from '../controllers/mapController.js';
 
@@ -11,7 +12,8 @@ import {
 //router.post etc etc for each of the routes
 // eg router.post('/getGroups',getGroups);
 
-router.post("/cuisineFilter", cuisineFilter);
-router.post("/getPostbyCuisine", getPostbyCuisine);
+router.post("/getFilteredPosts", getFilteredPosts)
+router.get("/getAllCuisines", getAllCuisines);
+router.get("/getAllLocations", getAllLocations)
 
 export default router;
