@@ -4,17 +4,10 @@ import * as service from '../models/mapService.js';
 // eg 
 // const inviteGroupMembers = async (req, res) => {xxxx}
 
-const cuisineFilter = async (req, res) => {
-    // get user_email from FE
-    const { user_email } = req.body;
-    // check if user_email is received 
-    if (!user_email) {
-        return res.status(400).json({ error: "User email is required" });
-    }
+const getAllCuisines = async (req, res) => {
+    const { data, error: getCuisineError } = await service.getAllCuisines();
 
-    const { data, error: getFriendsError } = await service.cuisineFilter(user_email);
-
-    if (getFriendsError) {
+    if (getCuisineError) {
         return res.status(500).json({ message: "Error getting list of cuisines" });
     }
 
@@ -22,28 +15,43 @@ const cuisineFilter = async (req, res) => {
 } 
 // tested, works
 
+const getAllLocations = async (req, res) => {
+    const { data, error: getLocationError } = await service.getAllLocations();
 
-const getPostbyCuisine  = async (req, res) => {
-    // get user_email of friends from FE
-    const { user_email , cuisine_type} = req.body;
-    // check if user_email is received 
-    if (!user_email || !cuisine_type) {
-        return res.status(400).json({ error: "User email and cuisine type is required" });
-    }
-
-    const { data, error: getPostError } = await service.getPostbyCuisine(user_email, cuisine_type);
-
-    if (getPostError) {
-        return res.status(500).json({ message: "Error getting posts with this cuisine" });
+    if (getLocationError) {
+        return res.status(500).json({ message: "Error getting list of areas" });
     }
 
     return res.status(200).json({ data });
 } 
+// tested, works
+
+const getFilteredPosts = async (req, res) => {
+    // get user_email from FE
+    const { user_email, area, cuisine_type, price_level, friends} = req.body;
+    // check if everything is received 
+    if (!user_email) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: getPostError } = await service.getFilteredPosts(user_email, area, cuisine_type, price_level, friends);
+
+    if (getPostError) {
+        return res.status(500).json({ message: "Error retrieving posts" });
+    }
+
+    return res.status(200).json({ data });
+} 
+// tested, works
+
 
 
 
 export{
-    cuisineFilter, 
-    getPostbyCuisine,
+    getAllCuisines,
+    getFilteredPosts,
+    getAllLocations,
+    
+
     
 }
