@@ -3,6 +3,7 @@ import { ref } from 'vue'
 
 const props = defineProps({
   post: { type: Object, required: true },
+  isActive: { type: Boolean, default: false },
 })
 
 // local like/comment counters for demo
@@ -10,7 +11,7 @@ const liked = ref(false)
 const likeCount = ref(props.post.likes || 0)
 const commentCount = ref(props.post.comments || 0)
 
-const ratingBadge = (n) => `${Number(n).toFixed(1)}★`
+
 
 // Toggle like button
 function toggleLike() {
@@ -25,7 +26,7 @@ function openComments() {
 </script>
 
 <template>
-  <article class="card">
+  <article :class="['card', { active: isActive }]">
     <!-- Header -->
     <header class="head">
       <div class="who">
@@ -35,7 +36,7 @@ function openComments() {
           <div class="sub">@{{ post.user?.name?.replace('@', '') }}</div>
         </div>
       </div>
-      <div class="rating">{{ ratingBadge(post.rating ?? 0) }}</div>
+      
     </header>
 
     <!-- Text -->

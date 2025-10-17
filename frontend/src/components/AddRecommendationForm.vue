@@ -1,15 +1,14 @@
-<!-- src/components/AddRecommendationForm.vue -->
 <script setup>
 import { useRouter } from 'vue-router'
 const router = useRouter()
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import api from '@/lib/api'
 
 const emit = defineEmits(['added'])
 
 /** Form state */
 const comment = ref('')
-const rating = ref(4) // default
+const rating = ref(0) // start empty until user selects
 const cuisine = ref('')
 
 /** Place fields (filled by Google Places) */
@@ -19,9 +18,18 @@ const lat = ref(null)
 const lng = ref(null)
 const placeId = ref('')
 const photoUrl = ref('')
+const photos = ref([])
+const priceRange = ref(null) // '$' | '$$' | '$$$' | '$$$$'
+const visibility = ref('friends') // 'friends' | 'everyone'
+const isDragging = ref(false)
 
 /** Autocomplete DOM ref */
-const addrInputEl = ref(null)
+const nameInputEl = ref(null) // Autocomplete for place/restaurant name
+const addressInputEl = ref(null) // Autocomplete for address/location
+const stars = [1, 2, 3, 4, 5]
+function setRating(n) {
+  rating.value = clampRating(n)
+}
 
 /** Status */
 const submitting = ref(false)
@@ -63,29 +71,57 @@ onMounted(async () => {
   await nextTick()
 
   const { places } = google.maps
-  const ac = new places.Autocomplete(addrInputEl.value, {
-    fields: ['place_id', 'name', 'formatted_address', 'geometry'],
-    types: ['establishment'], // restaurants/cafes/shops, etc.
-  })
 
-  // Geolocation bias (more relevant suggestions near the user)
+  // --- Bias suggestions around user's current location ---
+  let circleBounds = null
   const pos = await getUserLocation()
   if (pos) {
     const circle = new google.maps.Circle({ center: pos, radius: 3000 }) // 3km bias
-    ac.setBounds(circle.getBounds())
+    circleBounds = circle.getBounds()
   }
 
-  ac.addListener('place_changed', () => {
-    const place = ac.getPlace()
+  // --- Autocomplete for Restaurant/Place NAME (establishments) ---
+  const acName = new places.Autocomplete(nameInputEl.value, {
+    fields: ['place_id', 'name', 'formatted_address', 'geometry'],
+    types: ['establishment'], // restaurants/cafes/shops, etc.
+  })
+  if (circleBounds) acName.setBounds(circleBounds)
+
+  acName.addListener('place_changed', () => {
+    const place = acName.getPlace()
     if (!place) return
 
     placeId.value = place.place_id || ''
-    placeName.value = place.name || ''
-    address.value = place.formatted_address || ''
+    placeName.value = place.name || placeName.value || '' // keep user-entered if missing
+    address.value = place.formatted_address || address.value || ''
 
     const location = place.geometry?.location
-    lat.value = location?.lat?.() ?? null
-    lng.value = location?.lng?.() ?? null
+    lat.value = location?.lat?.() ?? lat.value
+    lng.value = location?.lng?.() ?? lng.value
+  })
+
+  // --- Autocomplete for ADDRESS (geocode). Lets user type a location and keep a custom name ---
+  const acAddr = new places.Autocomplete(addressInputEl.value, {
+    fields: ['place_id', 'formatted_address', 'geometry', 'name'],
+    types: ['geocode'], // address/location results
+  })
+  if (circleBounds) acAddr.setBounds(circleBounds)
+
+  acAddr.addListener('place_changed', () => {
+    const place = acAddr.getPlace()
+    if (!place) return
+
+    // Only set name if the user didn't type one yet (so they can keep a custom name)
+    if (!placeName.value && place.name) {
+      placeName.value = place.name
+    }
+
+    placeId.value = place.place_id || placeId.value || ''
+    address.value = place.formatted_address || address.value || ''
+
+    const location = place.geometry?.location
+    lat.value = location?.lat?.() ?? lat.value
+    lng.value = location?.lng?.() ?? lng.value
   })
 })
 
@@ -94,6 +130,29 @@ function clampRating(num) {
   if (num < 1) return 1
   if (num > 5) return 5
   return Math.round(num * 2) / 2 // keep .5 steps if you like
+}
+
+function onDrop(e) {
+  isDragging.value = false
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (!files.length) return
+  const imgFiles = files.filter((f) => f.type.startsWith('image/')).slice(0, 6)
+  photos.value = []
+  imgFiles.forEach((f) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      photos.value.push(reader.result)
+      if (!photoUrl.value) photoUrl.value = String(reader.result)
+    }
+    reader.readAsDataURL(f)
+  })
+}
+function onDragOver(e) {
+  e.preventDefault()
+  isDragging.value = true
+}
+function onDragLeave() {
+  isDragging.value = false
 }
 
 async function submit() {
@@ -126,6 +185,8 @@ async function submit() {
       restaurant,
       comment: comment.value.trim(),
       rating: Number(rating.value),
+      price_range: priceRange.value,
+      visibility: visibility.value,
       photos: photoUrl.value ? [photoUrl.value.trim()] : [],
     }
 
@@ -140,123 +201,334 @@ async function submit() {
     console.error('Error adding recommendation:', err)
     alert(err.message || 'Failed to add recommendation.')
   }
+
+  
 }
+
+
+
+let tooltipInstances = []
+
+onMounted(() => {
+  // Ensure Bootstrap JS bundle is loaded on the page (index.html or via import)
+  const triggers = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+  tooltipInstances = [...triggers].map(el => {
+    const tooltip = new bootstrap.Tooltip(el, {
+      container: 'body',
+      boundary: 'window',
+      placement: 'top',
+      trigger: 'hover focus',      // hide when you leave or blur
+      delay: { show: 100, hide: 120 } // tiny delay helps prevent “sticky” feel
+    });
+    el.addEventListener('click', () => tooltip.hide());
+    return tooltip;
+  })
+})
+
+onBeforeUnmount(() => {
+  tooltipInstances.forEach(t => t.dispose())
+  tooltipInstances = []
+})
 </script>
 
 <template>
-  <form class="form" @submit.prevent="submit">
-    <!-- Place autocomplete (address/name) -->
-    <label>
-      <span class="lab">Search place (near you)</span>
+  <form class="rec-form" @submit.prevent="submit">
+    <!-- <h2 class="form-title">Add a Food Recommendation</h2> -->
+
+    <!-- Restaurant or Place -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Restaurant or Place</label>
       <input
-        ref="addrInputEl"
+        ref="nameInputEl"
+        v-model="placeName"
         type="text"
-        placeholder="Start typing the restaurant or cafe name…"
+        class="form-control"
+        placeholder="E.g., Mario's Trattoria"
         aria-autocomplete="list"
+        required
       />
-    </label>
-
-    <!-- Name (from place; editable) -->
-    <label>
-      <span class="lab">Name</span>
-      <input v-model="placeName" type="text" placeholder="e.g. Hainan Story" required />
-    </label>
-
-    <!-- Address (from place; editable) -->
-    <label>
-      <span class="lab">Address</span>
-      <input v-model="address" type="text" placeholder="Selected address" required />
-    </label>
-
-    <!-- Cuisine -->
-    <label>
-      <span class="lab">Cuisine</span>
-      <input v-model="cuisine" type="text" placeholder="e.g. Malay, Japanese, Hotpot" required />
-    </label>
-
-    <!-- Rating (strict 1–5) -->
-    <label>
-      <span class="lab">Rating</span>
-      <input
-        v-model.number="rating"
-        type="number"
-        min="1"
-        max="5"
-        step="0.5"
-        @change="rating = Math.max(1, Math.min(5, Number(rating)))"
-      />
-      <small class="hint">Use 1–5 (you can do halves like 3.5)</small>
-    </label>
-
-    <!-- Comment -->
-    <label>
-      <span class="lab">Comment</span>
-      <textarea v-model="comment" rows="3" placeholder="What did you like?" required />
-    </label>
-
-    <!-- Optional photo URL -->
-    <label>
-      <span class="lab">Photo URL (optional)</span>
-      <input v-model="photoUrl" type="url" placeholder="https://…" />
-    </label>
-
-    <!-- Debug coords -->
-    <div class="coords" v-if="lat && lng">
-      Using your location bias • Selected coords: {{ lat.toFixed(5) }}, {{ lng.toFixed(5) }}
     </div>
 
-    <p v-if="errorMsg" class="err">{{ errorMsg }}</p>
+    <!-- Address -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Address</label>
+      <input
+        ref="addressInputEl"
+        v-model="address"
+        type="text"
+        class="form-control"
+        placeholder="Start typing a location…"
+        required
+      />
+    </div>
 
-    <button class="btn" type="submit" :disabled="submitting">
-      {{ submitting ? 'Posting…' : 'Post' }}
+    <!-- Cuisine Type -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Cuisine Type</label>
+      <input
+        v-model="cuisine"
+        type="text"
+        class="form-control"
+        placeholder="E.g., Italian, Thai, Mexican"
+        required
+      />
+    </div>
+
+    <!-- Rating -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Rating</label>
+      <div class="stars" role="radiogroup" aria-label="Rating from 1 to 5">
+        <button
+          v-for="s in stars"
+          :key="s"
+          type="button"
+          class="star-btn"
+          :aria-checked="rating >= s ? 'true' : 'false'"
+          @click="setRating(s)"
+        >
+          {{ rating >= s ? '★' : '☆' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Price Range -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Price Range</label>
+      <div class="d-flex gap-2 flex-wrap">
+        <button
+          type="button"
+          class="btn btn-outline-secondary price-chip"
+          :class="{ active: priceRange === '$' }"
+          @click="priceRange = '$'"
+          data-bs-toggle="tooltip"
+          data-bs-placement="top"
+          title="Under $10 per person"
+        >
+          $
+        </button>
+
+        <button
+          type="button"
+          class="btn btn-outline-secondary price-chip"
+          :class="{ active: priceRange === '$$' }"
+          @click="priceRange = '$$'"
+          data-bs-toggle="tooltip"
+          data-bs-placement="top"
+          title="$10–$30 per person"
+        >
+          $$
+        </button>
+
+        <button
+          type="button"
+          class="btn btn-outline-secondary price-chip"
+          :class="{ active: priceRange === '$$$' }"
+          @click="priceRange = '$$$'"
+          data-bs-toggle="tooltip"
+          data-bs-placement="top"
+          title="$30–$60 per person"
+        >
+          $$$
+        </button>
+
+        <button
+          type="button"
+          class="btn btn-outline-secondary price-chip"
+          :class="{ active: priceRange === '$$$$' }"
+          @click="priceRange = '$$$$'"
+          data-bs-toggle="tooltip"
+          data-bs-placement="top"
+          title="$60+ per person"
+        >
+          $$$$
+        </button>
+      </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Notes or Why You Recommend It</label>
+      <textarea
+        v-model="comment"
+        class="form-control"
+        rows="3"
+        placeholder="This dish is creamy and authentic..."
+        required
+      />
+    </div>
+
+    <!-- Photos -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Photos</label>
+      <div
+        class="drop-area"
+        :class="{ dragging: isDragging }"
+        @dragover.prevent="onDragOver"
+        @dragleave="onDragLeave"
+        @drop.prevent="onDrop"
+        tabindex="0"
+      >
+        <div class="drop-hint text-center">Drag &amp; drop your photos here or click to upload</div>
+        <input
+          type="file"
+          accept="image/*"
+          class="mt-2"
+          @change="
+            (e) => {
+              const f = e.target.files?.[0]
+              if (f) {
+                const r = new FileReader()
+                r.onload = () => {
+                  photoUrl = r.result
+                  photos = [r.result]
+                }
+                r.readAsDataURL(f)
+              }
+            }
+          "
+        />
+      </div>
+      <div class="thumbs" v-if="photos.length">
+        <img v-for="(src, i) in photos" :key="i" :src="src" alt="" />
+      </div>
+    </div>
+
+    <!-- Visibility -->
+    <div class="mb-3">
+      <label class="form-label fw-semibold">Who can see this?</label>
+      <div class="form-check">
+        <input
+          class="form-check-input"
+          type="radio"
+          id="vis-friends"
+          value="friends"
+          v-model="visibility"
+        />
+        <label class="form-check-label" for="vis-friends">Friends</label>
+      </div>
+      <div class="form-check">
+        <input
+          class="form-check-input"
+          type="radio"
+          id="vis-everyone"
+          value="everyone"
+          v-model="visibility"
+        />
+        <label class="form-check-label" for="vis-everyone">Everyone</label>
+      </div>
+    </div>
+
+    <button class="btn submit-btn w-100" type="submit" :disabled="submitting">
+      {{ submitting ? 'Posting…' : 'Submit Recommendation' }}
     </button>
   </form>
 </template>
 
 <style scoped>
-.form {
-  display: grid;
-  gap: 10px;
+.rec-form {
+  background: var(--cream-50);
+  border: 1px solid rgba(139, 157, 131, 0.15);
+  border-radius: var(--radius-md);
+  padding: 18px 20px 22px;
 }
-.lab {
-  display: block;
-  font-weight: 700;
+.form-title {
+  text-align: center;
+  color: var(--charcoal);
+  font-weight: 800;
+  margin: 0 0 16px;
+}
+.form-label {
+  color: var(--charcoal);
   margin-bottom: 6px;
-  color: #111827;
 }
-input,
-textarea {
-  width: 100%;
-  padding: 0.6rem 0.7rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  outline: none;
+.form-control {
+  border-radius: 10px;
+  border: 1px solid var(--line-200);
+  padding: 10px 12px;
 }
-input:focus,
-textarea:focus {
-  border-color: #94a3b8;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.2);
+.form-control:focus {
+  border-color: var(--sage-500);
+  box-shadow: 0 0 0 3px rgba(168, 185, 165, 0.25);
 }
-.coords {
-  color: #6b7280;
-  font-size: 0.85rem;
+
+/* Stars */
+.stars {
+  display: inline-flex;
+  gap: 6px;
+  user-select: none;
 }
-.hint {
-  color: #6b7280;
-  margin-left: 6px;
-}
-.btn {
-  padding: 0.6rem 0.9rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  background: #111;
-  color: #fff;
+.star-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  line-height: 1;
   cursor: pointer;
-  font-weight: 700;
+  padding: 0 2px;
+  color: var(--sage-600);
 }
-.err {
-  color: #ef4444;
-  font-size: 0.9rem;
-  font-weight: 600;
+.star-btn[aria-checked='false'] {
+  color: #c9cfc6;
+}
+
+/* Price range chips */
+.price-chip {
+  border: 1px solid var(--line-200);
+  border-radius: 10px;
+  background: #fff;
+  font-weight: 700;
+  padding: 6px 12px;
+}
+
+.price-chip:hover {
+  background-color: #e0e0e0;
+  color: var(--charcoal);
+}
+.price-chip.active {
+  background: var(--cream-100);
+  border-color: var(--sage-500);
+  box-shadow: inset 0 0 0 1px var(--sage-500);
+  color: var(--charcoal);
+}
+
+/* Drop zone */
+.drop-area {
+  border: 2px dashed rgba(139, 157, 131, 0.45);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(250, 249, 246, 0.6);
+}
+.drop-area.dragging {
+  background: rgba(250, 249, 246, 0.9);
+  border-color: var(--sage-600);
+}
+.drop-hint {
+  color: var(--ink-400);
+}
+.thumbs {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.thumbs img {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+}
+
+/* Submit */
+.submit-btn {
+  background: linear-gradient(135deg, var(--terra-500), var(--terra-600));
+  color: #fff;
+  font-weight: 700;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 16px;
+}
+.submit-btn:disabled {
+  opacity: 0.7;
 }
 </style>
