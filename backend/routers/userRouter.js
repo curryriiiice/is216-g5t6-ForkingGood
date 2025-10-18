@@ -1,9 +1,16 @@
 import express from "express";
+import multer from 'multer';
+
 const router = express.Router();
+
+// middleware to process pictures
+const upload = multer({ storage: multer.memoryStorage() });
+
 //import {task1,task2,etc} from "../controllers/taskController";
 import {
 	getPostbyId,
 	getUsernamebyEmail,
+	createPost,
 
 }from '../controllers/userController.js';
 
@@ -13,6 +20,7 @@ import {
 
 router.post("/getPostbyId", getPostbyId);
 router.post("/getUsernamebyEmail", getUsernamebyEmail);
+router.post('/createPost', upload.array('photos'), createPost);
 
 
 export default router;
