@@ -18,10 +18,39 @@ const getFriends = async (user_email) => {
 // tested, works
 
 
+const acceptFriendReq = async (user_email, friend_email) => {
+    const email1 = user_email < friend_email ? user_email : friend_email;
+    const email2 = user_email < friend_email ? friend_email : user_email;
+
+    return await supabase.from('friend').update({ request_accepted: true }).match({email1:email1, email2:email2});
+}
+// tested, works
+
+
+const rejectFriendReq = async (user_email, friend_email) => {
+    const email1 = user_email < friend_email ? user_email : friend_email;
+    const email2 = user_email < friend_email ? friend_email : user_email;
+
+    return await supabase.from('friend').update({ request_accepted: false }).match({email1:email1, email2:email2});
+}
+// tested, works
+
+
+const sendFriendReq = async (user_email, friend_email) => {
+    const email1 = user_email < friend_email ? user_email : friend_email;
+    const email2 = user_email < friend_email ? friend_email : user_email;
+
+    return await supabase.from('friend').insert({email1: email1,email2: email2})
+}
+// tested, works
+
 
 
 export{
     getFriends, 
+    acceptFriendReq, 
+    rejectFriendReq,
+    sendFriendReq,
     
 }
 

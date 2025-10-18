@@ -41,8 +41,31 @@ const getUsernamebyEmail = async (req, res) => {
     return res.status(200).json({ data });
 } 
 
+
+const createPost = async (req, res) => {
+    // get data from FE
+    const { user_email, name, address, cuisine_type, rating, review, is_public } = req.body;
+    const photos = req.files; // array of JSONs, each JSON contains the image metadata + raw binary info 
+    
+    // check if everything is received 
+    if (!user_email || !name || !address || !rating) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: createPostError } = await service.createPost(user_email, name, address, cuisine_type, rating, review, is_public, photos);
+
+    if (createPostError) {
+        console.log(createPostError)
+        return res.status(500).json({ message: "Error creating post" });
+    }
+
+    return res.status(200).json({ data });
+}
+// tested, works 
+
 export{
     getPostbyId,
     getUsernamebyEmail,
-    
+    createPost,
+
 }
