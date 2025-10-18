@@ -18,6 +18,7 @@ const posts = ref([])
 const trendingSlides = ref([])
 const showAdd = ref(false)
 const currentUser = ref({ email: ACTIVE_EMAIL })
+const highlightedPostId = ref(null)
 
 // When you click the post in map it directs you to the post here
 
@@ -30,6 +31,7 @@ async function scrollToPostIfAny() {
   await nextTick()
   const el = document.getElementById(`post-${postId}`)
   if (!el) return
+  highlightedPostId.value = String(postId)
   const header = document.querySelector('.navbar, header.sticky')
   const headerOffset = header ? Math.max(header.clientHeight, 56) : 56
   const pad = 12
@@ -46,7 +48,6 @@ async function scrollToPostIfAny() {
     y = elTopAbs - headerOffset - pad
   }
   window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
-  el.classList.add('highlight')
   if (typeof el.focus === 'function') {
     el.setAttribute('tabindex', '-1')
     el.focus({ preventScroll: true })
@@ -67,7 +68,7 @@ async function scrollToPostIfAny() {
   }, 350)
   // Clear the query and end highlight
   setTimeout(() => {
-    el.classList.remove('highlight')
+    highlightedPostId.value = null
     clearPostQuery()
   }, 1400)
 }
@@ -228,7 +229,7 @@ onMounted(load)
   <div class="page sage-bg">
     <!-- Trending Section -->
 
-    <section class="hero">
+    <section class="hero container">
       <h2 class="section-title">Trending Food</h2>
 
       <div id="trendingCarousel" class="carousel slide sage-glass" data-bs-ride="carousel">
@@ -273,33 +274,43 @@ onMounted(load)
     </section>
 
     <!-- Posts Feed -->
-    <section class="feed">
-      <h3 class="feed-title">Posts</h3>
-      <div class="feed-shell sage-glass">
+    <section class="feed container">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h3 class="feed-title mb-0">Posts</h3>
+      </div>
+
+      <div class="feed-shell sage-glass p-3">
         <template v-if="posts.length">
-          <div
-            v-for="p in posts"
-            :key="p.id"
-            :id="`post-${p.id}`"
-            class="card themed-card card-hover mb-3"
-          >
-            <div class="card-body">
-              <div class="d-flex align-items-center mb-2">
-                <h5 class="card-title mb-0 flex-grow-1 text-truncate">{{ p.restaurant?.name || 'Restaurant' }}</h5>
-                <span v-if="Number.isFinite(Number(p.rating))" class="rating-pill ms-2">
-                  ⭐ {{ Number(p.rating).toFixed(1) }}
-                </span>
+          <div class="row g-3 g-md-4">
+            <div
+              v-for="p in posts"
+              :key="p.id"
+              class="col-12 col-lg-6"
+            >
+            
+              <div
+                class="card themed-card h-100"
+                :id="`post-${p.id}`"
+                :class="{ active: highlightedPostId === p.id }"
+              >
+                <div class="card-body">
+                  <div class="d-flex align-items-center mb-2">
+                    <h5 class="card-title mb-0 flex-grow-1 text-truncate">{{ p.restaurant?.name || 'Restaurant' }}</h5>
+                    <span v-if="Number.isFinite(Number(p.rating))" class="rating-pill ms-2">
+                      ⭐ {{ Number(p.rating).toFixed(1) }}
+                    </span>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mb-2">
+                    <span v-if="p.restaurant?.cuisine_type" class="post-chip post-chip--cuisine">
+                      {{ p.restaurant.cuisine_type }}
+                    </span>
+                    <span v-if="p.restaurant?.address" class="post-chip post-chip--addr">
+                      {{ p.restaurant.address }}
+                    </span>
+                  </div>
+                  <PostCard :post="p" />
+                </div>
               </div>
-              <div class="d-flex flex-wrap gap-2 mb-2">
-                <span v-if="p.restaurant?.cuisine_type" class="post-chip post-chip--cuisine">
-                  {{ p.restaurant.cuisine_type }}
-                </span>
-                <span v-if="p.restaurant?.address" class="post-chip post-chip--addr">
-                  {{ p.restaurant.address }}
-                </span>
-              </div>
-              <!-- Keep your existing PostCard content -->
-              <PostCard :post="p" />
             </div>
           </div>
         </template>
@@ -322,22 +333,21 @@ onMounted(load)
   </div>
 
   <!-- Modal -->
-  <Modal :show="showAdd" title="Add recommendation" @close="showAdd = false">
+  <Modal :show="showAdd" title="Add Food Recommendation"  @close="showAdd = false">
     <AddRecommendationForm @added="handleAdded" />
-    <template #footer>
-      <button class="px-4 py-2 rounded-md border" @click="showAdd = false">Cancel</button>
-    </template>
+
   </Modal>
 </template>
 
 <style scoped>
+
+
 .page {
   min-height: calc(100vh - 56px);
   background: transparent;
   padding: 16px 0 80px;
 }
 .hero {
-  width: min(920px, 92vw);
   margin: 0 auto 18px;
 }
 .section-title {
@@ -369,7 +379,6 @@ onMounted(load)
   max-width: 86%;
 }
 .feed {
-  width: min(900px, 92vw);
   margin: 14px auto 0;
 }
 .feed-title {
@@ -429,7 +438,7 @@ onMounted(load)
 
 /* When you click the post in map it directs you to the post here */
 .highlight {
-  animation: flash 1s ease forwards;
+  animation: flash 5s ease forwards;
 }
 
 @keyframes flash {
@@ -439,5 +448,30 @@ onMounted(load)
 
 .themed-card:hover{
   transform: none !important;
+}
+
+/* ==========================
+   Active (opened from map) state
+   ========================== */
+.card.active {
+  background: var(--ink-400); /* charcoal */
+  color: #f9fafb;      /* near-white text */
+  border-color: rgba(255, 255, 255, 0.08);
+}
+.card.active .card-title,
+.card.active .rating-pill,
+.card.active .post-chip,
+.card.active .post-chip--cuisine,
+.card.active .post-chip--addr {
+  color: #f9fafb;
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+}
+.card.active .post-chip--addr {
+  color: #cbd5e1; /* softer for secondary */
+}
+.card.active .themed-card,
+.card.active .card-body {
+  background: transparent;
 }
 </style>

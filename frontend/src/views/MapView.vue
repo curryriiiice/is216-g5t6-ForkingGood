@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import axios from 'axios'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
+import Modal from '@/components/Modal.vue'
 
 const API_BASE = 'http://localhost:8000'
 const ACTIVE_EMAIL = 'clarice.lim.2024@computing.smu.edu.sg' // TEMP: replace when auth is ready
@@ -50,7 +51,7 @@ const cuisines = ref(['All'])
 const selectedCuisine = ref('All')
 const selectedArea = ref('All')
 
-const uiLocked = computed(() => !!(selected.value || showCreate.value))
+const uiLocked = computed(() => !!(selected.value || showAdd.value))
 
 /** Extract a rough "area" from an address.
  *  Heuristic: take the first comma-part (e.g. "Tiong Bahru Plaza, ...")
@@ -239,7 +240,7 @@ const areaCache = new Map() // key: "lat,lng" (rounded) -> area string
 ------------------*/
 const selected = ref(null) // selected pin (for reference)
 const selectedPost = ref(null) // post shown in the “view post” drawer
-const showCreate = ref(false) // drawer with AddRecommendationForm
+const showAdd = ref(false)
 const selectedPosts = ref([]) // all posts for the selected restaurant
 
 /* -----------------
@@ -276,12 +277,12 @@ function closePostDrawer() {
   clearRestaurantQuery()
 }
 function closeCreateDrawer() {
-  showCreate.value = false
+  showAdd.value = false
 }
 
 function onKeydown(e) {
   if (e.key === 'Escape') {
-    if (showCreate.value) return closeCreateDrawer()
+    if (showAdd.value) return closeCreateDrawer()
     closePostDrawer()
   }
 }
@@ -630,7 +631,7 @@ async function refreshPinsAndMarkers() {
 
 // Called when the form emits "added"
 async function handleAdded() {
-  showCreate.value = false
+  showAdd.value = false
   await refreshPinsAndMarkers()
   // Optionally fit to filtered pins after refresh
   await fitMapToFilteredPins()
@@ -712,21 +713,34 @@ function clearFilters() {
     <!-- Filter bar (Bootstrap card) -->
     <div class="position-absolute top-0 start-50 translate-middle-x mt-3" style="z-index: 95">
       <div
-        :class="['card border-0 shadow rounded-4 glass sage-glass', { 'pe-none': uiLocked, 'opacity-75': uiLocked }]"
+        :class="[
+          'card border-0 shadow rounded-4 glass sage-glass',
+          { 'pe-none': uiLocked, 'opacity-75': uiLocked },
+        ]"
         style="min-width: 340px; max-width: 720px"
       >
         <div class="card-body py-2">
           <div class="d-flex justify-content-center align-items-end gap-3 flex-wrap">
             <div style="min-width: 160px">
               <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
-              <select v-model="selectedCuisine" class="form-select form-select-sm text-center" :disabled="uiLocked" :aria-disabled="uiLocked ? 'true' : null">
+              <select
+                v-model="selectedCuisine"
+                class="form-select form-select-sm text-center"
+                :disabled="uiLocked"
+                :aria-disabled="uiLocked ? 'true' : null"
+              >
                 <option v-for="c in cuisineOptions" :key="c" :value="c">{{ c }}</option>
               </select>
             </div>
 
             <div style="min-width: 160px">
               <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
-              <select v-model="selectedArea" class="form-select form-select-sm text-center" :disabled="uiLocked" :aria-disabled="uiLocked ? 'true' : null">
+              <select
+                v-model="selectedArea"
+                class="form-select form-select-sm text-center"
+                :disabled="uiLocked"
+                :aria-disabled="uiLocked ? 'true' : null"
+              >
                 <option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</option>
               </select>
             </div>
@@ -764,14 +778,14 @@ function clearFilters() {
     <div v-else-if="error" class="overlay error">{{ error }}</div>
 
     <!-- FAB: Create Post -->
-    <button class="fab fab-terracotta" @click="showCreate = true" title="Create Post">＋</button>
+    <button class="fab fab-terracotta" @click="showAdd = true" title="Create Post">＋</button>
     <div class="fab-label sage-chip">Create Post</div>
 
     <!-- Backdrop for drawers -->
     <div
-      v-if="selected || showCreate"
+      v-if="selected || showAdd"
       class="backdrop"
-      @click="showCreate ? closeCreateDrawer() : closePostDrawer()"
+      @click="showAdd ? closeCreateDrawer() : closePostDrawer()"
     ></div>
 
     <!-- Drawer: View Restaurant -->
@@ -852,21 +866,13 @@ function clearFilters() {
       </aside>
     </transition>
 
-    <!-- Drawer: Add Recommendation (same form reused) -->
-    <transition name="slide">
-      <aside v-if="showCreate" class="side" aria-label="Add recommendation">
-        <button class="close" @click="closeCreateDrawer" aria-label="Close">✕</button>
-        <header class="side-head">
-          <h2 class="rname">Add recommendation</h2>
-          <div class="rmeta">
-            Search for the place near you, pick the result, add cuisine, rating, comment.
-          </div>
-        </header>
-
-        <!-- Reusing the same component -->
-        <AddRecommendationForm @added="handleAdded" />
-      </aside>
-    </transition>
+    <!-- Modal: Add Recommendation -->
+    <Modal :show="showAdd" title="Add Food Recommendation" @close="showAdd = false">
+      <AddRecommendationForm @added="handleAdded" />
+      <template #footer>
+        <button class="px-4 py-2 rounded-md border" @click="showAdd = false">Cancel</button>
+      </template>
+    </Modal>
   </div>
 </template>
 
