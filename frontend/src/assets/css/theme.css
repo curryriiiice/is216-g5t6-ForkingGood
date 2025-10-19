@@ -1,26 +1,29 @@
 /* =====================================================================
-   ForkingGood Theme — Sage / Terracotta
-   Primary:    #8B9D83 (sage)
-   Secondary:  #FAF9F6 (warm white)
-   Accent:     #D4816F (terracotta)
-   Dark:       #2C3333 (charcoal)
-   Light:      #F5F3EE (soft cream)
+   ForkingGood Theme — Light + Brand Variants (no dark mode)
    ===================================================================== */
 
+/* ---------- Base (light) palette & tokens ---------- */
 :root {
   /* Palette */
+  --sage-700: #6f8168;
   --sage-600: #8B9D83;
   --sage-500: #A8B9A5;
-  --cream-50: #FAF9F6;
+  --cream-50:  #FAF9F6;
   --cream-100: #F5F3EE;
   --terra-500: #D4816F;
   --terra-600: #C07261;
-  --charcoal: #2C3333;
-  --ink-400: #6B7280;
-  --ink-300: #9CA3AF;
-  --line-200: #E8E6E1;
+  --charcoal:  #2C3333;     /* primary text */
+  --ink-500:   #475569;     /* muted text */
+  --ink-400:   #6B7280;     /* secondary text */
+  --ink-300:   #9CA3AF;     /* tertiary text */
+  --line-200:  #E8E6E1;     /* borders / separators */
 
-  /* Shape & effects */
+  /* Surfaces */
+  --bg:        linear-gradient(135deg, var(--cream-100) 0%, #E8E6E1 100%);
+  --surface:   rgba(250, 249, 246, 0.95); /* glass blocks, modals, filters */
+  --surface-card: #ffffff;
+
+  /* Effects / shape */
   --radius-lg: 24px;
   --radius-md: 16px;
   --glass-blur: 20px;
@@ -28,283 +31,206 @@
   --shadow-card: 0 12px 32px rgba(44, 51, 51, 0.08);
 }
 
-/* --- Utilities --- */
-
-/* Page background gradient */
-.sage-bg {
-  background: linear-gradient(135deg, var(--cream-100) 0%, #E8E6E1 100%) !important;
+/* ---------- Brand themes (override accents + background) ---------- */
+:root[data-theme="brand-mint"]  {
+  --sage-600:#2fb686; --sage-500:#67c5a5;
+  --bg:      linear-gradient(135deg, #ECF8F3 0%, #D6F2E8 100%);
+  --surface: rgba(248, 253, 250, 0.92);
+  --line-200:#E2EFE9;
+}
+:root[data-theme="brand-lagoon"]{
+  --sage-600:#2a8ecf; --sage-500:#5aa8db;
+  --bg:      linear-gradient(135deg, #EAF4FD 0%, #D9EEFB 100%);
+  --surface: rgba(245, 250, 255, 0.92);
+  --line-200:#DCEAF6;
+}
+:root[data-theme="brand-plum"]  {
+  --sage-600:#7a4ccf; --sage-500:#9872da;
+  --bg:      linear-gradient(135deg, #F3ECFB 0%, #ECE3FA 100%);
+  --surface: rgba(251, 248, 255, 0.92);
+  --line-200:#E9E1F6;
 }
 
-/* Small label chip (used for FAB label) */
+/* Smoothen theme switches a bit */
+html { transition: background-color .2s ease, color .2s ease, border-color .2s ease; }
+
+/* ---------- Utilities & layout ---------- */
+.sage-bg { background: var(--bg) !important; }
+
 .sage-chip {
-  font-size: 13px;
-  color: var(--charcoal);
-  font-weight: 600;
-  background: rgba(250, 249, 246, 0.95);
-  padding: 6px 14px;
-  border-radius: 10px;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  font-size: 13px; color: var(--charcoal); font-weight: 600;
+  background: var(--surface); padding: 6px 14px; border-radius: 10px;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   border: 1px solid rgba(139, 157, 131, 0.2);
 }
 
-/* Floating Action Button (terracotta gradient) */
-.fab-terracotta {
-  width: 64px;
-  height: 64px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, var(--terra-500) 0%, var(--terra-600) 100%) !important;
-  box-shadow: 0 12px 40px rgba(212, 129, 111, 0.4), 0 0 0 1px rgba(212, 129, 111, 0.1);
+/* Floating Action Button (accent gradient) */
+.fab-terracotta{
+  width:64px;height:64px;border-radius:20px;border:0;
+  background:linear-gradient(135deg,var(--terra-500),var(--terra-600))!important;
+  box-shadow:0 12px 40px color-mix(in srgb, var(--terra-500) 40%, transparent),
+             0 0 0 1px color-mix(in srgb, var(--terra-500) 10%, transparent);
 }
 
-/* Glass card (filter bar) */
-.sage-glass {
-  background: rgba(250, 249, 246, 0.95) !important;
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid rgba(139, 157, 131, 0.2) !important;
-  border-radius: 20px !important;
-  box-shadow: 0 8px 32px rgba(44, 51, 51, 0.08) !important;
+/* Glass blocks (filter bar, carousel wrapper, etc.) */
+.sage-glass{
+  background:var(--surface)!important;
+  -webkit-backdrop-filter:blur(var(--glass-blur));backdrop-filter:blur(var(--glass-blur));
+  border:1px solid rgba(139,157,131,.2)!important;border-radius:20px!important;
+  box-shadow:var(--shadow-card)!important;
 }
 
-/* Map card elevation & rounding */
-.sage-map {
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-deep);
-  background: #fff;
+/* Map card shell / big tiles */
+.sage-map{ border-radius:var(--radius-lg); box-shadow:var(--shadow-deep); background:var(--surface-card); }
+
+/* Buttons */
+.btn-clear{
+  border:1.5px solid var(--line-200)!important; background:#fff!important;
+  color:var(--ink-500)!important; border-radius:12px!important; font-weight:600;
+}
+.btn-clear:hover{ filter:brightness(.98); }
+
+.btn-fit{
+  border:none!important; background:var(--sage-600)!important; color:#fff!important;
+  border-radius:12px!important; font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.18);
+}
+.btn-fit:hover{ filter:brightness(1.02); }
+
+/* Drawer / side sheet */
+.side{
+  background:var(--cream-50)!important;
+  box-shadow:-8px 0 40px rgba(44,51,51,.12)!important;
+  padding:28px 24px!important;
+}
+.close{
+  top:20px!important; right:20px!important; width:36px!important; height:36px!important;
+  background:rgba(139,157,131,.10)!important; border-radius:10px!important; color:var(--charcoal)!important;
 }
 
-/* Button variants for filter actions */
-.btn-clear {
-  border: 1.5px solid var(--line-200) !important;
-  background: #fff !important;
-  color: var(--ink-400) !important;
-  border-radius: 12px !important;
-  font-weight: 600;
+/* Card hover helper */
+.card-hover{
+  border:1px solid rgba(139,157,131,.15)!important; border-radius:16px!important;
+  transition:transform .12s ease, box-shadow .2s ease, border-color .2s ease!important;
 }
-.btn-clear:hover { filter: brightness(0.98); }
+.card-hover:hover{ border-color:rgba(139,157,131,.30)!important; }
 
-.btn-fit {
-  border: none !important;
-  background: var(--sage-600) !important;
-  color: #fff !important;
-  border-radius: 12px !important;
-  font-weight: 700;
-}
-.btn-fit:hover { filter: brightness(1.02); }
+/* Backdrop (generic) */
+.backdrop{ background:rgba(44,51,51,.25)!important; -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
 
-/* Drawer look (warm white + soft shadow) */
-.side {
-  background: var(--cream-50) !important;
-  box-shadow: -8px 0 40px rgba(44, 51, 51, 0.12) !important;
-  padding: 28px 24px !important;
+/* ---------- Form controls (global) ---------- */
+.form-select.form-select-sm.text-center,
+.form-control, .form-select{
+  padding:10px 14px; border:1.5px solid var(--line-200); border-radius:12px;
+  font-size:14px; font-weight:500; color:#111827; background:#fff; outline:none;
 }
-.close {
-  top: 20px !important;
-  right: 20px !important;
-  width: 36px !important;
-  height: 36px !important;
-  background: rgba(139, 157, 131, 0.10) !important;
-  border-radius: 10px !important;
-  color: var(--charcoal) !important;
+.form-control:focus, .form-select:focus{
+  border-color:var(--sage-600);
+  box-shadow:0 0 0 3px color-mix(in oklab, var(--sage-600) 35%, transparent);
 }
 
-/* Card hover (post items in drawer) */
-.card-hover {
-  border: 1px solid rgba(139, 157, 131, 0.15) !important;
-  border-radius: 16px !important;
-  transition: transform .12s ease, box-shadow .2s ease, border-color .2s ease !important;
-}
-.card-hover:hover {
-  border-color: rgba(139, 157, 131, 0.30) !important;
-}
-
-/* Rating pill */
-.badge.text-bg-warning-subtle {
-  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%) !important;
-  color: #92400E !important;
-  font-weight: 700 !important;
-  border-radius: 10px !important;
-}
-
-/* Backdrop tint to match charcoal */
-.backdrop {
-  background: rgba(44, 51, 51, 0.25) !important;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-}
-
-/* Form styles (Bootstrap-friendly refinements) */
-.form-select.form-select-sm.text-center {
-  padding: 10px 14px;
-  border: 1.5px solid var(--line-200);
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--charcoal);
-  background-color: #fff;
-  outline: none;
-}
-
-/* Label style used in filter bar */
+/* Labels */
+.form-label,
 .form-label.small,
 .form-label.mb-1.small,
 .form-label.mb-1.small.fw-semibold,
-.form-label.mb-1.small.fw-semibold.text-secondary {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--ink-400);
-  text-transform: uppercase;
-  letter-spacing: .5px;
+.form-label.mb-1.small.fw-semibold.text-secondary{
+  font-size:12px; font-weight:700; color:var(--charcoal);
+  letter-spacing:.2px; margin-bottom:6px;
 }
 
-/* Optional: navbar polish (use if you want a matching header)
-.navbar { background: #fff; box-shadow: 0 6px 20px rgba(44, 51, 51, 0.06); }
-.link { color: var(--charcoal); }
-.link:hover { color: var(--terra-500); }
-.search-wrap { background: #E9EBEE; border: 1px solid rgba(139,157,131,0.15); }
-.logout { background: var(--terra-500); }
-.logout:hover { background: var(--terra-600); }
-*/
+/* Placeholders (light) */
+input::placeholder, textarea::placeholder{ color:var(--ink-400); opacity:.9; }
 
-/* Graceful fallback if blur unsupported */
-@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))) {
-  .sage-glass,
-  .sage-chip,
-  .backdrop {
-    background: #ffffffee; /* near-solid fallback */
-  }
+/* ---------- Google Maps InfoWindow ---------- */
+.map-info{ max-width:240px; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,Arial; color:var(--charcoal); }
+.map-info img{ width:100%; height:140px; object-fit:cover; border-radius:12px; margin-bottom:10px; box-shadow:0 2px 10px rgba(44,51,51,.15); }
+.map-info .title{ font-weight:800; font-size:15px; color:var(--charcoal); margin:4px 0 2px; }
+.map-info .meta{ color:var(--ink-400); font-size:12px; margin-bottom:8px; }
+.map-info .rating{ display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:10px; color:var(--terra-500); font-weight:700; }
+.map-info button{
+  background:var(--sage-600); color:#fff; border:none; border-radius:8px;
+  padding:6px 10px; cursor:pointer; font-weight:600; transition:background .2s;
 }
+.map-info button:hover{ background:var(--sage-500); }
+
+/* ---------- Cards & feed ---------- */
+.themed-card{
+  padding:16px; margin-bottom:12px; border-radius:var(--radius-md);
+  background:var(--surface); box-shadow:var(--shadow-card);
+  border:1px solid rgba(139,157,131,.15);
+  transition:transform .12s ease, box-shadow .2s ease;
+}
+.themed-card:hover{ transform:translateY(-2px); box-shadow:0 12px 32px rgba(44,51,51,.08); }
+.themed-card .title{ margin:0; font-size:18px; font-weight:800; color:var(--charcoal); }
+
+/* Rating pill */
+.rating-pill{
+  display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px;
+  background:linear-gradient(135deg,#FEF3C7,#FDE68A); color:#92400E; font-weight:800; font-size:14px; line-height:1;
+}
+
+/* Post chips */
+.post-chip{ padding:4px 10px; border-radius:8px; font-size:12px; font-weight:600; }
+.post-chip--cuisine{ background:rgba(139,157,131,.15); color:var(--sage-600); }
+.post-chip--addr{ background:rgba(212,129,111,.1); color:var(--terra-500); }
+
+/* Active card (from map deep link) */
+.card.active{ background:var(--ink-400); color:#f9fafb; border-color:rgba(255,255,255,.08); }
+.card.active .post-chip, .card.active .post-chip--cuisine, .card.active .post-chip--addr{
+  color:#f9fafb; border-color:rgba(255,255,255,.18); background:rgba(255,255,255,.06);
+}
+.card.active .post-chip--addr{ color:#cbd5e1; }
+
+/* Price chips (filter bar) */
+.price-chip{
+  border:1px solid var(--line-200); border-radius:10px; background:#fff;
+  font-weight:800; padding:6px 12px; color:#111827;
+}
+.price-chip:hover{ background:#F2F5F8; }
+.price-chip.active{
+  background:color-mix(in oklab,var(--sage-600) 12%, white);
+  border-color:var(--sage-600); box-shadow:inset 0 0 0 1px var(--sage-600); color:#111827;
+}
+
+/* Dropdowns */
+.dropdown-menu{ max-height:260px; overflow:auto; }
 
 /* Motion respect */
-@media (prefers-reduced-motion: reduce) {
-  .card-hover,
-  .themed-card,
-  .btn-clear,
-  .btn-fit { transition: none !important; }
+@media (prefers-reduced-motion: reduce){
+  .card-hover, .themed-card, .btn-clear, .btn-fit{ transition:none!important; }
 }
 
-/* === InfoWindow styling (Google Maps popup) === */
+/* ====================== Modal polish (light only) ====================== */
+.modal .modal-content{
+  background:var(--surface); color:var(--charcoal);
+  border:1px solid var(--line-200); border-radius:16px; box-shadow:0 24px 64px rgba(0,0,0,.12);
+}
+.modal .form-label, .modal label{ color:var(--charcoal); font-weight:800; letter-spacing:.2px; }
+.modal .text-muted, .modal .form-text{ color:var(--ink-400)!important; }
 
-.map-info {
-  max-width: 240px;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Inter, Arial;
-  color: var(--charcoal);
+/* Inputs inside modal */
+.modal .form-control, .modal .form-select{
+  background:#fff; color:#111827; border:1.5px solid var(--line-200); border-radius:12px;
+}
+.modal .form-control:focus, .modal .form-select:focus{
+  border-color:var(--sage-600);
+  box-shadow:0 0 0 3px color-mix(in oklab, var(--sage-600) 35%, transparent);
 }
 
-.map-info img {
-  width: 100%;
-  height: 140px;
-  object-fit: cover;
-  border-radius: 12px;
-  margin-bottom: 10px;
-  box-shadow: 0 2px 10px rgba(44, 51, 51, 0.15);
+/* Visibility radios as BIG chips (AddRecommendationForm.vue) */
+.vis-group{ display:flex; gap:10px; flex-wrap:wrap; margin-top:4px; }
+.vis-input{ position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
+.vis-chip{
+  display:inline-flex; align-items:center; gap:6px; padding:10px 14px; font-weight:900; font-size:14px;
+  border-radius:999px; cursor:pointer; user-select:none; background:#fff; color:#111827; border:2px solid var(--line-200);
+  box-shadow:0 2px 0 rgba(0,0,0,.05);
 }
-
-.map-info .title {
-  font-weight: 800;
-  font-size: 15px;
-  color: var(--charcoal);
-  margin: 4px 0 2px;
+.vis-chip:hover{ filter:brightness(.98); }
+#vis-friends.vis-input:checked + .vis-chip,
+#vis-everyone.vis-input:checked + .vis-chip{
+  background:var(--sage-600); color:#fff; border-color:var(--sage-600);
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--sage-600) 35%, transparent);
 }
-
-.map-info .meta {
-  color: var(--ink-400);
-  font-size: 12px;
-  margin-bottom: 8px;
-}
-
-.map-info .rating {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  margin-bottom: 10px;
-  color: var(--terra-500);
-  font-weight: 700;
-}
-
-.map-info button {
-  background: var(--sage-600);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-weight: 600;
-  transition: background 0.2s ease;
-}
-
-.map-info button:hover {
-  background: var(--sage-500);
-}
-
-/* === Card and Feed Styles === */
-.themed-card {
-  padding: 16px;
-  margin-bottom: 12px;
-  border-radius: var(--radius-md);
-  background: rgba(250, 249, 246, 0.95);
-  box-shadow: var(--shadow-card);
-  border: 1px solid rgba(139, 157, 131, 0.15);
-  transition: transform .12s ease, box-shadow .2s ease;
-}
-.themed-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(44, 51, 51, 0.08);
-}
-
-.themed-card-header {
-  margin-bottom: 12px;
-}
-
-.themed-card .title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.themed-card .title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--charcoal);
-  flex: 1;
-}
-
-.rating-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #FEF3C7 0%, #FDE68A 100%);
-  color: #92400E;
-  font-weight: 800;
-  font-size: 14px;
-  line-height: 1;
-}
-
-.themed-card .meta-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.post-chip {
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.post-chip--cuisine {
-  background: rgba(139, 157, 131, 0.15);
-  color: var(--sage-600);
-}
-
-.post-chip--addr {
-  background: rgba(212, 129, 111, 0.1);
-  color: var(--terra-500);
+.vis-input:focus + .vis-chip{
+  outline:3px solid color-mix(in oklab,var(--sage-600) 45%, transparent); outline-offset:2px;
 }
