@@ -11,25 +11,35 @@ const ACTIVE_EMAIL = 'clarice.lim.2024@computing.smu.edu.sg' // TEMP: replace wh
 
 const api = axios.create({ baseURL: API_BASE })
 
-// --- Cuisine endpoints (server-driven filters) --- //
-async function getFriendsCuisines(userEmail) {
+// --- Filter + data endpoints --- //
+// Suggestions (searchable dropdowns if you later hook @search)
+async function getAllCuisines(query = '') {
   try {
-    const r = await api.post('/map/cuisineFilter', { user_email: userEmail })
+    const r = await api.get('/map/getAllCuisines', { params: query ? { q: query } : {} })
     return Array.isArray(r.data?.data) ? r.data.data : []
   } catch (e) {
-    console.error('getFriendsCuisines failed:', e.response?.status, e.response?.data || e.message)
+    console.error('getAllCuisines failed:', e.response?.status, e.response?.data || e.message)
     return []
   }
 }
-async function getPostsByCuisine(userEmail, cuisineType) {
+async function getAllLocations(query = '') {
   try {
-    const r = await api.post('/map/getPostbyCuisine', {
-      user_email: userEmail,
-      cuisine_type: cuisineType,
-    })
+    const r = await api.get('/map/getAllLocations', { params: query ? { q: query } : {} })
     return Array.isArray(r.data?.data) ? r.data.data : []
   } catch (e) {
-    console.error('getPostsByCuisine failed:', e.response?.status, e.response?.data || e.message)
+    console.error('getAllLocations failed:', e.response?.status, e.response?.data || e.message)
+    return []
+  }
+}
+
+// Unified filtered posts (friends/public + cuisine/area/price)
+async function getFilteredPosts(payload) {
+  try {
+    const r = await api.post('/map/getFilteredPosts', payload)
+    console.log('[api] getFilteredPosts payload ->', payload)
+    return Array.isArray(r.data?.data) ? r.data.data : []
+  } catch (e) {
+    console.error('getFilteredPosts failed:', e.response?.status, e.response?.data || e.message)
     return []
   }
 }
@@ -45,14 +55,18 @@ function clearRestaurantQuery() {
 
 // --- FILTERS --- //
 
-// List of cuisines from backend (used to populate dropdown)
+// Master options (populated from backend endpoints)
 const cuisines = ref(['All'])
+const areas = ref(['All'])
 
+// Current selections
 const selectedCuisine = ref('All')
 const selectedArea = ref('All')
+const selectedPrice = ref('All') // 'All' | '$' | '$$' | '$$$' | '$$$$'
+const feedScope = ref('friends') // 'friends' | 'public'
 
+// Lock UI when a drawer is open
 const uiLocked = computed(() => !!(selected.value || showAdd.value))
-
 /** Extract a rough "area" from an address.
  *  Heuristic: take the first comma-part (e.g. "Tiong Bahru Plaza, ...")
  *  Tweak this to match your addresses better if needed.
@@ -63,126 +77,271 @@ function inferArea(address = '', pinArea = '') {
   return first || 'Unknown'
 }
 
+// --- Tooltip initializer (Bootstrap 5 if available) ---
+function initTooltips() {
+  try {
+    const Tooltip = window.bootstrap?.Tooltip // works if bootstrap.bundle.js is loaded
+    const els = document.querySelectorAll('[data-bs-toggle="tooltip"]')
+    if (Tooltip && els.length) {
+      els.forEach((el) => {
+        const existing = Tooltip.getInstance?.(el)
+        if (existing) existing.dispose() // avoid duplicates on HMR/rerender
+        new Tooltip(el)
+      })
+    }
+    // If Bootstrap JS isn't present, the native browser tooltip still works via `title`.
+  } catch (e) {
+    console.warn('[tooltip] init failed (fallback to native title)', e)
+  }
+}
+// ===== Price helpers (strict, up to 4 dollars) =====
+function priceSymbolToIndex(sym) {
+  if (!sym) return null
+  const s = String(sym)
+  const table = ['$', '$$', '$$$', '$$$$']
+  const idx = table.indexOf(s)
+  return idx >= 0 ? idx : null
+}
+function normalizePriceIndex(v) {
+  if (v == null) return null
+  const str = String(v)
+  // Symbol '$'..'$$$$' → 0..3
+  if (/^\$+$/.test(str)) {
+    const idx = str.length - 1
+    return idx >= 0 && idx <= 3 ? idx : null
+  }
+  const n = Number(v)
+  if (!Number.isFinite(n)) return null
+  // Prefer 1-based encodings first (1..4 → 0..3; 1..3 → 0..2)
+  if (n >= 1 && n <= 4) return n - 1
+  if (n >= 1 && n <= 3) return n - 1
+  // Fallback: 0..3 direct indices
+  if (n >= 0 && n <= 3) return n
+  return null
+}
+
 /** Cuisine options from backend */
 const cuisineOptions = computed(() => cuisines.value)
 
 /** Area options derived from pins */
-const areaOptions = computed(() => {
-  const set = new Set()
-  pins.value.forEach((p) => set.add(inferArea(p.address, p.area)))
-  return ['All', ...Array.from(set).sort()]
-})
+const areaOptions = computed(() => areas.value)
 
 /** Pins after applying filters */
-const filteredPins = computed(() => {
-  return pins.value.filter((p) => {
-    const area = inferArea(p.address, p.area)
-    // Cuisine already enforced by backend; only area is filtered client-side
-    const okArea = selectedArea.value === 'All' || area === selectedArea.value
-    return okArea
-  })
-})
+const filteredPins = computed(() => pins.value)
 
-// When cuisine changes, fetch from backend and rebuild markers
-watch(selectedCuisine, async (c) => {
+watch([feedScope, selectedCuisine, selectedArea, selectedPrice], async () => {
   selectedPost.value = null
   selected.value = null
-  await loadPinsForCuisine(c)
-  await rebuildMarkers()
-  await fitMapToFilteredPins()
+  await loadPinsFromFilters()
 })
 
-// When area changes, just rebuild markers (pins already server-filtered by cuisine)
-watch(selectedArea, async () => {
-  selectedPost.value = null
-  selected.value = null
-  await rebuildMarkers()
-  await fitMapToFilteredPins()
-})
-// Load pins feed for a given cuisine selection.
-// 'All' => /friends/getFriendRecs ; specific => /map/getPostbyCuisine
-async function loadPinsForCuisine(cuisine) {
-  let postsRaw = []
-  if (!cuisine || cuisine === 'All') {
-    postsRaw = await getFriendRecs(ACTIVE_EMAIL)
-  } else {
-    postsRaw = await getPostsByCuisine(ACTIVE_EMAIL, cuisine)
+// Load pins based on current filter selections using /map/getFilteredPosts
+async function loadPinsFromFilters() {
+  console.log(
+    '[filters] scope:',
+    feedScope.value,
+    'cuisine:',
+    selectedCuisine.value,
+    'area:',
+    selectedArea.value,
+    'price:',
+    selectedPrice.value,
+  )
+
+  // Build payload: omit "All" keys, include both legacy and new fields for compatibility
+  const payload = {
+    user_email: ACTIVE_EMAIL,
+
+    // scope semantics:
+    //  - 'friends' => friends' private + public
+    //  - 'public'  => everyone public
+    friends: feedScope.value === 'friends',
+    scope: feedScope.value,
   }
 
-  // Fetch details for each post
-  const details = await Promise.all(postsRaw.map((p) => getPostById(p.postid)))
-
-  const feed = []
-  postsRaw.forEach((p, i) => {
-    const d = details[i] || null
-    const lng = Number(p.longitude ?? p.longtitude)
-    const lat = Number(p.latitude)
-    feed.push({
-      id: d?.postid || p.postid,
-      text: d?.review || '',
-      rating: Number(d?.rating) || 0,
-      photos: [],
-      user: { id: d?.poster_username, name: d?.poster_username, username: d?.poster_username },
-      restaurant: {
-        id: p.restaurant_id,
-        name: p.restaurant_id,
-        address: '',
-        cuisine_type: d?.cuisine_type || '',
-        latitude: Number.isFinite(lat) ? lat : undefined,
-        longitude: Number.isFinite(lng) ? lng : undefined,
-      },
-      raw: { created_at: d?.created_at },
-    })
-  })
-  feedPosts.value = feed
-
-  // index posts by restaurant
-  const byRest = new Map()
-  for (const p of feed) {
-    const r = p.restaurant
-    if (!r?.id) continue
-    if (!byRest.has(r.id)) byRest.set(r.id, [])
-    byRest.get(r.id).push(p)
+  // Only include filters if they're not "All"
+  if (selectedArea.value && selectedArea.value !== 'All') {
+    payload.area = selectedArea.value
   }
-  for (const [, arr] of byRest.entries()) {
-    arr.sort((a, b) => new Date(b.raw?.created_at || 0) - new Date(a.raw?.created_at || 0))
+  if (selectedCuisine.value && selectedCuisine.value !== 'All') {
+    payload.cuisine_type = selectedCuisine.value // common key
+    payload.cuisine = selectedCuisine.value // alt key if BE uses `cuisine`
   }
-  postsByRestaurant.value = byRest
-
-  // Build pins (one per POST) using DB coords
-  const nextPins = []
-  for (const p of feed) {
-    const r = p.restaurant || {}
-    const { lat, lng, ok } = normalizeCoords(
-      parseNum(r?.latitude),
-      parseNum(r?.longitude ?? r?.longtitude),
-    )
-    if (!ok) {
-      console.warn('Pin dropped (bad coords):', {
-        rid: r?.id,
-        lat: r?.latitude,
-        lng: r?.longitude ?? r?.longtitude,
-      })
-      continue
+  if (selectedPrice.value && selectedPrice.value !== 'All') {
+    const sym = selectedPrice.value
+    const idx = priceSymbolToIndex(sym) // 0..3
+    payload.price_symbol = sym
+    if (idx !== null) {
+      // Send multiple exact-match hints for diverse backends
+      payload.price_range = idx // 0..3
+      payload.price_range_eq = idx // exact
+      payload.price_level_eq = idx + 1 // some use 1..4
+      payload.price_eq = idx + 1 // fallback exact
     }
-    nextPins.push({
-      restaurant_id: r.id,
-      post_id: p.id,
-      name: r.name || r.id || 'Unknown',
-      address: r.address || '',
-      cuisine: r.cuisine_type || 'Unknown',
-      position: { lat, lng },
-      by: p.user?.name,
-      photo: p.photos?.[0],
-      rating: p.rating ?? 0,
-      post: p,
+  }
+
+  const rows = await getFilteredPosts(payload)
+  console.log('[api] rows returned:', rows.length, rows[0])
+
+  // Strict FE price filter so $$$ and $$$$ are never grouped
+  let filteredRows = rows
+  if (selectedPrice.value && selectedPrice.value !== 'All') {
+    const want = priceSymbolToIndex(selectedPrice.value)
+    if (want !== null) {
+      filteredRows = rows.filter((r) => {
+        const cand = [r.price_range, r.price_level, r.price, r.price_symbol]
+        for (const v of cand) {
+          const have = normalizePriceIndex(v)
+          if (have !== null) return have === want
+        }
+        return false // drop unknown-price rows for strictness
+      })
+    }
+  }
+
+  if (!filteredRows.length) {
+    console.warn('[pins] No rows for filters:', {
+      scope: feedScope.value,
+      cuisine: selectedCuisine.value,
+      area: selectedArea.value,
+      price: selectedPrice.value,
     })
   }
+
+  // 1) Group rows by restaurant_id → postsByRestaurant
+  const groups = new Map()
+
+  for (const r of filteredRows) {
+    const lat = Number(r.lat ?? r.latitude)
+    const lng = Number(r.long ?? r.lng ?? r.longitude ?? r.longtitude)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+
+    const restaurantId = r.restaurant_id || r.restaurantId || r.restaurant_name || r.name
+    const restaurantName = r.restaurant_name || r.name || String(restaurantId || '')
+    const address = r.address || ''
+    const area = r.area || inferArea(address || '')
+    const cuisine = r.cuisine_type || 'Unknown'
+
+    // Normalize a post object for the drawer list
+    const post = {
+      id: r.postid || r.post_id,
+      rating: Number(r.rating ?? 0),
+      text: r.review || '',
+      photos: Array.isArray(r.pictures) ? r.pictures : [],
+      raw: {
+        created_at: r.created_at,
+        public: r.public ?? r['public?'] ?? true,
+        upvote_count: r.upvote_count ?? 0,
+        user_has_upvoted: r.user_has_upvoted ?? false,
+        comments: r.comments ?? [],
+      },
+      user: { id: r.poster_username, name: r.poster_username, username: r.poster_username },
+      restaurant: {
+        id: restaurantId,
+        name: restaurantName,
+        address,
+        cuisine_type: cuisine,
+        latitude: lat,
+        longitude: lng,
+      },
+    }
+
+    if (!groups.has(restaurantId)) groups.set(restaurantId, [])
+    groups.get(restaurantId).push(post)
+  }
+
+  // 2) Convert groups → unique pins (one per restaurant), using first post as the representative
+  const nextPins = []
+  for (const [restaurantId, posts] of groups.entries()) {
+    const first = posts[0]
+    nextPins.push({
+      restaurant_id: restaurantId,
+      post_id: first.id, // representative post for the View button id
+      name: first.restaurant.name || String(restaurantId),
+      address: first.restaurant.address || '',
+      // ✅ derive area from the representative post's address
+      area: inferArea(first.restaurant.address || ''),
+      cuisine: first.restaurant.cuisine_type || 'Unknown',
+      position: { lat: Number(first.restaurant.latitude), lng: Number(first.restaurant.longitude) },
+      by: first.user?.username || first.user?.name || first.user?.id,
+      rating: Number(first.rating ?? 0),
+      photo: first.photos?.[0] || null,
+      post: first, // keep the representative post
+    })
+  }
+
+  // Build an index postId -> restaurantId so we can jump from a post to its marker quickly
+  const idx = new Map()
+  for (const [rid, posts] of groups.entries()) {
+    for (const p of posts) {
+      if (p?.id) idx.set(String(p.id), rid)
+    }
+  }
+  postIdToRestaurantId.value = idx
+
+  // 3) Commit the groups so the drawer has posts
+  postsByRestaurant.value = groups
+
   pins.value = nextPins
 
-  // Enrich (non-blocking) so area dropdown still works
+  // Optional enrich (kept from your existing codebase)
   await enrichPinsWithPlaces(pins.value)
   await enrichPinsWithAreas(pins.value)
+
+  await rebuildMarkers()
+  await fitMapToFilteredPins()
+}
+
+async function focusPostOnMap(postId, { openDrawer = true } = {}) {
+  const id = String(postId || '')
+  if (!id) return
+
+  // Find the restaurant for this post
+  const rid = postIdToRestaurantId.value.get(id)
+
+  // Fallback: scan if index is missing (should be rare)
+  let restaurantId = rid
+  if (!restaurantId && postsByRestaurant?.value instanceof Map) {
+    for (const [rKey, posts] of postsByRestaurant.value.entries()) {
+      if (posts.some((p) => String(p.id) === id)) {
+        restaurantId = rKey
+        break
+      }
+    }
+  }
+  if (!restaurantId) {
+    console.warn('[map] post not found in index:', id)
+    return
+  }
+
+  // Find the corresponding pin
+  const pin = pins.value.find((p) => String(p.restaurant_id) === String(restaurantId))
+  if (!pin) {
+    console.warn('[map] pin not found for restaurant:', restaurantId)
+    return
+  }
+
+  // Select it, populate drawer posts, and center/zoom
+  selected.value = pin
+  selectedPosts.value = postsByRestaurant.value.get(restaurantId) || []
+
+  try {
+    // Center and zoom (tweak zoom as you like)
+    if (map?.value) {
+      map.value.panTo(pin.position)
+      if (map.value.getZoom && map.value.setZoom) {
+        const z = map.value.getZoom()
+        if (typeof z === 'number' && z < 16) map.value.setZoom(16)
+      }
+    }
+  } catch (e) {
+    console.warn('[map] pan/zoom failed', e)
+  }
+
+  // Optionally open your side drawer if you gate it behind a flag
+  if (openDrawer && typeof showDetails === 'function') {
+    // If you have a function to open a drawer, call it here.
+  }
 }
 
 async function rebuildMarkers() {
@@ -208,6 +367,7 @@ async function rebuildMarkers() {
     filteredPins.value.length,
     'filtered pins',
   )
+  console.log('[rebuild] will place', filteredPins.value.length, 'pins')
 }
 
 /* -----------------
@@ -227,6 +387,7 @@ const userPos = ref(null)
 
 const pins = ref([]) // unique restaurants
 const postsByRestaurant = ref(new Map()) // restaurant_id -> posts[]
+const postIdToRestaurantId = ref(new Map())
 const feedPosts = ref([]) // flat posts
 
 // Cache for Google Places lookups
@@ -242,6 +403,80 @@ const selected = ref(null) // selected pin (for reference)
 const selectedPost = ref(null) // post shown in the “view post” drawer
 const showAdd = ref(false)
 const selectedPosts = ref([]) // all posts for the selected restaurant
+
+// Typeahead state for Cuisine and Area
+const taCuisine = ref({
+  q: '',
+  items: [],
+  open: false,
+  loading: false,
+  noMatch: false,
+  suppressOpen: false,
+})
+const taArea = ref({
+  q: '',
+  items: [],
+  open: false,
+  loading: false,
+  noMatch: false,
+  suppressOpen: false,
+})
+
+function chooseCuisine(v) {
+  selectedCuisine.value = v
+  taCuisine.value.q = v
+  taCuisine.value.suppressOpen = true
+  taCuisine.value.open = false
+}
+function chooseArea(v) {
+  selectedArea.value = v
+  taArea.value.q = v
+  taArea.value.suppressOpen = true
+  taArea.value.open = false
+}
+
+// Debounced fetchers
+const fetchCuisineHints = debounce(async () => {
+  const q = taCuisine.value.q?.trim()
+  if (!q) {
+    taCuisine.value.items = []
+    taCuisine.value.noMatch = false
+    return
+  }
+  taCuisine.value.loading = true
+  try {
+    const list = await getAllCuisines(q)
+    taCuisine.value.items = Array.isArray(list) ? list : []
+    taCuisine.value.noMatch = taCuisine.value.items.length === 0
+  } catch (e) {
+    console.warn('[typeahead] cuisines failed', e)
+    taCuisine.value.items = []
+    taCuisine.value.noMatch = true
+  } finally {
+    taCuisine.value.loading = false
+  }
+}, 250)
+
+const fetchAreaHints = debounce(async () => {
+  const q = taArea.value.q?.trim()
+  if (!q) {
+    taArea.value.items = []
+    taArea.value.noMatch = false
+    return
+  }
+  taArea.value.loading = true
+  try {
+    const list = await getAllLocations(q)
+    taArea.value.items = Array.isArray(list) ? list : []
+    taArea.value.noMatch = taArea.value.items.length === 0
+  } catch (e) {
+    console.warn('[typeahead] areas failed', e)
+    taArea.value.items = []
+    taArea.value.noMatch = true
+  } finally {
+    taArea.value.loading = false
+  }
+}, 250)
 
 /* -----------------
    Map options
@@ -272,10 +507,24 @@ async function ensureMapsApiLoaded(key) {
    Lifecycle
 ------------------*/
 function closePostDrawer() {
+  // Clear selection state first so the drawer unmounts immediately
   selectedPost.value = null
   selected.value = null
-  clearRestaurantQuery()
+  selectedPosts.value = []
+
+  // Close any open Google Maps InfoWindow (defensive)
+  try {
+    infoWindow.value && infoWindow.value.close && infoWindow.value.close()
+  } catch {}
+
+  // Defer query cleanup to avoid fighting with route watchers during unmount
+  nextTick(() => clearRestaurantQuery())
 }
+function onBackdropClick() {
+  if (showAdd.value) return closeCreateDrawer()
+  return closePostDrawer()
+}
+
 function closeCreateDrawer() {
   showAdd.value = false
 }
@@ -290,6 +539,7 @@ function onKeydown(e) {
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
   init()
+  nextTick(() => initTooltips())
 })
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
@@ -301,6 +551,58 @@ watch(
     }
   },
 )
+
+watch(
+  () => route.query.postId,
+  async (newId) => {
+    if (!newId) return
+    // Ensure pins have been loaded at least once
+    if (!pins.value.length) {
+      await loadPinsFromFilters()
+    }
+    await focusPostOnMap(String(newId), { openDrawer: true })
+
+    // Optional: clear the query after focusing so back/forward feels clean
+    const q = { ...route.query }
+    delete q.postId
+    router.replace({ query: q })
+  },
+  { immediate: true },
+)
+
+watch(
+  () => taCuisine.value.q,
+  () => {
+    if (taCuisine.value.suppressOpen) {
+      taCuisine.value.open = false
+      taCuisine.value.suppressOpen = false
+      return
+    }
+    taCuisine.value.open = !!taCuisine.value.q
+    fetchCuisineHints()
+  },
+)
+watch(
+  () => taArea.value.q,
+  () => {
+    if (taArea.value.suppressOpen) {
+      taArea.value.open = false
+      taArea.value.suppressOpen = false
+      return
+    }
+    taArea.value.open = !!taArea.value.q
+    fetchAreaHints()
+  },
+)
+
+// Keep inputs synced when filters change programmatically (e.g., Clear)
+watch(selectedCuisine, (v) => {
+  if (!taCuisine.value.open) taCuisine.value.q = v === 'All' ? '' : v
+})
+watch(selectedArea, (v) => {
+  if (!taArea.value.open) taArea.value.q = v === 'All' ? '' : v
+})
+watch([selectedPrice, uiLocked], () => nextTick(() => initTooltips()))
 
 // Unified POST for /user/getPostbyId
 async function getPostById(postId) {
@@ -425,27 +727,28 @@ async function enrichPinsWithAreas(pinArr) {
 /* -----------------
    Init / data load
 ------------------*/
-// Backend expects POST /friends/getFriendRecs with JSON { user_email }
-async function getFriendRecs(userEmail) {
-  try {
-    const r = await api.post('/friends/getFriendRecs', { user_email: userEmail })
-    return Array.isArray(r.data?.data) ? r.data.data : []
-  } catch (e) {
-    console.error('getFriendRecs failed:', e.response?.status, e.response?.data || e.message)
-    return []
-  }
-}
 
 async function init() {
   try {
-    // 1) Load cuisines for dropdown from backend
-    const list = await getFriendsCuisines(ACTIVE_EMAIL)
-    cuisines.value = ['All', ...list]
+    // 1) Load dropdown suggestions
+    const cuisineList = await getAllCuisines()
+    cuisines.value = ['All', ...cuisineList]
 
-    // Reset filters and load all pins initially
+    const areaList = await getAllLocations()
+    areas.value = ['All', ...areaList]
+
+    // Reset filter defaults and load pins
     selectedCuisine.value = 'All'
     selectedArea.value = 'All'
-    await loadPinsForCuisine('All')
+    selectedPrice.value = 'All'
+    feedScope.value = 'friends'
+
+    // prime inputs
+    taCuisine.value.q = ''
+    taArea.value.q = ''
+
+    await loadPinsFromFilters()
+
     console.log('[init] initial pins', pins.value)
 
     // 2) user location
@@ -593,16 +896,15 @@ function renderInfoWindow(pin) {
     : ''
   return `
     <div class="map-info">
-      ${photo ? `<img src="${photo}" alt="${escapeHtml(pin.name)}" />` : ''}
+      ${photo}
       <div class="title">${escapeHtml(pin.name)}</div>
       <div class="meta">${escapeHtml(pin.cuisine)} • ${escapeHtml(pin.address || '')}</div>
       <div class="rating">
         ⭐ ${Number(pin.rating).toFixed(1)}
-        <span style="color: var(--ink-400); font-weight: 500;">by ${escapeHtml(pin.by || 'friend')}</span>
+        <span style="color: var(--ink-400); font-weight: 500;"></span>
       </div>
       <button id="${id}">View post</button>
     </div>
-  
   `
 }
 
@@ -623,8 +925,7 @@ function goToPost(postId) {
 ------------------*/
 // 🔁 Re-fetch feed, rebuild postsByRestaurant, rebuild pins from real lat/lng, and redraw markers
 async function refreshPinsAndMarkers() {
-  // Re-fetch based on the currently selected cuisine, then redraw
-  await loadPinsForCuisine(selectedCuisine.value)
+  await loadPinsFromFilters()
   await rebuildMarkers()
   await fitMapToFilteredPins()
 }
@@ -656,6 +957,15 @@ function escapeHtml(str = '') {
     /[&<>"']/g,
     (s) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' })[s],
   )
+}
+
+// Simple debounce helper
+function debounce(fn, wait = 250) {
+  let t
+  return (...args) => {
+    clearTimeout(t)
+    t = setTimeout(() => fn(...args), wait)
+  }
 }
 
 /* Drawer helpers (likes/comments) */
@@ -700,7 +1010,17 @@ async function fitMapToFilteredPins() {
 function clearFilters() {
   selectedCuisine.value = 'All'
   selectedArea.value = 'All'
-  // Rebuild markers and refit after resetting filters
+  selectedPrice.value = 'All'
+  feedScope.value = 'friends'
+
+  // reset typeahead inputs and close lists
+  taCuisine.value.q = ''
+  taArea.value.q = ''
+  taCuisine.value.open = false
+  taArea.value.open = false
+  taCuisine.value.suppressOpen = false
+  taArea.value.suppressOpen = false
+
   rebuildMarkers().then(() => fitMapToFilteredPins())
 }
 </script>
@@ -710,63 +1030,207 @@ function clearFilters() {
     <!-- Map -->
     <div ref="mapEl" class="map sage-map"></div>
 
-    <!-- Filter bar (Bootstrap card) -->
-    <div class="position-absolute top-0 start-50 translate-middle-x mt-3" style="z-index: 95">
+    <!-- Responsive Filter Bar (Bootstrap + Vue bindings preserved) -->
+    <div
+      class="position-absolute top-0 start-50 translate-middle-x mt-3 w-100"
+      style="z-index: 95; max-width: 920px"
+    >
       <div
         :class="[
           'card border-0 shadow rounded-4 glass sage-glass',
           { 'pe-none': uiLocked, 'opacity-75': uiLocked },
         ]"
-        style="min-width: 340px; max-width: 720px"
       >
-        <div class="card-body py-2">
-          <div class="d-flex justify-content-center align-items-end gap-3 flex-wrap">
-            <div style="min-width: 160px">
+        <div class="card-body py-3 px-3 px-md-4">
+          <!-- Row 1: Typeaheads -->
+          <div class="row g-3 align-items-end">
+            <!-- Cuisine typeahead -->
+            <div class="col-12 col-md-6 col-lg-4 position-relative">
               <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
-              <select
-                v-model="selectedCuisine"
-                class="form-select form-select-sm text-center"
+              <input
+                class="form-control form-control-sm text-start"
+                placeholder="Type to search (e.g. Japanese)"
+                v-model="taCuisine.q"
+                @focus="taCuisine.open = !!taCuisine.q"
                 :disabled="uiLocked"
                 :aria-disabled="uiLocked ? 'true' : null"
+                @input="taCuisine.open = !!taCuisine.q"
+              />
+              <ul
+                v-if="taCuisine.open"
+                class="dropdown-menu show w-100 shadow-sm"
+                style="max-height: 260px; overflow: auto; z-index: 1200"
               >
-                <option v-for="c in cuisineOptions" :key="c" :value="c">{{ c }}</option>
-              </select>
+                <li>
+                  <button
+                    type="button"
+                    class="dropdown-item text-muted"
+                    @click="chooseCuisine('All')"
+                  >
+                    Show all cuisines
+                  </button>
+                </li>
+                <li v-if="taCuisine.loading" class="dropdown-item disabled">Loading…</li>
+                <li v-for="(c, i) in taCuisine.items" :key="'c-' + i">
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    @click="chooseCuisine(c.name || c.cuisine || c)"
+                  >
+                    {{ c.name || c.cuisine || c }}
+                  </button>
+                </li>
+                <li v-if="taCuisine.noMatch" class="dropdown-item disabled text-muted">No match</li>
+              </ul>
             </div>
 
-            <div style="min-width: 160px">
+            <!-- Area typeahead -->
+            <div class="col-12 col-md-6 col-lg-4 position-relative">
               <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
-              <select
-                v-model="selectedArea"
-                class="form-select form-select-sm text-center"
+              <input
+                class="form-control form-control-sm text-start"
+                placeholder="Type to search (e.g. Bugis)"
+                v-model="taArea.q"
+                @focus="taArea.open = !!taArea.q"
                 :disabled="uiLocked"
                 :aria-disabled="uiLocked ? 'true' : null"
+                @input="taArea.open = !!taArea.q"
+              />
+              <ul
+                v-if="taArea.open"
+                class="dropdown-menu show w-100 shadow-sm"
+                style="max-height: 260px; overflow: auto; z-index: 1200"
               >
-                <option v-for="a in areaOptions" :key="a" :value="a">{{ a }}</option>
-              </select>
+                <li>
+                  <button type="button" class="dropdown-item text-muted" @click="chooseArea('All')">
+                    Show all areas
+                  </button>
+                </li>
+                <li v-if="taArea.loading" class="dropdown-item disabled">Loading…</li>
+                <li v-for="(a, i) in taArea.items" :key="'a-' + i">
+                  <button
+                    type="button"
+                    class="dropdown-item"
+                    @click="chooseArea(a.name || a.area || a)"
+                  >
+                    {{ a.name || a.area || a }}
+                  </button>
+                </li>
+                <li v-if="taArea.noMatch" class="dropdown-item disabled text-muted">No match</li>
+              </ul>
             </div>
 
-            <div class="d-flex gap-2 mt-2">
-              <button
-                type="button"
-                class="btn btn-sm btn-outline-secondary px-3 btn-clear"
-                @click="clearFilters"
-                :disabled="uiLocked"
-                :aria-disabled="uiLocked ? 'true' : null"
-              >
-                <!-- Resets filters to show all pins again -->
-                Clear
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm px-3 btn-fit"
-                @click="fitMapToFilteredPins"
-                title="Fit to filtered pins"
-                :disabled="uiLocked"
-                :aria-disabled="uiLocked ? 'true' : null"
-              >
-                <!-- Zooms and pans map to show all current filtered pins -->
-                Fit
-              </button>
+            <!-- Price chips -->
+            <div class="col-12 col-lg-4">
+              <label class="form-label mb-1 small fw-semibold text-secondary">Price Range</label>
+              <div class="d-flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary price-chip"
+                  :class="{ active: selectedPrice === '$' }"
+                  @click="selectedPrice = '$'"
+                  data-bs-toggle="tooltip"
+                  title="Under $10 per person"
+                  :disabled="uiLocked"
+                >
+                  $
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary price-chip"
+                  :class="{ active: selectedPrice === '$$' }"
+                  @click="selectedPrice = '$$'"
+                  data-bs-toggle="tooltip"
+                  title="$10–$30 per person"
+                  :disabled="uiLocked"
+                >
+                  $$
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary price-chip"
+                  :class="{ active: selectedPrice === '$$$' }"
+                  @click="selectedPrice = '$$$'"
+                  data-bs-toggle="tooltip"
+                  title="$30–$60 per person"
+                  :disabled="uiLocked"
+                >
+                  $$$
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary price-chip"
+                  :class="{ active: selectedPrice === '$$$$' }"
+                  @click="selectedPrice = '$$$$'"
+                  data-bs-toggle="tooltip"
+                  title="$60+ per person"
+                  :disabled="uiLocked"
+                >
+                  $$$$
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary price-chip"
+                  :class="{ active: selectedPrice === 'All' }"
+                  @click="selectedPrice = 'All'"
+                  title="Show all prices"
+                  :disabled="uiLocked"
+                >
+                  All
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 2: Scope + Actions -->
+          <div class="row g-3 align-items-center mt-1">
+            <div class="col-12 col-md-6">
+              <div class="btn-group" role="group" aria-label="Scope toggle">
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="scopeToggle"
+                  id="scopeFriends"
+                  value="friends"
+                  v-model="feedScope"
+                  :disabled="uiLocked"
+                />
+                <label class="btn btn-outline-primary btn-sm" for="scopeFriends">Friends</label>
+
+                <input
+                  type="radio"
+                  class="btn-check"
+                  name="scopeToggle"
+                  id="scopePublic"
+                  value="public"
+                  v-model="feedScope"
+                  :disabled="uiLocked"
+                />
+                <label class="btn btn-outline-primary btn-sm" for="scopePublic">Public</label>
+              </div>
+            </div>
+            <div class="col-12 col-md-6 text-md-end">
+              <div class="d-inline-flex gap-2">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary px-3 btn-clear"
+                  @click="clearFilters"
+                  :disabled="uiLocked"
+                  :aria-disabled="uiLocked ? 'true' : null"
+                >
+                  Clear
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary px-3 btn-fit"
+                  @click="fitMapToFilteredPins"
+                  title="Fit to filtered pins"
+                  :disabled="uiLocked"
+                  :aria-disabled="uiLocked ? 'true' : null"
+                >
+                  Fit
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -775,23 +1239,57 @@ function clearFilters() {
 
     <!-- Overlays -->
     <div v-if="loading" class="overlay">Loading map…</div>
-    <div v-else-if="error" class="overlay error">{{ error }}</div>
+    <!-- <div v-else-if="error" class="overlay error">{{ error }}</div> -->
+    <div v-else-if="!loading && !error && !filteredPins.length" class="overlay">
+      <div class="text-muted small bg-white rounded-3 px-3 py-2 shadow-sm">
+        No posts match your filters.
+        <button class="btn btn-sm btn-outline-secondary ms-2" @click="clearFilters()">
+          Clear filters
+        </button>
+        <span class="ms-2 d-inline-flex align-items-center">
+          <div class="btn-group" role="group" aria-label="Scope toggle">
+            <input
+              type="radio"
+              class="btn-check"
+              name="scopeToggle2"
+              id="scopeFriends2"
+              value="friends"
+              v-model="feedScope"
+            />
+            <label class="btn btn-outline-primary btn-sm" for="scopeFriends2">Friends</label>
+
+            <input
+              type="radio"
+              class="btn-check"
+              name="scopeToggle2"
+              id="scopePublic2"
+              value="public"
+              v-model="feedScope"
+            />
+            <label class="btn btn-outline-primary btn-sm" for="scopePublic2">Public</label>
+          </div>
+        </span>
+      </div>
+    </div>
 
     <!-- FAB: Create Post -->
     <button class="fab fab-terracotta" @click="showAdd = true" title="Create Post">＋</button>
     <div class="fab-label sage-chip">Create Post</div>
 
     <!-- Backdrop for drawers -->
-    <div
-      v-if="selected || showAdd"
-      class="backdrop"
-      @click="showAdd ? closeCreateDrawer() : closePostDrawer()"
-    ></div>
+    <div v-if="selected || showAdd" class="backdrop" @click="onBackdropClick"></div>
 
     <!-- Drawer: View Restaurant -->
     <transition name="slide">
-      <aside v-if="selected" class="side" aria-label="Restaurant details">
-        <button class="close" @click="closePostDrawer" aria-label="Close">✕</button>
+      <aside
+        v-if="selected"
+        class="side"
+        aria-label="Restaurant details"
+        @wheel.stop
+        @touchmove.stop
+        @click.stop
+      >
+        <button class="close" @click.stop.prevent="closePostDrawer()" aria-label="Close">✕</button>
 
         <header class="side-head">
           <h2 class="rname">{{ selected?.name }}</h2>
@@ -845,15 +1343,6 @@ function clearFilters() {
                 </div>
 
                 <div class="d-flex flex-wrap align-items-center gap-2">
-                  <span class="badge rounded-pill bg-light text-dark border">
-                    {{ p.restaurant?.cuisine_type || selected?.cuisine || 'Unknown' }}
-                  </span>
-                  <span
-                    v-if="p.restaurant?.address || selected?.address"
-                    class="badge text-bg-light border"
-                  >
-                    📍 {{ p.restaurant?.address || selected?.address }}
-                  </span>
                   <span v-if="p.raw?.created_at" class="text-muted small ms-auto">
                     {{ new Date(p.raw.created_at).toLocaleString() }}
                   </span>
@@ -869,9 +1358,6 @@ function clearFilters() {
     <!-- Modal: Add Recommendation -->
     <Modal :show="showAdd" title="Add Food Recommendation" @close="showAdd = false">
       <AddRecommendationForm @added="handleAdded" />
-      <template #footer>
-        <button class="px-4 py-2 rounded-md border" @click="showAdd = false">Cancel</button>
-      </template>
     </Modal>
   </div>
 </template>
@@ -930,6 +1416,9 @@ function clearFilters() {
   max-width: 92vw;
   height: 100vh;
   z-index: 100;
+  overflow-y: auto; /* allow scrolling inside the drawer */
+  -webkit-overflow-scrolling: touch; /* smooth iOS scroll */
+  overscroll-behavior: contain; /* stop scroll from propagating to map/body */
 }
 .close {
   position: absolute;
@@ -985,5 +1474,30 @@ function clearFilters() {
 aside.side.clicking {
   filter: brightness(0.5);
   transition: filter 0.18s ease;
+}
+
+/* ensure typeahead lists float above the glass card */
+.list-group {
+  z-index: 1200;
+}
+
+/* Price range chips */
+.price-chip {
+  border: 1px solid var(--line-200);
+  border-radius: 10px;
+  background: #fff;
+  font-weight: 700;
+  padding: 6px 12px;
+}
+
+.price-chip:hover {
+  background-color: #e0e0e0;
+  color: var(--charcoal);
+}
+.price-chip.active {
+  background: var(--cream-100);
+  border-color: var(--sage-500);
+  box-shadow: inset 0 0 0 1px var(--sage-500);
+  color: var(--charcoal);
 }
 </style>
