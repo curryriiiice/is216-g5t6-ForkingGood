@@ -26,6 +26,7 @@ const isDragging = ref(false)
 /** Autocomplete DOM ref */
 const nameInputEl = ref(null) // Autocomplete for place/restaurant name
 const addressInputEl = ref(null) // Autocomplete for address/location
+const rootEl = ref(null) // Root element for tooltip scoping
 const stars = [1, 2, 3, 4, 5]
 function setRating(n) {
   rating.value = clampRating(n)
@@ -207,32 +208,51 @@ async function submit() {
 
 
 
-let tooltipInstances = []
+function initTooltipsLocal() {
+  try {
+    const Tooltip = window.bootstrap?.Tooltip
+    if (!Tooltip) return
+    const scope = rootEl.value
+    if (!scope) return
+    const els = scope.querySelectorAll('[data-bs-toggle="tooltip"]')
+    els.forEach((el) => {
+      if (!el || !el.isConnected) return
+      const existing = Tooltip.getInstance?.(el)
+      if (existing) existing.dispose()
+      new Tooltip(el, {
+        container: 'body',
+        boundary: 'window',
+        placement: 'top',
+        trigger: 'hover focus',
+        delay: { show: 100, hide: 120 },
+      })
+    })
+  } catch { /* ignore */ }
+}
 
-onMounted(() => {
-  // Ensure Bootstrap JS bundle is loaded on the page (index.html or via import)
-  const triggers = document.querySelectorAll('[data-bs-toggle="tooltip"]')
-  tooltipInstances = [...triggers].map(el => {
-    const tooltip = new bootstrap.Tooltip(el, {
-      container: 'body',
-      boundary: 'window',
-      placement: 'top',
-      trigger: 'hover focus',      // hide when you leave or blur
-      delay: { show: 100, hide: 120 } // tiny delay helps prevent “sticky” feel
-    });
-    el.addEventListener('click', () => tooltip.hide());
-    return tooltip;
-  })
-})
+function destroyTooltipsLocal() {
+  try {
+    const Tooltip = window.bootstrap?.Tooltip
+    if (!Tooltip) return
+    const scope = rootEl.value
+    if (!scope) return
+    const els = scope.querySelectorAll('[data-bs-toggle="tooltip"]')
+    els.forEach((el) => {
+      try {
+        if (!el || !el.isConnected) return
+        const inst = Tooltip.getInstance?.(el)
+        if (inst) inst.dispose()
+      } catch { /* ignore */ }
+    })
+  } catch { /* ignore */ }
+}
 
-onBeforeUnmount(() => {
-  tooltipInstances.forEach(t => t.dispose())
-  tooltipInstances = []
-})
+onMounted(() => nextTick(() => initTooltipsLocal()))
+onBeforeUnmount(() => destroyTooltipsLocal())
 </script>
 
 <template>
-  <form class="rec-form" @submit.prevent="submit">
+  <form ref="rootEl" class="rec-form" @submit.prevent="submit">
     <!-- <h2 class="form-title">Add a Food Recommendation</h2> -->
 
     <!-- Restaurant or Place -->
@@ -291,60 +311,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Price Range -->
-    <div class="mb-3">
-      <label class="form-label fw-semibold">Price Range</label>
-      <div class="d-flex gap-2 flex-wrap">
-        <button
-          type="button"
-          class="btn btn-outline-secondary price-chip"
-          :class="{ active: priceRange === '$' }"
-          @click="priceRange = '$'"
-          data-bs-toggle="tooltip"
-          data-bs-placement="top"
-          title="Under $10 per person"
-        >
-          $
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-outline-secondary price-chip"
-          :class="{ active: priceRange === '$$' }"
-          @click="priceRange = '$$'"
-          data-bs-toggle="tooltip"
-          data-bs-placement="top"
-          title="$10–$30 per person"
-        >
-          $$
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-outline-secondary price-chip"
-          :class="{ active: priceRange === '$$$' }"
-          @click="priceRange = '$$$'"
-          data-bs-toggle="tooltip"
-          data-bs-placement="top"
-          title="$30–$60 per person"
-        >
-          $$$
-        </button>
-
-        <button
-          type="button"
-          class="btn btn-outline-secondary price-chip"
-          :class="{ active: priceRange === '$$$$' }"
-          @click="priceRange = '$$$$'"
-          data-bs-toggle="tooltip"
-          data-bs-placement="top"
-          title="$60+ per person"
-        >
-          $$$$
-        </button>
-      </div>
-    </div>
-
     <!-- Notes -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Notes or Why You Recommend It</label>
@@ -379,8 +345,8 @@ onBeforeUnmount(() => {
               if (f) {
                 const r = new FileReader()
                 r.onload = () => {
-                  photoUrl = r.result
-                  photos = [r.result]
+                  photoUrl.value = String(r.result || '')
+                  photos.value = [String(r.result || '')]
                 }
                 r.readAsDataURL(f)
               }

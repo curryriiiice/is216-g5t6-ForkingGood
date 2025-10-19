@@ -6,21 +6,22 @@ import { useRouter } from 'vue-router'
 
 const searchTerm = ref('')
 const user = ref(null)
-// const pendingRequestsCount = ref(3) // demo
+const pendingRequestsCount = ref(0) // placeholder until axios interceptors are wired
 const router = useRouter()
 const loading = ref(true)
 
 onMounted(async () => {
   try {
     const { data } = await api.get('/me')
-    user.value = data?.user || data || null
+    // normalise server response: handles { user }, { data }, or raw object
+    user.value = data?.user ?? data?.data ?? data ?? null
     // If your backend returns null for unauthenticated, you can optionally redirect:
     if (!user.value) {
       // router.push('/login') // uncomment if you want hard redirect when not logged in
     }
   } catch (err) {
     // If backend sends 401 for unauthenticated users, redirect to login
-    if (err?.response?.status === 401) {
+    if (err?.response?.status === 401 || err?.response?.status === 404) {
       user.value = null
       // router.push('/login') // uncomment if you want hard redirect on 401
     } else {
