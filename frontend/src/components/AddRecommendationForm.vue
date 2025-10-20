@@ -8,7 +8,7 @@ const emit = defineEmits(['added'])
 
 /** Form state */
 const comment = ref('')
-const rating = ref(0) // start empty until user selects
+const rating = ref(0)
 const cuisine = ref('')
 
 /** Place fields (filled by Google Places) */
@@ -17,26 +17,30 @@ const address = ref('')
 const lat = ref(null)
 const lng = ref(null)
 const placeId = ref('')
-const photoUrl = ref('')
-const photos = ref([])
-const priceRange = ref(null) // '$' | '$$' | '$$$' | '$$$$'
-const visibility = ref('friends') // 'friends' | 'everyone'
+const photoUrl = ref('')        // dataURL for submit
+const photos = ref([])          // array of dataURLs (we keep your original)
+const previewUrl = ref('')      // objectURL for fast, reliable preview
+const priceRange = ref(null)    // '$' | '$$' | '$$$' | '$$$$'
+const visibility = ref('friends')
 const isDragging = ref(false)
 
-/** Autocomplete DOM ref */
-const nameInputEl = ref(null) // Autocomplete for place/restaurant name
-const addressInputEl = ref(null) // Autocomplete for address/location
-const rootEl = ref(null) // Root element for tooltip scoping
+/** Autocomplete DOM refs */
+const nameInputEl = ref(null)
+const addressInputEl = ref(null)
+const rootEl = ref(null)
+
+/** File input (so drop zone is clickable) */
+const fileInputEl = ref(null)
+
+/** Stars */
 const stars = [1, 2, 3, 4, 5]
-function setRating(n) {
-  rating.value = clampRating(n)
-}
+function setRating(n) { rating.value = clampRating(n) }
 
 /** Status */
 const submitting = ref(false)
 const errorMsg = ref('')
 
-/** Load Maps JS (Places) if not already loaded */
+/** Maps JS (Places) */
 const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 async function ensureMapsApiLoaded(key) {
   if (window.google?.maps?.importLibrary) return
@@ -51,7 +55,6 @@ async function ensureMapsApiLoaded(key) {
   })
 }
 
-/** Bias autocomplete to user's current location */
 async function getUserLocation() {
   return new Promise((resolve) => {
     if (!navigator.geolocation) return resolve(null)
@@ -73,53 +76,40 @@ onMounted(async () => {
 
   const { places } = google.maps
 
-  // --- Bias suggestions around user's current location ---
   let circleBounds = null
   const pos = await getUserLocation()
   if (pos) {
-    const circle = new google.maps.Circle({ center: pos, radius: 3000 }) // 3km bias
+    const circle = new google.maps.Circle({ center: pos, radius: 3000 })
     circleBounds = circle.getBounds()
   }
 
-  // --- Autocomplete for Restaurant/Place NAME (establishments) ---
   const acName = new places.Autocomplete(nameInputEl.value, {
     fields: ['place_id', 'name', 'formatted_address', 'geometry'],
-    types: ['establishment'], // restaurants/cafes/shops, etc.
+    types: ['establishment'],
   })
   if (circleBounds) acName.setBounds(circleBounds)
-
   acName.addListener('place_changed', () => {
     const place = acName.getPlace()
     if (!place) return
-
     placeId.value = place.place_id || ''
-    placeName.value = place.name || placeName.value || '' // keep user-entered if missing
+    placeName.value = place.name || placeName.value || ''
     address.value = place.formatted_address || address.value || ''
-
     const location = place.geometry?.location
     lat.value = location?.lat?.() ?? lat.value
     lng.value = location?.lng?.() ?? lng.value
   })
 
-  // --- Autocomplete for ADDRESS (geocode). Lets user type a location and keep a custom name ---
   const acAddr = new places.Autocomplete(addressInputEl.value, {
     fields: ['place_id', 'formatted_address', 'geometry', 'name'],
-    types: ['geocode'], // address/location results
+    types: ['geocode'],
   })
   if (circleBounds) acAddr.setBounds(circleBounds)
-
   acAddr.addListener('place_changed', () => {
     const place = acAddr.getPlace()
     if (!place) return
-
-    // Only set name if the user didn't type one yet (so they can keep a custom name)
-    if (!placeName.value && place.name) {
-      placeName.value = place.name
-    }
-
+    if (!placeName.value && place.name) placeName.value = place.name
     placeId.value = place.place_id || placeId.value || ''
     address.value = place.formatted_address || address.value || ''
-
     const location = place.geometry?.location
     lat.value = location?.lat?.() ?? lat.value
     lng.value = location?.lng?.() ?? lng.value
@@ -128,50 +118,66 @@ onMounted(async () => {
 
 function clampRating(num) {
   if (Number.isNaN(num)) return 1
-  if (num < 1) return 1
-  if (num > 5) return 5
-  return Math.round(num * 2) / 2 // keep .5 steps if you like
+  return Math.min(5, Math.max(1, Math.round(num * 2) / 2))
+}
+
+/** ---------- File / Preview helpers ---------- */
+function openFilePicker() {
+  fileInputEl.value?.click()
+}
+
+function clearPreview() {
+  try { if (previewUrl.value) URL.revokeObjectURL(previewUrl.value) } catch {}
+  previewUrl.value = ''
+}
+
+function handleChosenFile(file) {
+  if (!file) return
+  // objectURL for reliable <img> preview (not blocked by CSP)
+  clearPreview()
+  previewUrl.value = URL.createObjectURL(file)
+
+  // also keep your existing dataURL array for submission
+  const reader = new FileReader()
+  reader.onload = () => {
+    const data = String(reader.result || '')
+    photoUrl.value = data
+    photos.value = [data] // keep first image only (your code uses first anyway)
+  }
+  reader.readAsDataURL(file)
+}
+
+function onInputChange(e) {
+  const f = e.target?.files?.[0]
+  handleChosenFile(f)
 }
 
 function onDrop(e) {
   isDragging.value = false
   const files = Array.from(e.dataTransfer?.files || [])
   if (!files.length) return
-  const imgFiles = files.filter((f) => f.type.startsWith('image/')).slice(0, 6)
+  const img = files.find((f) => f.type.startsWith('image/'))
+  if (img) handleChosenFile(img)
+}
+function onDragOver(e) { e.preventDefault(); isDragging.value = true }
+function onDragLeave() { isDragging.value = false }
+
+function removePhoto() {
+  clearPreview()
   photos.value = []
-  imgFiles.forEach((f) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      photos.value.push(reader.result)
-      if (!photoUrl.value) photoUrl.value = String(reader.result)
-    }
-    reader.readAsDataURL(f)
-  })
-}
-function onDragOver(e) {
-  e.preventDefault()
-  isDragging.value = true
-}
-function onDragLeave() {
-  isDragging.value = false
+  photoUrl.value = ''
+  if (fileInputEl.value) fileInputEl.value.value = ''
 }
 
+/** ---------- Submit ---------- */
 async function submit() {
   try {
-    // basic validation
-    if (!placeName.value.trim()) {
-      alert('Please enter a restaurant name.')
-      return
-    }
+    if (!placeName.value.trim()) { alert('Please enter a restaurant name.'); return }
     if (!rating.value || rating.value < 1 || rating.value > 5) {
-      alert('Please enter a rating between 1 and 5.')
-      return
+      alert('Please enter a rating between 1 and 5.'); return
     }
 
-    // ✅ make sure to define restId before using it
     const restId = placeId?.value || crypto.randomUUID()
-
-    // create a simple restaurant object
     const restaurant = {
       id: restId,
       name: placeName.value.trim(),
@@ -181,7 +187,6 @@ async function submit() {
       longitude: lng.value || null,
     }
 
-    // send to backend (Axios)
     const payload = {
       restaurant,
       comment: comment.value.trim(),
@@ -193,21 +198,15 @@ async function submit() {
 
     const { data } = await api.post('/recommendations', payload)
     const restaurantId = data?.restaurantId || restaurant.id
-
     emit('added', { restaurantId })
-
-    // redirect to map and focus new pin
     router.push({ path: '/map', query: { restaurant: restaurantId } })
   } catch (err) {
     console.error('Error adding recommendation:', err)
     alert(err.message || 'Failed to add recommendation.')
   }
-
-  
 }
 
-
-
+/** Tooltips (unchanged) */
 function initTooltipsLocal() {
   try {
     const Tooltip = window.bootstrap?.Tooltip
@@ -227,9 +226,8 @@ function initTooltipsLocal() {
         delay: { show: 100, hide: 120 },
       })
     })
-  } catch { /* ignore */ }
+  } catch {}
 }
-
 function destroyTooltipsLocal() {
   try {
     const Tooltip = window.bootstrap?.Tooltip
@@ -242,19 +240,16 @@ function destroyTooltipsLocal() {
         if (!el || !el.isConnected) return
         const inst = Tooltip.getInstance?.(el)
         if (inst) inst.dispose()
-      } catch { /* ignore */ }
+      } catch {}
     })
-  } catch { /* ignore */ }
+  } catch {}
 }
-
 onMounted(() => nextTick(() => initTooltipsLocal()))
-onBeforeUnmount(() => destroyTooltipsLocal())
+onBeforeUnmount(() => { destroyTooltipsLocal(); clearPreview() })
 </script>
 
 <template>
   <form ref="rootEl" class="rec-form" @submit.prevent="submit">
-    <!-- <h2 class="form-title">Add a Food Recommendation</h2> -->
-
     <!-- Restaurant or Place -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Restaurant or Place</label>
@@ -326,34 +321,38 @@ onBeforeUnmount(() => destroyTooltipsLocal())
     <!-- Photos -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Photos</label>
+
+      <!-- Clickable drop area -->
       <div
         class="drop-area"
         :class="{ dragging: isDragging }"
+        @click="openFilePicker"
         @dragover.prevent="onDragOver"
         @dragleave="onDragLeave"
         @drop.prevent="onDrop"
         tabindex="0"
+        role="button"
+        title="Click to choose an image or drop here"
       >
-        <div class="drop-hint text-center">Drag &amp; drop your photos here or click to upload</div>
+        <div class="drop-hint text-center">
+          Click to select an image or drag &amp; drop here
+        </div>
         <input
+          ref="fileInputEl"
           type="file"
           accept="image/*"
-          class="mt-2"
-          @change="
-            (e) => {
-              const f = e.target.files?.[0]
-              if (f) {
-                const r = new FileReader()
-                r.onload = () => {
-                  photoUrl.value = String(r.result || '')
-                  photos.value = [String(r.result || '')]
-                }
-                r.readAsDataURL(f)
-              }
-            }
-          "
+          class="hidden-file"
+          @change="onInputChange"
         />
       </div>
+
+      <!-- Large live preview (always shows the first image) -->
+      <div v-if="previewUrl" class="live-preview">
+        <img :src="previewUrl" alt="Selected image preview" />
+        <button type="button" class="remove-btn" @click="removePhoto">Remove</button>
+      </div>
+
+      <!-- Thumbnails (kept for compatibility) -->
       <div class="thumbs" v-if="photos.length">
         <img v-for="(src, i) in photos" :key="i" :src="src" alt="" />
       </div>
@@ -362,25 +361,12 @@ onBeforeUnmount(() => destroyTooltipsLocal())
     <!-- Visibility -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Who can see this?</label>
-      <div class="form-check">
-        <input
-          class="form-check-input"
-          type="radio"
-          id="vis-friends"
-          value="friends"
-          v-model="visibility"
-        />
-        <label class="form-check-label" for="vis-friends">Friends</label>
-      </div>
-      <div class="form-check">
-        <input
-          class="form-check-input"
-          type="radio"
-          id="vis-everyone"
-          value="everyone"
-          v-model="visibility"
-        />
-        <label class="form-check-label" for="vis-everyone">Everyone</label>
+      <div class="vis-group" role="radiogroup" aria-label="Visibility">
+        <input class="vis-input" type="radio" id="vis-friends" value="friends" v-model="visibility" />
+        <label class="vis-chip" for="vis-friends">👥 Friends</label>
+
+        <input class="vis-input" type="radio" id="vis-everyone" value="everyone" v-model="visibility" />
+        <label class="vis-chip" for="vis-everyone">🌍 Everyone</label>
       </div>
     </div>
 
@@ -392,109 +378,127 @@ onBeforeUnmount(() => destroyTooltipsLocal())
 
 <style scoped>
 .rec-form {
-  background: var(--cream-50);
-  border: 1px solid rgba(139, 157, 131, 0.15);
+  background: transparent;
+  border: 0;
   border-radius: var(--radius-md);
   padding: 18px 20px 22px;
 }
-.form-title {
-  text-align: center;
-  color: var(--charcoal);
-  font-weight: 800;
-  margin: 0 0 16px;
-}
-.form-label {
-  color: var(--charcoal);
-  margin-bottom: 6px;
-}
+
+/* Labels visible on dark */
+.form-label { color: var(--charcoal); margin-bottom: 6px; }
+:root[data-theme="dark"] .rec-form .form-label { color: #e9eef6; }
+
+/* Inputs */
 .form-control {
-  border-radius: 10px;
-  border: 1px solid var(--line-200);
+  border-radius: 12px;
+  border: 2px solid var(--line-200);
   padding: 10px 12px;
+  background: #fff;
+  color: #111827;
 }
 .form-control:focus {
-  border-color: var(--sage-500);
-  box-shadow: 0 0 0 3px rgba(168, 185, 165, 0.25);
+  border-color: var(--sage-600);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage-600) 35%, transparent);
+}
+:root[data-theme="dark"] .rec-form .form-control {
+  background: #0E141B;
+  color: #e9eef6;
+  border-color: #2a3a52;
 }
 
 /* Stars */
-.stars {
-  display: inline-flex;
-  gap: 6px;
-  user-select: none;
-}
-.star-btn {
-  appearance: none;
-  border: none;
-  background: transparent;
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-  color: var(--sage-600);
-}
-.star-btn[aria-checked='false'] {
-  color: #c9cfc6;
-}
-
-/* Price range chips */
-.price-chip {
-  border: 1px solid var(--line-200);
-  border-radius: 10px;
-  background: #fff;
-  font-weight: 700;
-  padding: 6px 12px;
-}
-
-.price-chip:hover {
-  background-color: #e0e0e0;
-  color: var(--charcoal);
-}
-.price-chip.active {
-  background: var(--cream-100);
-  border-color: var(--sage-500);
-  box-shadow: inset 0 0 0 1px var(--sage-500);
-  color: var(--charcoal);
-}
+.stars { display: inline-flex; gap: 6px; user-select: none; }
+.star-btn { appearance: none; border: none; background: transparent; font-size: 24px; line-height: 1; cursor: pointer; padding: 0 2px; color: var(--sage-600); }
+.star-btn[aria-checked='false'] { color: #c9cfc6; }
+:root[data-theme="dark"] .rec-form .star-btn[aria-checked='false'] { color: #3a4759; }
 
 /* Drop zone */
 .drop-area {
-  border: 2px dashed rgba(139, 157, 131, 0.45);
+  border: 2px dashed rgba(139,157,131,0.45);
   border-radius: 12px;
   padding: 14px;
-  background: rgba(250, 249, 246, 0.6);
+  background: rgba(250,249,246,0.6);
+  cursor: pointer;
 }
-.drop-area.dragging {
-  background: rgba(250, 249, 246, 0.9);
-  border-color: var(--sage-600);
+.drop-area.dragging { background: rgba(250,249,246,0.9); border-color: var(--sage-600); }
+:root[data-theme="dark"] .rec-form .drop-area {
+  background: #0d1218;
+  border-color: #2a3a52;
 }
-.drop-hint {
-  color: var(--ink-400);
-}
-.thumbs {
-  display: flex;
-  gap: 8px;
+.drop-hint { color: var(--ink-400); }
+:root[data-theme="dark"] .rec-form .drop-hint { color: #b7c3d3; }
+
+/* hide the actual file input */
+.hidden-file { display: none; }
+
+/* Live large preview */
+.live-preview {
   margin-top: 10px;
-  flex-wrap: wrap;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--line-200);
 }
-.thumbs img {
-  width: 84px;
-  height: 84px;
+:root[data-theme="dark"] .rec-form .live-preview {
+  background: #0E141B;
+  border-color: #2a3a52;
+}
+.live-preview img {
+  width: 100%;
+  max-height: 320px;
   object-fit: cover;
   border-radius: 10px;
-  box-shadow: var(--shadow-card);
+  background: #fff; /* ensure visible if image has transparency */
+  border: 1px solid #e5e7eb;
 }
+:root[data-theme="dark"] .rec-form .live-preview img {
+  border-color: #2a3a52;
+  background: #0B1117;
+}
+.remove-btn {
+  margin-top: 8px;
+  background: transparent;
+  color: #ef4444;
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* Thumbs (kept) */
+.thumbs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.thumbs img {
+  width: 84px; height: 84px; object-fit: cover; border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  background: #fff; border: 1px solid #e5e7eb;
+}
+:root[data-theme="dark"] .rec-form .thumbs img {
+  background: #0B1117; border-color: #2a3a52;
+}
+
+/* Visibility chips */
+.vis-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.vis-input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.vis-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 14px; font-weight: 900; font-size: 14px;
+  border-radius: 999px; cursor: pointer; user-select: none;
+  background: #fff; color: #111827; border: 2px solid var(--line-200);
+  box-shadow: 0 2px 0 rgba(0,0,0,.05);
+}
+.vis-chip:hover { filter: brightness(0.98); }
+:root[data-theme="dark"] .rec-form .vis-chip { background: #0E141B; color: #e9eef6; border-color: #2a3a52; }
+#vis-friends.vis-input:checked + .vis-chip,
+#vis-everyone.vis-input:checked + .vis-chip {
+  background: var(--sage-600); color: #fff; border-color: var(--sage-600);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage-600) 35%, transparent);
+}
+.vis-input:focus + .vis-chip { outline: 3px solid color-mix(in oklab, var(--sage-600) 45%, transparent); outline-offset: 2px; }
 
 /* Submit */
 .submit-btn {
-  background: linear-gradient(135deg, var(--terra-500), var(--terra-600));
-  color: #fff;
-  font-weight: 700;
-  border: none;
-  border-radius: 12px;
-  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--sage-600), var(--terra-500));
+  color: #fff; font-weight: 900; border: none; border-radius: 12px; padding: 12px 16px;
+  box-shadow: 0 8px 20px rgba(0,0,0,.18);
 }
-.submit-btn:disabled {
-  opacity: 0.7;
-}
+.submit-btn:disabled { opacity: 0.7; }
 </style>
