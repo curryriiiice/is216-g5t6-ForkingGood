@@ -16,7 +16,7 @@
       <button
         type="button"
         class="rev-btn"
-        @click="showReversePopup = true"
+        @click="openReversePopup"
         aria-label="Reverse image search"
       >
         Image Search
@@ -66,7 +66,7 @@
           {{ pendingRequestsCount > 99 ? '99+' : pendingRequestsCount }}
         </span>
       </RouterLink>
-      <RouterLink to="/setting" class="link">Setting</RouterLink>
+      <!-- Settings link removed -->
     </div>
 
     <!-- Right side -->
@@ -88,59 +88,104 @@
     </div>
   </nav>
 
-  <!-- Reverse Image Search Modal -->
-  <Modal :show="showReversePopup" title="Reverse Image Search" @close="closeReversePopup">
-    <div class="p-3">
-      <p class="mb-2 rev-title">Upload a single image</p>
+  <!-- Reverse Image Search Modal (teleported to body, with cropper) -->
+  <Teleport to="body">
+    <Modal :show="showReversePopup" title="Reverse Image Search" @close="closeReversePopup">
+      <div class="p-3">
+        <p class="mb-2 rev-title">Upload an image, zoom/drag to adjust, then submit.</p>
 
-      <!-- hidden native input, triggered by the button below -->
-      <input
-        ref="fileInputRef"
-        type="file"
-        accept="image/*"
-        capture="environment"
-        class="sr-only"
-        style="display:none"
-        @change="handleSingleFile"
-      />
+        <!-- hidden native input, triggered by the button below -->
+        <input
+          ref="fileInputRef"
+          type="file"
+          accept="image/*"
+          class="sr-only"
+          style="display:none"
+          @change="handleSingleFile"
+        />
 
-      <!-- file picker / file chip -->
-      <div class="file-row">
-        <button type="button" class="pick-btn" @click="triggerPick">Choose File</button>
+        <!-- file picker / file chip -->
+        <div class="file-row">
+          <button type="button" class="pick-btn" @click="triggerPick">Choose File</button>
 
-        <div v-if="selectedFile" class="file-chip">
-          <span class="file-name" :title="selectedFile.name">{{ selectedFile.name }}</span>
-          <button type="button" class="remove-file" @click="removeFile" aria-label="Remove file">×</button>
+          <div v-if="selectedFile" class="file-chip">
+            <span class="file-name" :title="selectedFile.name">{{ selectedFile.name }}</span>
+            <button type="button" class="remove-file" @click="removeFile" aria-label="Remove file">×</button>
+          </div>
+
+          <div v-else class="no-file">No file chosen</div>
         </div>
 
-        <div v-else class="no-file">No file chosen</div>
-      </div>
+        <!-- CROP UI -->
+        <div v-if="cropSrc" class="ris-crop-wrap">
+          <div
+            class="ris-crop-area"
+            :style="{ width: C + 'px', height: C + 'px' }"
+            @mousedown="onDragStart"
+            @mousemove="onDragMove"
+            @mouseup="onDragEnd"
+            @mouseleave="onDragEnd"
+            @touchstart="onDragStart"
+            @touchmove="onDragMove"
+            @touchend="onDragEnd"
+          >
+            <img
+              :src="cropSrc"
+              id="ris-crop-img"
+              class="ris-crop-img"
+              :style="{
+                left: pos.left + 'px',
+                top: pos.top + 'px',
+                width: (imgMeta.naturalW * cropScale) + 'px',
+                height: (imgMeta.naturalH * cropScale) + 'px'
+              }"
+              @load="onImgLoad"
+              draggable="false"
+              alt="Crop source"
+            />
+            <!-- square guide -->
+            <div class="ris-crop-mask" :style="{ width: D + 'px', height: D + 'px', left: (C - D)/2 + 'px', top: (C - D)/2 + 'px' }"></div>
+          </div>
 
-      <!-- preview (only one) -->
-      <div v-if="previewUrl" class="rev-preview">
-        <img :src="previewUrl" alt="Preview" />
-      </div>
+          <div class="mt-3">
+            <label class="form-label small text-muted">Zoom</label>
+            <input
+              class="form-range"
+              type="range"
+              min="0.5"
+              max="3"
+              step="0.01"
+              :value="cropScale"
+              @input="onZoomChange($event.target.value)"
+            />
+          </div>
 
-      <!-- errors -->
-      <p v-if="fileError" class="rev-error">{{ fileError }}</p>
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" class="btn btn-ghost" @click="resetCrop">Reset</button>
+            <button type="button" class="btn btn-ghost" @click="removeFile">Remove Image</button>
+          </div>
+        </div>
 
-      <div class="rev-actions">
-        <!-- No Cancel button; users can close with the X in the modal header -->
-        <button
-          type="button"
-          class="rev-submit"
-          :disabled="!selectedFile || submitting"
-          @click="submitReverseSearch"
-        >
-          {{ submitting ? 'Submitting…' : 'Submit Image Search' }}
-        </button>
+        <!-- errors -->
+        <p v-if="fileError" class="rev-error">{{ fileError }}</p>
+
+        <div class="rev-actions">
+          <button
+            type="button"
+            class="rev-submit"
+            :disabled="(!selectedFile && !cropBlob) || submitting"
+            @click="submitReverseSearch"
+          >
+            {{ submitting ? 'Submitting…' : 'Submit Image Search' }}
+          </button>
+        </div>
       </div>
-    </div>
-  </Modal>
+    </Modal>
+  </Teleport>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, reactive } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import axios from 'axios'
 import Modal from '@/components/Modal.vue'
@@ -169,7 +214,7 @@ const showDropdown = ref(false)
 const dropdownRef = ref(null)
 const localUser = ref(props.user)
 
-/* === Reverse Image Search (single file) === */
+/* === Reverse Image Search (single file + cropper) === */
 const showReversePopup = ref(false)
 const fileInputRef = ref(null)
 const selectedFile = ref(null) // File | null
@@ -177,9 +222,26 @@ const previewUrl = ref('')
 const fileError = ref('')
 const submitting = ref(false)
 
+/* Cropper state (square) */
+const cropSrc = ref('')            // object URL of selected image
+const cropScale = ref(1)           // zoom
+const C = 420                      // container size
+const D = 360                      // square selection size
+const OUT = 640                    // export resolution (square)
+const pos = reactive({ left: 0, top: 0 })
+const dragging = ref(false)
+const dragStart = reactive({ x: 0, y: 0 })
+const posStart = reactive({ left: 0, top: 0 })
+const imgMeta = reactive({ naturalW: 0, naturalH: 0, ready: false })
+let cropBlob = null                // exported blob to send
+
 /* -------------------- Reverse helpers -------------------- */
 const MAX_BYTES = 6 * 1024 * 1024 // 6MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
+
+function openReversePopup() {
+  showReversePopup.value = true
+}
 
 function triggerPick() {
   fileInputRef.value?.click()
@@ -189,11 +251,9 @@ function handleSingleFile(e) {
   fileError.value = ''
   const f = e.target?.files?.[0]
   if (!f) {
-    selectedFile.value = null
-    previewUrl.value = ''
+    removeFile()
     return
   }
-  // validate type/size
   if (!ALLOWED_TYPES.includes(f.type) && !f.type.startsWith('image/')) {
     fileError.value = 'Please select an image file.'
     e.target.value = ''
@@ -205,42 +265,127 @@ function handleSingleFile(e) {
     return
   }
   selectedFile.value = f
-  // show preview
-  try {
-    previewUrl.value = URL.createObjectURL(f)
-  } catch {
-    previewUrl.value = ''
-  }
+
+  // Create preview/crop source
+  if (cropSrc.value) { try { URL.revokeObjectURL(cropSrc.value) } catch {} }
+  cropSrc.value = URL.createObjectURL(f)
+  imgMeta.ready = false
+  cropScale.value = 1
+  cropBlob = null
+  // allow re-selecting same file later
+  if (fileInputRef.value) fileInputRef.value.value = ''
+  e.target.value = ''
 }
 
 function removeFile() {
   selectedFile.value = null
-  fileError.value = ''
+  previewUrl.value = ''
+  cropBlob = null
+  if (cropSrc.value) { try { URL.revokeObjectURL(cropSrc.value) } catch {} ; cropSrc.value = '' }
   if (fileInputRef.value) fileInputRef.value.value = ''
-  if (previewUrl.value) {
-    try { URL.revokeObjectURL(previewUrl.value) } catch {}
-    previewUrl.value = ''
-  }
 }
 
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
+function onImgLoad(e) {
+  imgMeta.naturalW = e.target.naturalWidth
+  imgMeta.naturalH = e.target.naturalHeight
+  imgMeta.ready = true
+  nextTick(centerImage)
+}
+
+function centerImage() {
+  const w = imgMeta.naturalW * cropScale.value
+  const h = imgMeta.naturalH * cropScale.value
+  pos.left = (C - w) / 2
+  pos.top  = (C - h) / 2
+  constrainPosition()
+}
+
+function onDragStart(ev) {
+  dragging.value = true
+  const p = getPoint(ev)
+  dragStart.x = p.x; dragStart.y = p.y
+  posStart.left = pos.left; posStart.top = pos.top
+  ev.preventDefault()
+}
+function onDragMove(ev) {
+  if (!dragging.value) return
+  const p = getPoint(ev)
+  pos.left = posStart.left + (p.x - dragStart.x)
+  pos.top  = posStart.top  + (p.y - dragStart.y)
+  constrainPosition()
+}
+function onDragEnd() { dragging.value = false }
+function getPoint(ev) {
+  if (ev.touches?.[0]) return { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
+  return { x: ev.clientX, y: ev.clientY }
+}
+function constrainPosition() {
+  const w = imgMeta.naturalW * cropScale.value
+  const h = imgMeta.naturalH * cropScale.value
+  const half = D / 2
+  const minLeft = C/2 + half - w
+  const maxLeft = C/2 - half
+  const minTop  = C/2 + half - h
+  const maxTop  = C/2 - half
+  pos.left = Math.min(Math.max(pos.left, minLeft), maxLeft)
+  pos.top  = Math.min(Math.max(pos.top,  minTop),  maxTop)
+}
+function onZoomChange(val) {
+  const old = cropScale.value
+  const next = Number(val)
+  if (!imgMeta.ready) { cropScale.value = next; return }
+  const cx = C/2, cy = C/2
+  const relX = cx - pos.left, relY = cy - pos.top
+  const ratio = next / old
+  pos.left = cx - relX * ratio
+  pos.top  = cy  - relY * ratio
+  cropScale.value = next
+  constrainPosition()
+}
+function resetCrop() {
+  cropScale.value = 1
+  centerImage()
+}
+
+/* Build a crop and store cropBlob */
+async function buildCropBlob() {
+  if (!cropSrc.value || !imgMeta.ready) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = OUT; canvas.height = OUT
+  const ctx = canvas.getContext('2d')
+  const k = OUT / D
+  const img = document.getElementById('ris-crop-img')
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(
+    img,
+    pos.left * k,
+    pos.top * k,
+    imgMeta.naturalW * cropScale.value * k,
+    imgMeta.naturalH * cropScale.value * k
+  )
+  const dataURL = canvas.toDataURL('image/png')
+  cropBlob = await (await fetch(dataURL)).blob()
+  return cropBlob
 }
 
 async function submitReverseSearch() {
-  if (!selectedFile.value || submitting.value) return
+  if (submitting.value) return
+  if (!selectedFile.value && !cropBlob) return
   submitting.value = true
   fileError.value = ''
 
-  // Prefer backend; fall back to sessionStorage route if it fails
   try {
+    // prefer the crop if present or can be built; else original file
+    let blobToSend = cropBlob
+    if (!blobToSend && cropSrc.value) {
+      blobToSend = await buildCropBlob()
+    }
+    const fileToSend = blobToSend
+      ? new File([blobToSend], 'reverse-crop.png', { type: 'image/png' })
+      : selectedFile.value
+
     const form = new FormData()
-    form.append('image', selectedFile.value)
+    form.append('image', fileToSend)
     const { data } = await http.post('/reverse-image', form, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
@@ -248,7 +393,6 @@ async function submitReverseSearch() {
     const restaurantId = data?.restaurantId
     const keyword = data?.keyword
 
-    // close + reset
     showReversePopup.value = false
     removeFile()
 
@@ -257,7 +401,6 @@ async function submitReverseSearch() {
     } else if (keyword) {
       router.push({ path: '/search', query: { q: keyword } })
     } else {
-      // fallback if backend returns nothing useful
       alert('No match found from the image. Try another photo.')
     }
     return
@@ -265,13 +408,29 @@ async function submitReverseSearch() {
     console.warn('Backend reverse-image failed, falling back to local route:', err?.message || err)
   }
 
-  // Fallback: your original sessionStorage flow
+  // Local fallback: push to /reverseimage (uses sessionStorage)
   try {
-    const image = await fileToDataUrl(selectedFile.value)
-    sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [image] }))
-    showReversePopup.value = false
-    removeFile()
-    router.push('/reverseimage')
+    // If we have a crop, use it; else use original
+    let dataUrl
+    if (cropBlob) {
+      dataUrl = await new Promise((res) => {
+        const fr = new FileReader()
+        fr.onload = () => res(fr.result)
+        fr.readAsDataURL(cropBlob)
+      })
+    } else if (selectedFile.value) {
+      dataUrl = await new Promise((res) => {
+        const fr = new FileReader()
+        fr.onload = () => res(fr.result)
+        fr.readAsDataURL(selectedFile.value)
+      })
+    }
+    if (dataUrl) {
+      sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl] }))
+      showReversePopup.value = false
+      removeFile()
+      router.push('/reverseimage')
+    }
   } finally {
     submitting.value = false
   }
@@ -402,7 +561,7 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-/* Reverse button (kept minimal to match your theme) */
+/* Reverse button */
 .rev-btn {
   margin-left: 0.5rem;
   white-space: nowrap;
@@ -516,4 +675,40 @@ onBeforeUnmount(() => {
   padding: .55rem .95rem; font-weight: 800; cursor: pointer;
 }
 .rev-submit[disabled] { opacity: .6; cursor: not-allowed; }
+
+/* --- Reverse Image Search Cropper styles --- */
+.ris-crop-wrap { margin-top: 6px; }
+.ris-crop-area {
+  position: relative;
+  background: #1111;
+  overflow: hidden;
+  border-radius: 12px;
+  touch-action: none;
+  box-shadow: 0 8px 20px rgba(0,0,0,.08);
+  margin: 0 auto;
+}
+.ris-crop-img {
+  position: absolute;
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform;
+}
+.ris-crop-mask {
+  position: absolute;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 0 2px rgba(255,255,255,.9);
+  pointer-events: none;
+}
+
+/* Inputs */
+.form-range { accent-color: var(--terra-500, #d4816f); }
+</style>
+
+<!-- Make teleported modal overlay sit above all content -->
+<style>
+.modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 9999 !important;
+}
 </style>
