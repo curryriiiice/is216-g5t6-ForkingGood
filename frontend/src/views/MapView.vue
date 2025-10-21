@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import axios from 'axios'
@@ -104,19 +104,26 @@ function priceSymbolToIndex(sym) {
 }
 function normalizePriceIndex(v) {
   if (v == null) return null
-  const str = String(v)
+  const str = String(v).trim().toLowerCase()
+  // Map descriptive labels to price levels
+  if (['free', 'inexpensive', 'cheap'].includes(str)) return 0 // $
+  if (['moderate'].includes(str)) return 1 // $$
+  if (['expensive'].includes(str)) return 2 // $$$
+  if (['very expensive', 'very_expensive', 'luxury'].includes(str)) return 3 // $$$$
   // Symbol '$'..'$$$$' → 0..3
   if (/^\$+$/.test(str)) {
     const idx = str.length - 1
     return idx >= 0 && idx <= 3 ? idx : null
   }
   const n = Number(v)
-  if (!Number.isFinite(n)) return null
-  // Prefer 1-based encodings first (1..4 → 0..3; 1..3 → 0..2)
-  if (n >= 1 && n <= 4) return n - 1
-  if (n >= 1 && n <= 3) return n - 1
-  // Fallback: 0..3 direct indices
-  if (n >= 0 && n <= 3) return n
+  if (Number.isFinite(n)) {
+    // Map numeric 0: Free, 1: Inexpensive, 2: Moderate, 3: Expensive, 4: Very Expensive
+    if (n === 0 || n === 1) return 0 // $
+    if (n === 2) return 1 // $$
+    if (n === 3) return 2 // $$$
+    if (n === 4) return 3 // $$$$
+    if (n >= 1 && n <= 4) return n - 1
+  }
   return null
 }
 
@@ -422,61 +429,93 @@ const taArea = ref({
   suppressOpen: false,
 })
 
+// Caches of all options for "show all when empty"
+const allCuisineList = ref([])
+const allAreaList = ref([])
+
+// Refs to detect outside-click and blur inputs after pick
+const cuisineBox = ref(null)
+const areaBox = ref(null)
+const cuisineInput = ref(null)
+const areaInput = ref(null)
+
+function normalizeList(arr) {
+  if (!Array.isArray(arr)) return []
+  const out = Array.from(new Set(arr.map(x => (x == null ? '' : String(x).trim())).filter(Boolean)))
+  out.sort((a, b) => a.localeCompare(b))
+  return out
+}
+
 function chooseCuisine(v) {
   selectedCuisine.value = v
-  taCuisine.value.q = v
+  // For "All", clear the input box; otherwise show the picked string
+  taCuisine.value.q = (v === 'All') ? '' : v
   taCuisine.value.suppressOpen = true
   taCuisine.value.open = false
+  // Blur so user exits the control immediately
+  requestAnimationFrame(() => cuisineInput.value && cuisineInput.value.blur())
+  // Reload pins based on new filters
+  loadPinsFromFilters()
 }
 function chooseArea(v) {
   selectedArea.value = v
-  taArea.value.q = v
+  taArea.value.q = (v === 'All') ? '' : v
   taArea.value.suppressOpen = true
   taArea.value.open = false
+  requestAnimationFrame(() => areaInput.value && areaInput.value.blur())
+  loadPinsFromFilters()
 }
 
 // Debounced fetchers
 const fetchCuisineHints = debounce(async () => {
   const q = taCuisine.value.q?.trim()
+  // Ensure caches are ready
+  if (!allCuisineList.value.length) {
+    const list = await getAllCuisines()
+    allCuisineList.value = normalizeList(list)
+  }
+  const base = allCuisineList.value
   if (!q) {
-    taCuisine.value.items = []
+    // Empty → show full list (without 'All')
+    taCuisine.value.items = base
     taCuisine.value.noMatch = false
     return
   }
-  taCuisine.value.loading = true
+  const needle = q.toLowerCase()
+  // Start with client-side contains filter for instant UX
+  let items = base.filter(s => s.toLowerCase().includes(needle))
+  // Try backend search and merge (defensive)
   try {
-    const list = await getAllCuisines(q)
-    taCuisine.value.items = Array.isArray(list) ? list : []
-    taCuisine.value.noMatch = taCuisine.value.items.length === 0
-  } catch (e) {
-    console.warn('[typeahead] cuisines failed', e)
-    taCuisine.value.items = []
-    taCuisine.value.noMatch = true
-  } finally {
-    taCuisine.value.loading = false
-  }
-}, 250)
+    const remote = await getAllCuisines(q)
+    const merged = normalizeList([ ...items, ...(Array.isArray(remote) ? remote : []) ])
+    items = merged.filter(s => s.toLowerCase().includes(needle))
+  } catch {}
+  taCuisine.value.items = items
+  taCuisine.value.noMatch = items.length === 0
+}, 200)
 
 const fetchAreaHints = debounce(async () => {
   const q = taArea.value.q?.trim()
+  if (!allAreaList.value.length) {
+    const list = await getAllLocations()
+    allAreaList.value = normalizeList(list)
+  }
+  const base = allAreaList.value
   if (!q) {
-    taArea.value.items = []
+    taArea.value.items = base
     taArea.value.noMatch = false
     return
   }
-  taArea.value.loading = true
+  const needle = q.toLowerCase()
+  let items = base.filter(s => s.toLowerCase().includes(needle))
   try {
-    const list = await getAllLocations(q)
-    taArea.value.items = Array.isArray(list) ? list : []
-    taArea.value.noMatch = taArea.value.items.length === 0
-  } catch (e) {
-    console.warn('[typeahead] areas failed', e)
-    taArea.value.items = []
-    taArea.value.noMatch = true
-  } finally {
-    taArea.value.loading = false
-  }
-}, 250)
+    const remote = await getAllLocations(q)
+    const merged = normalizeList([ ...items, ...(Array.isArray(remote) ? remote : []) ])
+    items = merged.filter(s => s.toLowerCase().includes(needle))
+  } catch {}
+  taArea.value.items = items
+  taArea.value.noMatch = items.length === 0
+}, 200)
 
 /* -----------------
    Map options
@@ -578,7 +617,7 @@ watch(
       taCuisine.value.suppressOpen = false
       return
     }
-    taCuisine.value.open = !!taCuisine.value.q
+    taCuisine.value.open = true
     fetchCuisineHints()
   },
 )
@@ -590,7 +629,7 @@ watch(
       taArea.value.suppressOpen = false
       return
     }
-    taArea.value.open = !!taArea.value.q
+    taArea.value.open = true
     fetchAreaHints()
   },
 )
@@ -737,6 +776,10 @@ async function init() {
     const areaList = await getAllLocations()
     areas.value = ['All', ...areaList]
 
+    // Preload caches for typeahead
+    allCuisineList.value = normalizeList(cuisineList)
+    allAreaList.value = normalizeList(areaList)
+
     // Reset filter defaults and load pins
     selectedCuisine.value = 'All'
     selectedArea.value = 'All'
@@ -800,6 +843,20 @@ async function init() {
     loading.value = false
   }
 }
+// Handle outside-click to close dropdowns
+function handleOutsidePointerDown(e) {
+  const t = e.target
+  const inC = cuisineBox.value && cuisineBox.value.contains(t)
+  const inA = areaBox.value && areaBox.value.contains(t)
+  if (!inC) taCuisine.value.open = false
+  if (!inA) taArea.value.open = false
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', handleOutsidePointerDown, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handleOutsidePointerDown, true)
+})
 
 /* -----------------
    Markers & focus
@@ -1013,13 +1070,14 @@ function clearFilters() {
   selectedPrice.value = 'All'
   feedScope.value = 'friends'
 
-  // reset typeahead inputs and close lists
+  // reset typeahead inputs and close lists WITHOUT re-opening via watchers
+  taCuisine.value.suppressOpen = true
+  taArea.value.suppressOpen = true
   taCuisine.value.q = ''
   taArea.value.q = ''
   taCuisine.value.open = false
   taArea.value.open = false
-  taCuisine.value.suppressOpen = false
-  taArea.value.suppressOpen = false
+  // watchers will consume suppressOpen and set it back to false
 
   rebuildMarkers().then(() => fitMapToFilteredPins())
 }
@@ -1045,26 +1103,28 @@ function clearFilters() {
           <!-- Row 1: Typeaheads -->
           <div class="row g-3 align-items-end">
             <!-- Cuisine typeahead -->
-            <div class="col-12 col-md-6 col-lg-4 position-relative">
+            <div class="col-12 col-md-6 col-lg-4 position-relative" ref="cuisineBox">
               <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
               <input
                 class="form-control form-control-sm text-start"
                 placeholder="Type to search (e.g. Japanese)"
                 v-model="taCuisine.q"
-                @focus="taCuisine.open = !!taCuisine.q"
+                ref="cuisineInput"
+                @focus="taCuisine.open = true; fetchCuisineHints()"
                 :disabled="uiLocked"
                 :aria-disabled="uiLocked ? 'true' : null"
-                @input="taCuisine.open = !!taCuisine.q"
+                @input="taCuisine.open = true"
               />
               <ul
                 v-if="taCuisine.open"
-                class="dropdown-menu show w-100 shadow-sm"
-                style="max-height: 260px; overflow: auto; z-index: 1200"
+                class="dropdown-menu show w-100 shadow-sm filter-list"
+                style="z-index: 1200"
               >
                 <li>
                   <button
                     type="button"
                     class="dropdown-item text-muted"
+                    @mousedown.prevent
                     @click="chooseCuisine('All')"
                   >
                     Show all cuisines
@@ -1075,6 +1135,7 @@ function clearFilters() {
                   <button
                     type="button"
                     class="dropdown-item"
+                    @mousedown.prevent
                     @click="chooseCuisine(c.name || c.cuisine || c)"
                   >
                     {{ c.name || c.cuisine || c }}
@@ -1085,24 +1146,25 @@ function clearFilters() {
             </div>
 
             <!-- Area typeahead -->
-            <div class="col-12 col-md-6 col-lg-4 position-relative">
+            <div class="col-12 col-md-6 col-lg-4 position-relative" ref="areaBox">
               <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
               <input
                 class="form-control form-control-sm text-start"
                 placeholder="Type to search (e.g. Bugis)"
                 v-model="taArea.q"
-                @focus="taArea.open = !!taArea.q"
+                ref="areaInput"
+                @focus="taArea.open = true; fetchAreaHints()"
                 :disabled="uiLocked"
                 :aria-disabled="uiLocked ? 'true' : null"
-                @input="taArea.open = !!taArea.q"
+                @input="taArea.open = true"
               />
               <ul
                 v-if="taArea.open"
-                class="dropdown-menu show w-100 shadow-sm"
-                style="max-height: 260px; overflow: auto; z-index: 1200"
+                class="dropdown-menu show w-100 shadow-sm filter-list"
+                style="z-index: 1200"
               >
                 <li>
-                  <button type="button" class="dropdown-item text-muted" @click="chooseArea('All')">
+                  <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="chooseArea('All')">
                     Show all areas
                   </button>
                 </li>
@@ -1111,6 +1173,7 @@ function clearFilters() {
                   <button
                     type="button"
                     class="dropdown-item"
+                    @mousedown.prevent
                     @click="chooseArea(a.name || a.area || a)"
                   >
                     {{ a.name || a.area || a }}
@@ -1130,7 +1193,7 @@ function clearFilters() {
                   :class="{ active: selectedPrice === '$' }"
                   @click="selectedPrice = '$'"
                   data-bs-toggle="tooltip"
-                  title="Under $10 per person"
+                  title="Inexpensive"
                   :disabled="uiLocked"
                 >
                   $
@@ -1141,7 +1204,7 @@ function clearFilters() {
                   :class="{ active: selectedPrice === '$$' }"
                   @click="selectedPrice = '$$'"
                   data-bs-toggle="tooltip"
-                  title="$10–$30 per person"
+                  title="Moderate"
                   :disabled="uiLocked"
                 >
                   $$
@@ -1152,7 +1215,7 @@ function clearFilters() {
                   :class="{ active: selectedPrice === '$$$' }"
                   @click="selectedPrice = '$$$'"
                   data-bs-toggle="tooltip"
-                  title="$30–$60 per person"
+                  title="Expensive"
                   :disabled="uiLocked"
                 >
                   $$$
@@ -1163,7 +1226,7 @@ function clearFilters() {
                   :class="{ active: selectedPrice === '$$$$' }"
                   @click="selectedPrice = '$$$$'"
                   data-bs-toggle="tooltip"
-                  title="$60+ per person"
+                  title="Very Expensive"
                   :disabled="uiLocked"
                 >
                   $$$$
@@ -1501,3 +1564,8 @@ aside.side.clicking {
   color: var(--charcoal);
 }
 </style>
+
+.dropdown-menu.filter-list {
+  max-height: calc(44px * 4); /* header + 3 options */
+  overflow: auto;
+}
