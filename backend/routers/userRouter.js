@@ -11,6 +11,8 @@ import {
 	getPostbyId,
 	getUsernamebyEmail,
 	createPost,
+	deletePost,
+	getAllUsernames, 
 
 }from '../controllers/userController.js';
 
@@ -20,7 +22,9 @@ import {
 
 router.post("/getPostbyId", getPostbyId);
 router.post("/getUsernamebyEmail", getUsernamebyEmail);
-router.post('/createPost', upload.array('photos'), createPost);
+router.post("/createPost", upload.array('photos'), createPost);
+router.delete("/deletePost", deletePost); 
+router.get("/getAllUsernames", getAllUsernames); 
 
 
 export default router;
