@@ -44,14 +44,62 @@ const sendFriendReq = async (user_email, friend_email) => {
 }
 // tested, works
 
+const getPendingFriendReqs = async (user_email) => {
+    const {data, error: getPendingFriendError} = await supabase.from('friend').select('*').is('request_accepted', null).or(`email1.eq.${user_email},email2.eq.${user_email}`);
+    if(getPendingFriendError){
+        return getPendingFriendError
+    }
+    // extract only the other party's emails
+    const otherEmails = data.map(friend => 
+        friend.email1 === user_email ? friend.email2 : friend.email1
+    );
 
+    return { data: otherEmails };
+}
+
+const commentPost = async (postid, commenter_email, comment) => {
+    return await supabase.from('comments').insert({postid: postid, commenter_email: commenter_email, comment: comment}); 
+}
+
+const getCommentsbyPostId = async (postid) => {
+    return await supabase.from('comments').select('commenter_email, comment').match({postid: postid})
+}
+
+const likePost = async (postid, liker_email) => {
+    return await supabase.from('liked').insert({postid: postid, liker_email:liker_email}); 
+}
+
+const unlikePost = async (postid, liker_email) => {
+    return await supabase.from('liked').delete().match({postid: postid, liker_email:liker_email}); 
+}
+
+const getLikesbyPostId = async (postid) => {
+    const{data, error} = await supabase.from('liked').select('liker_email').match({postid: postid}); 
+
+    if (error) {
+        return { error };
+    }
+
+    // extract only emails from objs
+    const emails = data.map(like => like.liker_email);
+
+    return { data: emails };
+}
 
 export{
     getFriends, 
     acceptFriendReq, 
     rejectFriendReq,
     sendFriendReq,
-    
+    getPendingFriendReqs, 
+    commentPost, 
+    getCommentsbyPostId, 
+    likePost, 
+    unlikePost, 
+    getLikesbyPostId, 
+
+
+
 }
 
 // for testing 
@@ -59,3 +107,6 @@ export{
 //console.log(await supabase.rpc('get_friend_emails', {user_email: 'clarice.lim.2024@computing.smu.edu.sg'}))
 //console.log(await getFriendRecs('clarice.lim.2024@computing.smu.edu.sg'))
 //console.log(await supabase.from('recommendation').select('postid','restaurant_id').eq('poster_email', 'clarice.lim.2024@computing.smu.edu.sg'))
+//console.log(await supabase.from('friend').select('*').is('request_accepted', null).or(`email1.eq.${'clarice.lim.2024@computing.smu.edu.sg'},email2.eq.${'clarice.lim.2024@computing.smu.edu.sg'}`))
+//console.log(await supabase.from('comments').select('commenter_email, comment').match({postid: 'b8052dde-a3e5-430e-8a08-e848f41e749b'}));
+//console.log(await supabase.from('liked').select('liker_email').match({postid: 'c738085f-ae65-4d6e-9c70-ad176015e8e3'}))
