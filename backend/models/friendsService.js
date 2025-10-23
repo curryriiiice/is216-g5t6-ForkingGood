@@ -86,6 +86,14 @@ const getLikesbyPostId = async (postid) => {
     return { data: emails };
 }
 
+const deleteComment = async (postid, commenter_email, comment) => {
+    return await supabase.from('comments').delete().match({postid: postid, commenter_email:commenter_email, comment:comment}); 
+}
+
+const editComment = async (postid, commenter_email, new_comment, old_comment) => {
+    return await supabase.from('comments').update({comment:new_comment}).match({postid: postid, commenter_email:commenter_email, comment:old_comment}); 
+}
+
 export{
     getFriends, 
     acceptFriendReq, 
@@ -97,6 +105,8 @@ export{
     likePost, 
     unlikePost, 
     getLikesbyPostId, 
+    deleteComment,
+    editComment,
 
 
 
