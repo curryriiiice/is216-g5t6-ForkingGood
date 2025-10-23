@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import PostCard from '@/components/PostCard.vue'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
@@ -56,6 +56,27 @@ const cuisineSuggestions = ref([])
 const areaSuggestions = ref([])
 const showCuisineList = ref(false)
 const showAreaList = ref(false)
+const cuisineBox = ref(null)
+const areaBox = ref(null)
+const cuisineInput = ref(null)
+const areaInput = ref(null)
+// Caches of all options (so we can show full list when input is empty)
+const allCuisines = ref([])
+const allAreas = ref([])
+
+// Normalize to unique, trimmed, sorted strings
+function normalizeList(arr) {
+  if (!Array.isArray(arr)) return []
+  const out = Array.from(
+    new Set(
+      arr
+        .map(x => (x == null ? '' : String(x).trim()))
+        .filter(Boolean)
+    )
+  )
+  out.sort((a, b) => a.localeCompare(b))
+  return out
+}
 // Detect whether backend feed uses $$$ max (scaleMax=3) or $$$$ max (scaleMax=4)
 const priceScaleMax = ref(4)
 
@@ -65,6 +86,25 @@ let areaTimer = null
 // --- Typeahead helpers ---
 async function getAllCuisines(q) {
   const url = '/map/getAllCuisines'
+  // If no query, try to fetch the full list from backend
+  if (!q) {
+    const triesAll = [
+      () => api.get(url),
+      () => api.post(url, {}),
+      () => api.get(url, { params: {} }),
+      () => api.post(url, { search: '' }),
+      () => api.post(url, { query: '' }),
+    ]
+    for (const t of triesAll) {
+      try {
+        const r = await t()
+        const data = Array.isArray(r.data?.data) ? r.data.data : r.data
+        return normalizeList(data)
+      } catch {}
+    }
+    return []
+  }
+  // Otherwise, pass the query to backend (fallback to client-side filtering later)
   const tries = [
     () => api.post(url, { query: q }),
     () => api.get(url, { params: { query: q } }),
@@ -75,13 +115,30 @@ async function getAllCuisines(q) {
     try {
       const r = await t()
       const data = Array.isArray(r.data?.data) ? r.data.data : r.data
-      return Array.isArray(data) ? data : []
+      return normalizeList(data)
     } catch {}
   }
   return []
 }
 async function getAllLocations(q) {
   const url = '/map/getAllLocations'
+  if (!q) {
+    const triesAll = [
+      () => api.get(url),
+      () => api.post(url, {}),
+      () => api.get(url, { params: {} }),
+      () => api.post(url, { search: '' }),
+      () => api.post(url, { query: '' }),
+    ]
+    for (const t of triesAll) {
+      try {
+        const r = await t()
+        const data = Array.isArray(r.data?.data) ? r.data.data : r.data
+        return normalizeList(data)
+      } catch {}
+    }
+    return []
+  }
   const tries = [
     () => api.post(url, { query: q }),
     () => api.get(url, { params: { query: q } }),
@@ -92,7 +149,7 @@ async function getAllLocations(q) {
     try {
       const r = await t()
       const data = Array.isArray(r.data?.data) ? r.data.data : r.data
-      return Array.isArray(data) ? data : []
+      return normalizeList(data)
     } catch {}
   }
   return []
@@ -100,21 +157,93 @@ async function getAllLocations(q) {
 function onCuisineInput() {
   showCuisineList.value = true
   clearTimeout(cuisineTimer)
-  const q = cuisineQuery.value.trim()
+  const qRaw = cuisineQuery.value
+  const q = qRaw == null ? '' : String(qRaw).trim()
   cuisineTimer = setTimeout(async () => {
-    cuisineSuggestions.value = q ? await getAllCuisines(q) : []
-  }, 180)
+    // Ensure we have the full list cached
+    if (!allCuisines.value.length) {
+      allCuisines.value = normalizeList(await getAllCuisines(''))
+    }
+    if (!q) {
+      // Empty input → show all
+      cuisineSuggestions.value = allCuisines.value.slice(0, 500)
+    } else {
+      // Case-insensitive substring match
+      const needle = q.toLowerCase()
+      const base = allCuisines.value.length ? allCuisines.value : normalizeList(await getAllCuisines(''))
+      cuisineSuggestions.value = base.filter(s => s.toLowerCase().includes(needle)).slice(0, 500)
+      // If backend supports searching and returns more precise results, merge them in
+      try {
+        const remote = await getAllCuisines(q)
+        const merged = normalizeList([...base, ...remote]).filter(s => s.toLowerCase().includes(needle))
+        cuisineSuggestions.value = merged.slice(0, 500)
+      } catch {}
+    }
+  }, 150)
 }
 function onAreaInput() {
   showAreaList.value = true
   clearTimeout(areaTimer)
-  const q = areaQuery.value.trim()
+  const qRaw = areaQuery.value
+  const q = qRaw == null ? '' : String(qRaw).trim()
   areaTimer = setTimeout(async () => {
-    areaSuggestions.value = q ? await getAllLocations(q) : []
-  }, 180)
+    if (!allAreas.value.length) {
+      allAreas.value = normalizeList(await getAllLocations(''))
+    }
+    if (!q) {
+      areaSuggestions.value = allAreas.value.slice(0, 500)
+    } else {
+      const needle = q.toLowerCase()
+      const base = allAreas.value.length ? allAreas.value : normalizeList(await getAllLocations(''))
+      areaSuggestions.value = base.filter(s => s.toLowerCase().includes(needle)).slice(0, 500)
+      try {
+        const remote = await getAllLocations(q)
+        const merged = normalizeList([...base, ...remote]).filter(s => s.toLowerCase().includes(needle))
+        areaSuggestions.value = merged.slice(0, 500)
+      } catch {}
+    }
+  }, 150)
 }
-function pickCuisine(v) { filters.value.cuisine = v; cuisineQuery.value = v; showCuisineList.value = false }
-function pickArea(v) { filters.value.area = v; areaQuery.value = v; showAreaList.value = false }
+function pickCuisine(v) {
+  // "Show all" clears selection and query
+  if (!v) {
+    filters.value.cuisine = ''
+    cuisineQuery.value = ''
+    showCuisineList.value = false
+    if (allCuisines.value.length) {
+      cuisineSuggestions.value = allCuisines.value.slice(0, 500)
+    }
+    // Blur so user exits the control
+    requestAnimationFrame(() => cuisineInput.value && cuisineInput.value.blur())
+    runSearch()
+    return
+  }
+  // Otherwise pick value and close
+  filters.value.cuisine = v
+  cuisineQuery.value = v
+  showCuisineList.value = false
+  // Blur so user exits the control
+  requestAnimationFrame(() => cuisineInput.value && cuisineInput.value.blur())
+  runSearch()
+}
+function pickArea(v) {
+  if (!v) {
+    filters.value.area = ''
+    areaQuery.value = ''
+    showAreaList.value = false
+    if (allAreas.value.length) {
+      areaSuggestions.value = allAreas.value.slice(0, 500)
+    }
+    requestAnimationFrame(() => areaInput.value && areaInput.value.blur())
+    runSearch()
+    return
+  }
+  filters.value.area = v
+  areaQuery.value = v
+  showAreaList.value = false
+  requestAnimationFrame(() => areaInput.value && areaInput.value.blur())
+  runSearch()
+}
 
 // Price helpers
 function priceSymbolToIndex(s) {
@@ -126,12 +255,26 @@ function priceSymbolToIndex(s) {
 function normalizePriceIndex(v, scaleMax = 4) {
   if (v == null) return null
   const cap = Math.max(1, Math.min(4, Number(scaleMax))) - 1
-  const str = String(v)
-  if (/^\$+$/.test(str)) { let idx = str.length - 1; if (idx > cap) idx = cap; return idx >= 0 ? idx : null }
-  const n = Number(v); if (!Number.isFinite(n)) return null
-  if (n >= 1 && n <= 4) return Math.min(n - 1, cap)
-  if (n >= 1 && n <= 3) return Math.min(n - 1, cap)
-  if (n >= 0 && n <= 3) return Math.min(n, cap)
+  const str = String(v).trim().toLowerCase()
+  // Map descriptive labels to price levels
+  if (['free', 'inexpensive', 'cheap'].includes(str)) return Math.min(0, cap) // $
+  if (['moderate'].includes(str)) return Math.min(1, cap) // $$
+  if (['expensive'].includes(str)) return Math.min(2, cap) // $$$
+  if (['very expensive', 'very_expensive', 'luxury'].includes(str)) return Math.min(3, cap) // $$$$
+  // Symbol '$'..'$$$$' → 0..3
+  if (/^\$+$/.test(str)) {
+    const idx = Math.min(str.length - 1, cap)
+    return idx >= 0 ? idx : null
+  }
+  const n = Number(v)
+  if (Number.isFinite(n)) {
+    // Map numeric 0: Free, 1: Inexpensive, 2: Moderate, 3: Expensive, 4: Very Expensive
+    if (n === 0 || n === 1) return Math.min(0, cap) // $
+    if (n === 2) return Math.min(1, cap) // $$
+    if (n === 3) return Math.min(2, cap) // $$$
+    if (n === 4) return Math.min(3, cap) // $$$$
+    if (n >= 1 && n <= 4) return Math.min(n - 1, cap)
+  }
   return null
 }
 function priceIndexFromPost(p) {
@@ -284,9 +427,49 @@ function initTooltips() {
 }
 watch(() => route.query.postId, () => { scrollToPostIfAny() })
 
+// Close dropdowns when clicking outside the filter boxes
+function handleGlobalClick(e) {
+  const t = e.target
+  const inCuisine = cuisineBox.value && cuisineBox.value.contains(t)
+  const inArea = areaBox.value && areaBox.value.contains(t)
+  if (!inCuisine) showCuisineList.value = false
+  if (!inArea) showAreaList.value = false
+}
+function handleGlobalPointerDown(e) {
+  const t = e.target
+  const inCuisine = cuisineBox.value && cuisineBox.value.contains(t)
+  const inArea = areaBox.value && areaBox.value.contains(t)
+  if (!inCuisine) showCuisineList.value = false
+  if (!inArea) showAreaList.value = false
+}
+function handleKeydown(e) {
+  if (e.key === 'Escape' || e.key === 'Esc') {
+    showCuisineList.value = false
+    showAreaList.value = false
+  }
+}
+onMounted(() => {
+  document.addEventListener('click', handleGlobalClick, true)
+  document.addEventListener('pointerdown', handleGlobalPointerDown, true)
+  document.addEventListener('keydown', handleKeydown, true)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', handleGlobalClick, true)
+  document.removeEventListener('pointerdown', handleGlobalPointerDown, true)
+  document.removeEventListener('keydown', handleKeydown, true)
+})
+
 // Scope toggle
 function setFriends(){ friendsOnly.value = true; runSearch() }
+
 function setPublic(){ friendsOnly.value = false; runSearch() }
+
+// Price chip: toggle & search immediately
+function setPrice(sym) {
+  const cur = filters.value.priceSymbol
+  filters.value.priceSymbol = (cur === sym ? '' : sym)
+  runSearch()
+}
 
 // Clear filters
 function clearFilters(){
@@ -299,6 +482,17 @@ function clearFilters(){
   showAreaList.value = false
   cuisineSuggestions.value = []
   areaSuggestions.value = []
+  // Refill caches quietly (do not auto-open dropdowns)
+  Promise.resolve().then(async () => {
+    try {
+      if (!allCuisines.value.length) allCuisines.value = normalizeList(await getAllCuisines(''))
+      if (!allAreas.value.length) allAreas.value = normalizeList(await getAllLocations(''))
+      cuisineSuggestions.value = allCuisines.value.slice(0, 500)
+      areaSuggestions.value = allAreas.value.slice(0, 500)
+      showCuisineList.value = false
+      showAreaList.value = false
+    } catch {}
+  })
   runSearch()
 }
 
@@ -370,6 +564,13 @@ function rowToPost(row){
 
 async function load() {
   applyTheme()
+  // Preload full filter option lists (so empty inputs show "all")
+  Promise.resolve().then(async () => {
+    try {
+      allCuisines.value = normalizeList(await getAllCuisines(''))
+      allAreas.value = normalizeList(await getAllLocations(''))
+    } catch {}
+  })
   try {
     await runSearch()
     // Trending slides (group by restaurant)
@@ -480,7 +681,7 @@ watch(() => [filters.value.priceSymbol, showCuisineList.value, showAreaList.valu
             <!-- Row 1: Typeaheads + Price chips -->
             <div class="row g-3 align-items-end">
               <!-- Cuisine -->
-              <div class="col-12 col-md-6 col-lg-4 position-relative">
+              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="cuisineBox">
                 <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
                 <input
                   class="form-control form-control-sm text-start"
@@ -488,11 +689,12 @@ watch(() => [filters.value.priceSymbol, showCuisineList.value, showAreaList.valu
                   v-model="cuisineQuery"
                   @focus="onCuisineInput"
                   @input="onCuisineInput"
-                  @blur="() => setTimeout(() => (showCuisineList = false), 120)"
+                  @blur="() => (showCuisineList = false)"
+                  ref="cuisineInput"
                 />
-                <ul v-if="showCuisineList" class="dropdown-menu show w-100 shadow-sm" style="max-height: 260px; overflow: auto; z-index: 1200">
-                  <li><button type="button" class="dropdown-item text-muted" @click="pickCuisine('')">Show all cuisines</button></li>
-                  <li v-if="!cuisineSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                <ul v-if="showCuisineList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                  <li><button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickCuisine('')">Show all cuisines</button></li>
+                  <li v-if="cuisineQuery && !cuisineSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
                   <li v-for="(c, i) in cuisineSuggestions" :key="'c-' + i">
                     <button type="button" class="dropdown-item" @mousedown.prevent="pickCuisine(c)">{{ c }}</button>
                   </li>
@@ -500,18 +702,19 @@ watch(() => [filters.value.priceSymbol, showCuisineList.value, showAreaList.valu
               </div>
 
               <!-- Area -->
-              <div class="col-12 col-md-6 col-lg-4 position-relative">
+              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="areaBox">
                 <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
                 <input
                   class="form-control form-control-sm text-start"
                   placeholder="Type to search (e.g. Bugis)"
                   v-model="areaQuery"
                   @focus="onAreaInput" @input="onAreaInput"
-                  @blur="() => setTimeout(() => (showAreaList = false), 120)"
+                  @blur="() => (showAreaList = false)"
+                  ref="areaInput"
                 />
-                <ul v-if="showAreaList" class="dropdown-menu show w-100 shadow-sm" style="max-height: 260px; overflow: auto; z-index: 1200">
-                  <li><button type="button" class="dropdown-item text-muted" @click="pickArea('')">Show all areas</button></li>
-                  <li v-if="!areaSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                <ul v-if="showAreaList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                  <li><button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickArea('')">Show all areas</button></li>
+                  <li v-if="areaQuery && !areaSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
                   <li v-for="(a, i) in areaSuggestions" :key="'a-' + i">
                     <button type="button" class="dropdown-item" @mousedown.prevent="pickArea(a)">{{ a }}</button>
                   </li>
@@ -522,11 +725,11 @@ watch(() => [filters.value.priceSymbol, showCuisineList.value, showAreaList.valu
               <div class="col-12 col-lg-4">
                 <label class="form-label mb-1 small fw-semibold text-secondary">Price Range</label>
                 <div class="d-flex gap-2 flex-wrap">
-                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$' }" @click="filters.priceSymbol = '$'" data-bs-toggle="tooltip" title="Under $10 per person">$</button>
-                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$$' }" @click="filters.priceSymbol = '$$'" data-bs-toggle="tooltip" title="$10–$30 per person">$$</button>
-                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$$$' }" @click="filters.priceSymbol = '$$$'" data-bs-toggle="tooltip" title="$30–$60 per person">$$$</button>
-                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$$$$' }" @click="filters.priceSymbol = '$$$$'" data-bs-toggle="tooltip" title="$60+ per person">$$$$</button>
-                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '' }" @click="filters.priceSymbol = ''" title="Show all prices">All</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$' }" @click="setPrice('$')" data-bs-toggle="tooltip" title="Inexpensive">$</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$$' }" @click="setPrice('$$')" data-bs-toggle="tooltip" title="Moderate">$$</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$$$' }" @click="setPrice('$$$')" data-bs-toggle="tooltip" title="Expensive">$$$</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '$$$$' }" @click="setPrice('$$$$')" data-bs-toggle="tooltip" title="Very Expensive">$$$$</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: filters.priceSymbol === '' }" @click="setPrice('')" title="Show all prices">All</button>
                 </div>
               </div>
             </div>
@@ -542,7 +745,6 @@ watch(() => [filters.value.priceSymbol, showCuisineList.value, showAreaList.valu
               <div class="col-12 col-md-6 text-md-end">
                 <div class="d-inline-flex gap-2">
                   <button type="button" class="btn btn-sm btn-clear px-3" @click="clearFilters">Clear</button>
-                  <button type="button" class="btn btn-sm btn-fit px-3" @click="runSearch">Search</button>
                 </div>
               </div>
             </div>
@@ -620,6 +822,13 @@ watch(() => [filters.value.priceSymbol, showCuisineList.value, showAreaList.valu
 
 /* limit dropdown height */
 .dropdown-menu { max-height: 260px; overflow: auto; }
+
+/* Limit visible options to ~3 (plus the header row), rest scrollable */
+.dropdown-menu.filter-list {
+  /* Each .dropdown-item is roughly ~44px tall with current padding; 4 rows = header + 3 options */
+  max-height: calc(44px * 4);
+  overflow: auto;
+}
 
 /* Modal defaults (light) */
 :deep(.modal .modal-content) {

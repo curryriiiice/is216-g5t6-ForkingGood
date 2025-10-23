@@ -1,6 +1,5 @@
 import supabase from "./connection.js";
 import crypto from 'crypto'; 
-import {getRestaurantbyId} from "./restaurantService.js"
 
 // get user's posts
 // get user's liked posts 
@@ -129,11 +128,31 @@ const createPost = async (user_email, name, address, cuisine_type, rating, revie
 };
 // tested, works
 
+const deletePost = async (postid) => {
+    return await supabase.from('recommendation').delete().match({postid: postid}); 
+}
+// tested, works
+
+const getAllUsernames = async() => {
+    const {data, error} = await supabase.from('user').select('username'); 
+
+    if (error) {
+        return { error };
+    }
+
+    // extract only usernames from objs
+    const usernames = data.map(user => user.username);
+
+    return { data: usernames };
+}
+
 
 export{
     getPostbyId,
     getUsernamebyEmail,
     createPost,
+    deletePost, 
+    getAllUsernames, 
 
 }
 
@@ -143,3 +162,4 @@ export{
 //console.log(await getPostbyId("467d2636-bfd6-4ff8-b9ff-f3c7159b23cd"))
 // let address = '133 Pasir Ris Rd, Singapore 519149'
 // console.log(await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${process.env.GOOGLE_MAPS_API_KEY}`))
+//console.log(await getAllUsernames())
