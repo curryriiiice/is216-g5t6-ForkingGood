@@ -197,6 +197,44 @@ const getLikesbyPostId = async (req, res) => {
 };
 // tested, works
 
+const editComment = async (req, res) => {
+    // get data from FE
+    const { postid, commenter_email, new_comment, old_comment } = req.body;
+    
+    // check if everything is received 
+    if (!postid || !commenter_email || !new_comment || !old_comment) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: delCommError } = await service.editComment(postid, commenter_email, new_comment, old_comment);
+
+    if (delCommError) {
+        return res.status(500).json({ message: "Error editing comment on this user's post" });
+    }
+
+    return res.status(200).json({ message: "Comment edited successfully!" });
+};
+// tested, works
+
+
+const deleteComment = async (req, res) => {
+    // get data from FE
+    const { postid, commenter_email, comment } = req.body;
+    
+    // check if everything is received 
+    if (!postid || !commenter_email || !comment) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: delCommError } = await service.deleteComment(postid, commenter_email, comment);
+
+    if (delCommError) {
+        return res.status(500).json({ message: "Error deleting comment on this user's post" });
+    }
+
+    return res.status(200).json({ message: "Comment deleted successfully!" });
+};
+// tested, works
 
 const removeFriend = async (req, res) => {
     // get data from FE
@@ -249,7 +287,8 @@ export{
     getLikesbyPostId,
     removeFriend,
     isFriends,
-
+    deleteComment,
+    editComment
 
 
 }

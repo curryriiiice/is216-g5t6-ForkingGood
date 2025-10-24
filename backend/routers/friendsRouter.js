@@ -14,6 +14,8 @@ import {
     getLikesbyPostId, 
     removeFriend,
     isFriends,
+    deleteComment,
+    editComment,
 
 
 
@@ -33,9 +35,11 @@ router.post("/getPendingFriendReqs", getPendingFriendReqs);
 router.post("/commentPost", commentPost); 
 router.post("/getCommentsbyPostId", getCommentsbyPostId); 
 router.post("/likePost", likePost); 
-router.post("/unlikePost", unlikePost);
+router.delete("/unlikePost", unlikePost);
 router.post("/getLikesbyPostId", getLikesbyPostId); 
 router.delete("/removeFriend", removeFriend);
 router.post("/isFriends", isFriends);
+router.delete("/deleteComment", deleteComment);
+router.patch("/editComment", editComment); 
 
 export default router;

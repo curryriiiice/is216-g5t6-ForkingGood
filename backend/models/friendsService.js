@@ -110,6 +110,13 @@ const isFriends = async (user_email, friend_email) => {
     // Return true only if request_accepted is true
     return { data: data.request_accepted === true };
 };
+const deleteComment = async (postid, commenter_email, comment) => {
+    return await supabase.from('comments').delete().match({postid: postid, commenter_email:commenter_email, comment:comment}); 
+}
+
+const editComment = async (postid, commenter_email, new_comment, old_comment) => {
+    return await supabase.from('comments').update({comment:new_comment}).match({postid: postid, commenter_email:commenter_email, comment:old_comment}); 
+}
 
 export{
     getFriends, 
@@ -124,6 +131,8 @@ export{
     getLikesbyPostId, 
     removeFriend,
     isFriends,
+    deleteComment,
+    editComment,
 
 
 
