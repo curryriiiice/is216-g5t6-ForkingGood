@@ -13,6 +13,8 @@ import {
 	createPost,
 	deletePost,
 	getAllUsernames, 
+	getLikedPosts,
+	getUserPosts,
 
 }from '../controllers/userController.js';
 
@@ -25,6 +27,7 @@ router.post("/getUsernamebyEmail", getUsernamebyEmail);
 router.post("/createPost", upload.array('photos'), createPost);
 router.delete("/deletePost", deletePost); 
 router.get("/getAllUsernames", getAllUsernames); 
-
+router.post("/getLikedPosts", getLikedPosts);
+router.post("/getUserPosts", getUserPosts); 
 
 export default router;

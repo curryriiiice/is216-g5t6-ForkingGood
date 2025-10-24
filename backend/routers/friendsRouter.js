@@ -12,6 +12,8 @@ import {
     likePost,
     unlikePost,
     getLikesbyPostId, 
+    removeFriend,
+    isFriends,
 
 
 
@@ -33,5 +35,7 @@ router.post("/getCommentsbyPostId", getCommentsbyPostId);
 router.post("/likePost", likePost); 
 router.post("/unlikePost", unlikePost);
 router.post("/getLikesbyPostId", getLikesbyPostId); 
+router.delete("/removeFriend", removeFriend);
+router.post("/isFriends", isFriends);
 
 export default router;

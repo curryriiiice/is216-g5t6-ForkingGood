@@ -1,4 +1,5 @@
 import supabase from "./connection.js";
+
 const reverseSearch = async (imageBuffer) => {
     // 1. Call Google Cloud Vision API
     const visionResponse = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${process.env.GOOGLE_VISION_API_KEY}`, {
@@ -58,39 +59,46 @@ const reverseSearch = async (imageBuffer) => {
 
     // 3. Search for restaurants using the labels
     const restaurants = new Map();
+    let labelIndex = 0;
 
-    for (const label of foodLabels.slice(0, 3)) {
-        if (restaurants.size >= 10) break;
-
+    while (restaurants.size < 10 && foodLabels.length > 0) {
+        const label = foodLabels[labelIndex % foodLabels.length]; // Cycle through labels
+        
         const placesResponse = await fetch(
             `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(label + ' restaurant Singapore')}&key=${process.env.GOOGLE_MAPS_API_KEY}`
         );
         
         const placesData = await placesResponse.json();
         
-        if (placesData.status === 'OK') {
-            // Process each restaurant to get photos
-            for (const place of placesData.results.slice(0, 5)) {
-                if (restaurants.size >= 10) break;
-                
-                // Get restaurant photos
-                const restaurantPhotos = await getRestaurantPhotos(place.place_id);
-                
-                const restaurant = {
-                    placeID: place.place_id,
-                    name: place.name,
-                    latitude: place.geometry.location.lat,
-                    longitude: place.geometry.location.lng,
-                    address: place.formatted_address,
-                    cuisine_type: label,
-                    area: extractArea(place.formatted_address),
-                    price_level: place.price_level || 0,
-                    pictures: restaurantPhotos // Add photos array
-                };
-                
-                restaurants.set(place.place_id, restaurant);
+        if (placesData.status === 'OK' && placesData.results.length > 0) {
+            // Get the first restaurant for this label that we haven't already added
+            for (const place of placesData.results) {
+                if (!restaurants.has(place.place_id)) {
+                    // Get restaurant photos
+                    const restaurantPhotos = await getRestaurantPhotos(place.place_id);
+                    
+                    const restaurant = {
+                        placeID: place.place_id,
+                        name: place.name,
+                        latitude: place.geometry.location.lat,
+                        longitude: place.geometry.location.lng,
+                        address: place.formatted_address,
+                        cuisine_type: label,
+                        area: extractArea(place.formatted_address),
+                        price_level: place.price_level || 0,
+                        pictures: restaurantPhotos
+                    };
+                    
+                    restaurants.set(place.place_id, restaurant);
+                    break; // Only take one restaurant per label iteration
+                }
             }
         }
+        
+        labelIndex++;
+        
+        // Safety break to prevent infinite loop
+        if (labelIndex > 50) break;
     }
 
     const restaurantArray = Array.from(restaurants.values());
@@ -132,20 +140,35 @@ const getRestaurantPhotos = async (placeId) => {
     }
 };
 
-// Keep the same helper functions
+// Helper function to check if label is food-related
 const isFoodRelated = (label) => {
     const foodKeywords = [
-        'food', 'dish', 'cuisine', 'restaurant', 'meal', 'eating', 'dining',
         'noodle', 'rice', 'pasta', 'pizza', 'burger', 'sushi', 'ramen', 'curry',
         'soup', 'salad', 'seafood', 'meat', 'vegetable', 'fruit', 'dessert',
         'bakery', 'cafe', 'coffee', 'tea', 'beverage', 'drink', 'chicken', 'beef',
         'pork', 'fish', 'vegetarian', 'vegan', 'asian', 'western', 'chinese',
         'japanese', 'korean', 'thai', 'vietnamese', 'malay', 'indian', 'italian',
-        'french', 'mexican'
+        'french', 'mexican', 'steak', 'sandwich', 'taco', 'burrito', 'dim sum',
+        'dumpling', 'pho', 'pad thai', 'satay', 'laksa', 'chicken rice', 'roti prata',
+        'biriyani', 'kimchi', 'tempura', 'teriyaki', 'udon', 'soba', 'bento',
+        'hotpot', 'bbq', 'grill', 'fried', 'baked', 'roasted', 'steamed'
     ];
     
+    const excludeKeywords = [
+        'food', 'dish', 'cuisine', 'restaurant', 'meal', 'eating', 'dining',
+        'menu', 'breakfast', 'lunch', 'dinner', 'supper', 'snack'
+    ];
+    
+    const lowerLabel = label.toLowerCase();
+    
+    // Exclude general terms
+    if (excludeKeywords.some(keyword => lowerLabel === keyword)) {
+        return false;
+    }
+    
+    // Include specific food terms
     return foodKeywords.some(keyword => 
-        label.toLowerCase().includes(keyword)
+        lowerLabel.includes(keyword)
     );
 };
 
@@ -176,9 +199,31 @@ const extractArea = (address) => {
     return area || 'Singapore';
 };
 
+const randomiserSearch = async (user_email, input_area, input_cuisine_type, input_price_level) => {
+    let final_area = null; 
+    let final_ctype = null; 
+    let final_plevel = null; 
+    
+    if(input_area && input_area.toLowerCase() != "any"){
+        final_area = input_area; 
+    }
 
+    if(input_cuisine_type && input_cuisine_type.toLowerCase() != "any"){
+        final_ctype = input_cuisine_type; 
+    }
+
+    if(input_price_level && Number.isInteger(input_price_level)){
+        final_plevel = input_price_level; 
+    }
+
+    return await supabase.rpc('get_randomized_posts', {input_user_email:user_email, input_area:final_area, input_cuisine_type:final_ctype, input_price_level: final_plevel})
+    // an array of JSONs. each JSON contains post details
+    
+}
+// tested, works
 
 export{
     reverseSearch,
-    
+    randomiserSearch,
+
 }
