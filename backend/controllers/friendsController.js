@@ -236,6 +236,43 @@ const deleteComment = async (req, res) => {
 };
 // tested, works
 
+const removeFriend = async (req, res) => {
+    // get data from FE
+    const { user_email, friend_email } = req.body;
+    
+    // check if everything is received 
+    if (!user_email || !friend_email) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: removeFriendError } = await service.removeFriend(user_email, friend_email);
+
+    if (removeFriendError) {
+        return res.status(500).json({ message: "Error removing friend" });
+    }
+
+    return res.status(200).json({ message: "Friend removed successfully!" });
+};
+// tested, works
+
+const isFriends = async (req, res) => {
+    // get data from FE
+    const { user_email, friend_email } = req.body;
+    
+    // check if everything is received 
+    if (!user_email || !friend_email) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: isFriendsError } = await service.isFriends(user_email, friend_email);
+
+    if (isFriendsError) {
+        return res.status(500).json({ message: "Error checking friend status" });
+    }
+
+    return res.status(200).json({ data });
+};
+// tested, works
 
 export{
     getFriends, 
@@ -248,6 +285,8 @@ export{
     likePost,
     unlikePost, 
     getLikesbyPostId,
+    removeFriend,
+    isFriends,
     deleteComment,
     editComment
 

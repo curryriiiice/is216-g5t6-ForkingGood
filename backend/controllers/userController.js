@@ -91,6 +91,43 @@ const getAllUsernames = async (req, res) => {
     return res.status(200).json({ data });
 }
 
+const getLikedPosts = async (req, res) => {
+    // get user_email from FE
+    const { user_email } = req.body;
+    
+    // check if user_email is received 
+    if (!user_email) {
+        return res.status(400).json({ error: "User email is required" });
+    }
+
+    const { data, error: getLikedPostsError } = await service.getLikedPosts(user_email);
+
+    if (getLikedPostsError) {
+        return res.status(500).json({ message: "Error getting liked posts" });
+    }
+
+    return res.status(200).json({ data });
+};
+
+
+const getUserPosts = async (req, res) => {
+    // get data from FE
+    const { user_email, friends } = req.body;
+    
+    // check if everything is received 
+    if (!user_email || friends === undefined) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: getUserPostsError } = await service.getUserPosts(user_email, friends);
+
+    if (getUserPostsError) {
+        return res.status(500).json({ message: "Error getting user posts" });
+    }
+
+    return res.status(200).json({ data });
+};
+
 
 export{
     getPostbyId,
@@ -98,5 +135,7 @@ export{
     createPost,
     deletePost, 
     getAllUsernames, 
-    
+    getLikedPosts,
+    getUserPosts,
+
 }

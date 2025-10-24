@@ -86,6 +86,30 @@ const getLikesbyPostId = async (postid) => {
     return { data: emails };
 }
 
+const removeFriend = async (user_email, friend_email) => {
+    const email1 = user_email < friend_email ? user_email : friend_email;
+    const email2 = user_email < friend_email ? friend_email : user_email;
+
+    return await supabase.from('friend').delete().match({email1: email1, email2:email2})
+};
+
+const isFriends = async (user_email, friend_email) => {
+    const email1 = user_email < friend_email ? user_email : friend_email;
+    const email2 = user_email < friend_email ? friend_email : user_email;
+
+    const { data, error } = await supabase.from('friend').select('request_accepted').match({'email1': email1, 'email2': email2}).single();
+
+    if (error) {
+        // If no row found, they are not friends
+        if (error.code === 'PGRST116') {
+            return { data: false };
+        }
+        return { error };
+    }
+
+    // Return true only if request_accepted is true
+    return { data: data.request_accepted === true };
+};
 const deleteComment = async (postid, commenter_email, comment) => {
     return await supabase.from('comments').delete().match({postid: postid, commenter_email:commenter_email, comment:comment}); 
 }
@@ -105,6 +129,8 @@ export{
     likePost, 
     unlikePost, 
     getLikesbyPostId, 
+    removeFriend,
+    isFriends,
     deleteComment,
     editComment,
 

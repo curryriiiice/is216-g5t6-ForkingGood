@@ -59,7 +59,7 @@ const getFilteredPosts = async (user_email, input_area, input_cuisine_type, inpu
         final_ctype = input_cuisine_type; 
     }
 
-    if(input_price_level && input_price_level.toLowerCase() != "all"){
+    if(input_price_level && Number.isInteger(input_price_level)){
         final_plevel = input_price_level; 
     }
 

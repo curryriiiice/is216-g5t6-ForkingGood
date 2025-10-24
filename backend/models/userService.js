@@ -146,6 +146,13 @@ const getAllUsernames = async() => {
     return { data: usernames };
 }
 
+const getLikedPosts = async (user_email) => {
+    return await supabase.rpc('get_liked_posts', {input_user_email: user_email});
+};
+
+const getUserPosts = async (user_email, friends) => {
+    return await supabase.rpc('get_user_posts', {input_user_email: user_email,input_friends: friends});
+};
 
 export{
     getPostbyId,
@@ -153,6 +160,9 @@ export{
     createPost,
     deletePost, 
     getAllUsernames, 
+    getLikedPosts,
+    getUserPosts,
+    
 
 }
 
