@@ -1,25 +1,27 @@
-import express from "express";
+import express from 'express'; // <--- 1. ADDED THIS IMPORT
 const router = express.Router();
-//import {task1,task2,etc} from "../controllers/taskController";
+
+
 import {
-    getFriends,
-    acceptFriendReq,
-    rejectFriendReq,
-    sendFriendReq,
-
-
-
-}from '../controllers/friendsController.js';
+  getFriends,
+  acceptFriendReq,
+  rejectFriendReq,
+  sendFriendReq,
+  getPendingFriendReqs,
+  removeFriend,
+} from '../controllers/friendsController.js';
 
 //router.get
-//router.post etc etc for each of the routes
+//router.post etc for each of the routes
 // eg router.post('/getGroups',getGroups);
 
-router.post("/getFriends", getFriends);
-router.post("/acceptFriendReq", acceptFriendReq);
-router.post("/rejectFriendReq", rejectFriendReq);
-router.post("/sendFriendReq", sendFriendReq); 
+router.post('/getFriends', getFriends);
+router.post('/acceptFriendReq', acceptFriendReq);
+router.post('/rejectFriendReq', rejectFriendReq);
+router.post('/sendFriendReq', sendFriendReq);
 
 
+router.post('/getPendingFriendReqs', getPendingFriendReqs);
+router.post('/removeFriend', removeFriend);
 
 export default router;

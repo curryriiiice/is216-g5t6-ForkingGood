@@ -14,27 +14,6 @@ const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@comp
 
 const router = useRouter()
 
-// ==========================
-// THEME
-// ==========================
-const THEME_KEY = 'fg_theme_v2'
-const theme = ref(localStorage.getItem(THEME_KEY) || 'light')
-
-function applyTheme() {
-  document.documentElement.setAttribute('data-theme', theme.value)
-  localStorage.setItem(THEME_KEY, theme.value)
-}
-function cycleTheme() {
-  const order = ['light', 'brand-mint', 'brand-lagoon', 'brand-plum']
-  const idx = order.indexOf(theme.value)
-  theme.value = order[(idx + 1) % order.length]
-  applyTheme()
-}
-function setTheme(val) {
-  theme.value = val
-  applyTheme()
-}
-
 // UI state
 const loading = ref(true)
 const error = ref('')
@@ -42,10 +21,16 @@ const friends = ref([]) // array of { email, username, name, avatar, mutual_coun
 const query = ref('')
 
 // State for Modals
-const showAddModal = ref(false) // For "Add Friend" modal
-const showAdd = ref(false) // For "Create Post" FAB modal
-const adding = ref(false) // For "Add Friend" action
+const showAddModal = ref(false)
+const showAdd = ref(false)
+const adding = ref(false)
 const addEmail = ref('')
+
+// --- State for Pending Requests Modal ---
+const showPendingModal = ref(false)
+const pendingRequests = ref([]) // Will be: [ { sender_email: '...' }, ... ]
+const pendingLoading = ref(false)
+const pendingError = ref('')
 
 // Derived
 const filteredFriends = computed(() => {
@@ -59,32 +44,22 @@ const filteredFriends = computed(() => {
   })
 })
 
-// ================================================================
-// UPDATED loadFriends() FUNCTION
-// ================================================================
 async function loadFriends() {
   loading.value = true
   error.value = ''
   try {
-    // 1. Call the new endpoint with POST and the user_email in the body
-    //    (Assuming the path is /friends/getFriends based on your function name)
     const r = await api.post('/friends/getFriends', { user_email: ACTIVE_EMAIL })
-
-    // 2. Get the array of email strings from the 'data' key
     const emailList = Array.isArray(r.data?.data) ? r.data.data : []
-
-    // 3. Map the email strings to the object structure the template needs
     friends.value = emailList.map((email) => {
       const emailString = String(email || '')
       const inferredName = emailString.split('@')[0] || 'friend'
-
       return {
         id: emailString,
         email: emailString,
         username: inferredName,
         name: inferredName,
-        avatar: '/images/avatar1.png', // Use default avatar
-        mutual_count: 0, // API no longer provides this
+        avatar: '/images/avatar1.png',
+        mutual_count: 0,
       }
     })
   } catch (e) {
@@ -95,37 +70,103 @@ async function loadFriends() {
   }
 }
 
-// (This function remains unchanged, assuming /friends/add is still the correct endpoint)
 async function addFriend() {
   const email = String(addEmail.value || '').trim()
   if (!email) return
   adding.value = true
   try {
-    await api.post('/friends/add', { user_email: ACTIVE_EMAIL, friend_email: email })
+    await api.post('/friends/sendFriendReq', {
+      user_email: ACTIVE_EMAIL,
+      friend_email: email,
+    })
     addEmail.value = ''
     showAddModal.value = false
-    await loadFriends() // Reload list after adding
+    alert('Friend request sent!')
   } catch (e) {
     console.error('[friends] add failed', e)
-    const msg = e.response?.data?.error || e.response?.data?.message || e.message
-    error.value = msg || 'Failed to add friend.'
+    const msg = e.response?.data?.message || e.response?.data?.error || e.message
+    error.value = msg || 'Failed to send request.'
   } finally {
     adding.value = false
   }
 }
 
-// (This function remains unchanged, assuming /friends/remove is still the correct endpoint)
 async function removeFriend(f) {
   const yes = confirm(`Remove ${f.name || f.email} from your friends?`)
   if (!yes) return
   const before = friends.value.slice()
   friends.value = friends.value.filter((x) => x.id !== f.id)
   try {
-    await api.post('/friends/remove', { user_email: ACTIVE_EMAIL, friend_email: f.email })
+    await api.post('/friends/removeFriend', {
+      user_email: ACTIVE_EMAIL,
+      friend_email: f.email,
+    })
   } catch (e) {
     console.error('[friends] remove failed', e)
     friends.value = before // rollback
-    error.value = 'Failed to remove friend.'
+    error.value = e.response?.data?.message || 'Failed to remove friend.'
+  }
+}
+
+async function loadPendingRequests() {
+  pendingLoading.value = true
+  pendingError.value = ''
+  pendingRequests.value = []
+  try {
+    // 1. Use the correct endpoint from your screenshot
+    const r = await api.post('/friends/getPendingFriendReqs', { user_email: ACTIVE_EMAIL })
+
+    // 2. Get the array of email strings from the 'data' key
+    const emailList = Array.isArray(r.data?.data) ? r.data.data : []
+
+    // 3. Map the email strings to the object structure the template needs
+    pendingRequests.value = emailList.map((email) => ({
+      sender_email: email,
+    }))
+  } catch (e) {
+    console.error('[friends] loadPendingRequests failed', e)
+    pendingError.value = 'Failed to load pending requests.'
+  } finally {
+    pendingLoading.value = false
+  }
+}
+
+async function openPendingModal() {
+  showPendingModal.value = true
+  await loadPendingRequests()
+}
+
+async function acceptFriendReq(senderEmail) {
+  try {
+    await api.post('/friends/acceptFriendReq', {
+      user_email: ACTIVE_EMAIL,
+      friend_email: senderEmail,
+    })
+    // Optimistic UI: remove from pending list
+    pendingRequests.value = pendingRequests.value.filter(
+      (req) => req.sender_email !== senderEmail,
+    )
+    // Reload main friends list
+    await loadFriends()
+  } catch (e) {
+    console.error('[friends] acceptFriendReq failed', e)
+    pendingError.value = 'Failed to accept request.'
+  }
+}
+
+async function rejectFriendReq(senderEmail) {
+  try {
+    await api.post('/friends/rejectFriendReq', {
+      user_email: ACTIVE_EMAIL,
+      friend_email: senderEmail,
+    })
+    // Optimistic UI: remove from pending list
+    pendingRequests.value = pendingRequests.value.filter(
+      (req) => req.sender_email !== senderEmail,
+    )
+  } catch (e) {
+    console.error('[friends] rejectFriendReq failed', e)
+    pendingError.value = 'Failed to reject request.'
   }
 }
 
@@ -142,7 +183,6 @@ function handleAdded() {
 }
 
 onMounted(async () => {
-  applyTheme()
   await loadFriends()
   await nextTick()
 })
@@ -160,6 +200,13 @@ onMounted(async () => {
             placeholder="Search friends"
             style="min-width: 220px"
           />
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            @click="openPendingModal"
+            title="Pending Requests"
+          >
+            Requests
+          </button>
           <button class="btn btn-sm btn-fit" @click="showAddModal = true">Add</button>
         </div>
       </div>
@@ -222,11 +269,48 @@ onMounted(async () => {
           placeholder="e.g. friend@example.com"
         />
       </div>
+      <div v-if="error" class="alert alert-danger py-2 small">{{ error }}</div>
       <div class="d-flex justify-content-end gap-2">
         <button class="btn btn-outline-secondary" @click="showAddModal = false">Cancel</button>
         <button class="btn btn-primary" :disabled="adding || !addEmail" @click="addFriend">
-          {{ adding ? 'Adding…' : 'Add Friend' }}
+          {{ adding ? 'Sending…' : 'Send Request' }}
         </button>
+      </div>
+    </Modal>
+
+    <Modal :show="showPendingModal" title="Pending Friend Requests" @close="showPendingModal = false">
+      <div v-if="pendingLoading" class="text-center text-muted py-3">Loading requests…</div>
+      <div v-else-if="pendingError" class="alert alert-danger py-2">{{ pendingError }}</div>
+      <div
+        v-else-if="!pendingRequests.length"
+        class="text-center text-muted py-3"
+      >
+        You have no pending friend requests.
+      </div>
+      <div v-else>
+        <ul class="list-group list-group-flush">
+          <li
+            v-for="req in pendingRequests"
+            :key="req.sender_email"
+            class="list-group-item d-flex align-items-center justify-content-between"
+          >
+            <div class="fw-semibold">{{ req.sender_email }}</div>
+            <div class="d-flex gap-2">
+              <button
+                class="btn btn-sm btn-primary"
+                @click="acceptFriendReq(req.sender_email)"
+              >
+                Accept
+              </button>
+              <button
+                class="btn btn-sm btn-outline-danger"
+                @click="rejectFriendReq(req.sender_email)"
+              >
+                Reject
+              </button>
+            </div>
+          </li>
+        </ul>
       </div>
     </Modal>
 
@@ -268,7 +352,7 @@ onMounted(async () => {
   z-index: 85;
 }
 
-/* Style for the .btn-fit class (from ProfileView) */
+/* Style for the .btn-fit class */
 .btn-fit {
   background: var(--accent, var(--terra-500, #ca6b4f));
   color: #fff;
@@ -279,13 +363,14 @@ onMounted(async () => {
   opacity: 0.6;
 }
 
-/* limit dropdown height (from DashboardView) */
-.dropdown-menu {
-  max-height: 260px;
-  overflow: auto;
+
+.list-group-item {
+  background: transparent;
+  padding-left: 0;
+  padding-right: 0;
 }
 
-/* === Modal Styling (Copied from DashboardView for consistency) === */
+
 :deep(.modal .modal-content) {
   background: var(--surface);
   color: var(--charcoal);
@@ -309,7 +394,6 @@ onMounted(async () => {
   border: 1.5px solid var(--line-200);
   border-radius: 12px;
 }
-/* Radios / checkboxes */
 :deep(.modal .form-check-label) {
   color: var(--charcoal);
   font-weight: 600;
@@ -324,14 +408,12 @@ onMounted(async () => {
   border-color: var(--sage-600);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--sage-600) 35%, transparent);
 }
-/* Dropzone / photo area */
 :deep(.modal .dropzone),
 :deep(.modal .uploader) {
   background: color-mix(in oklab, var(--cream-100) 70%, white);
   border: 1.5px dashed var(--line-200);
   color: var(--ink-400);
 }
-/* Submit button */
 :deep(.modal .btn-primary),
 :deep(.modal .btn-fit) {
   background: var(--sage-600);
