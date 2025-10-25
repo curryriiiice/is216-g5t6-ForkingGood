@@ -37,7 +37,7 @@ router.post("/getCommentsbyPostId", getCommentsbyPostId);
 router.post("/likePost", likePost); 
 router.delete("/unlikePost", unlikePost);
 router.post("/getLikesbyPostId", getLikesbyPostId); 
-router.delete("/removeFriend", removeFriend);
+router.post("/removeFriend", removeFriend);
 router.post("/isFriends", isFriends);
 router.delete("/deleteComment", deleteComment);
 router.patch("/editComment", editComment); 
