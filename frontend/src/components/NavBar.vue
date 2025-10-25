@@ -1,4 +1,4 @@
-<template> 
+<template>   
   <nav class="navbar">
     <!-- Search -->
     <div class="search-wrap" ref="dropdownRef">
@@ -60,6 +60,7 @@
     <div class="links">
       <RouterLink to="/dashboard" class="link">Home</RouterLink>
       <RouterLink to="/map" class="link">Map</RouterLink>
+      <RouterLink to="/myposts" class="link">Activity</RouterLink>
       <RouterLink to="/friends" class="link badge-wrap">
         Friends
         <span v-if="pendingRequestsCount > 0" class="badge">
@@ -72,19 +73,36 @@
     <div class="right">
       <img src="/images/Bell.png" alt="Notifications" width="28" height="28" class="bell" />
 
-      <!-- Avatar -->
-      <RouterLink to="/profile" class="avatar-wrap">
-        <div v-if="localUser?.avatar_url" class="avatar-img">
-          <img :src="localUser.avatar_url" alt="avatar" />
+      <!-- Avatar + menu -->
+      <div class="avatar-menu-wrap" ref="avatarMenuRef">
+        <button
+          type="button"
+          class="avatar-wrap"
+          @click="toggleAvatarMenu"
+          aria-haspopup="menu"
+          :aria-expanded="showAvatarMenu ? 'true' : 'false'"
+        >
+          <div v-if="localUser?.avatar_url" class="avatar-img">
+            <img :src="localUser.avatar_url" alt="avatar" />
+          </div>
+          <div v-else class="avatar-fallback">{{ initials }}</div>
+        </button>
+
+        <!-- Small popup menu -->
+        <div v-if="showAvatarMenu" class="avatar-menu" role="menu">
+          <RouterLink to="/profile" class="avatar-menu-item" role="menuitem" @click="showAvatarMenu=false">
+            Edit profile
+          </RouterLink>
+          <button type="button" class="avatar-menu-item danger" role="menuitem" @click="goLogoutPage">
+            Log out
+          </button>
         </div>
-        <div v-else class="avatar-fallback">{{ initials }}</div>
-      </RouterLink>
+      </div>
 
       <!-- Welcome (optional) -->
       <span v-if="localUser" class="welcome">Welcome, {{ localUser.username || localUser.first_name }}!</span>
 
-      <!-- Logout button styled like .rev-btn -->
-      <button class="rev-btn logout" @click.stop="goLogoutPage">Log out</button>
+      <!-- (Removed the old Logout button) -->
     </div>
   </nav>
 
@@ -120,6 +138,7 @@
         <div v-if="cropSrc" class="ris-crop-wrap">
           <div
             class="ris-crop-area"
+            ref="areaRef"
             :style="{ width: C + 'px', height: C + 'px' }"
             @mousedown="onDragStart"
             @mousemove="onDragMove"
@@ -128,6 +147,7 @@
             @touchstart="onDragStart"
             @touchmove="onDragMove"
             @touchend="onDragEnd"
+            @wheel.prevent="onWheelZoom"
           >
             <img
               :src="cropSrc"
@@ -217,9 +237,17 @@ const showDropdown = ref(false)
 const dropdownRef = ref(null)
 const localUser = ref(props.user)
 
+/* Avatar menu */
+const avatarMenuRef = ref(null)
+const showAvatarMenu = ref(false)
+function toggleAvatarMenu() {
+  showAvatarMenu.value = !showAvatarMenu.value
+}
+
 /* === Reverse Image Search (single file + cropper) === */
 const showReversePopup = ref(false)
 const fileInputRef = ref(null)
+const areaRef = ref(null) // for wheel-zoom anchoring
 const selectedFile = ref(null) // File | null
 const previewUrl = ref('')
 const fileError = ref('')
@@ -228,20 +256,20 @@ const submitting = ref(false)
 /* Cropper state (square) */
 const cropSrc = ref('')            // object URL of selected image
 const cropScale = ref(1)           // zoom
-const fitScale = ref(1)            // computed scale to show whole image inside the square view
-const minZoom = computed(() => Math.min(0.25, fitScale.value)) // allow zooming out to at least fit (or further down to 0.25)
-const C = 420                      // container size (outer square)
-const D = 360                      // square selection size (inner mask)
-const OUT = 640                    // export resolution (square)
-const pos = reactive({ left: 0, top: 0 })
+const fitScale = ref(1)            // scale to keep whole image inside D×D
+const minZoom = computed(() => fitScale.value) // floor at fit-to-mask
+const C = 420                      // outer square
+const D = 360                      // inner mask square
+const OUT = 640                    // export size
+const pos = reactive({ left: 0, top: 0 }) // image top-left in container coords
 const dragging = ref(false)
 const dragStart = reactive({ x: 0, y: 0 })
 const posStart = reactive({ left: 0, top: 0 })
 const imgMeta = reactive({ naturalW: 0, naturalH: 0, ready: false })
-let cropBlob = null                // exported blob to send
+let cropBlob = null
 
 /* -------------------- Reverse helpers -------------------- */
-const MAX_BYTES = 6 * 1024 * 1024 // 6MB
+const MAX_BYTES = 6 * 1024 * 1024
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
 
 function openReversePopup() { showReversePopup.value = true }
@@ -259,7 +287,6 @@ function handleSingleFile(e) {
   }
   selectedFile.value = f
 
-  // Create preview/crop source
   if (cropSrc.value) { try { URL.revokeObjectURL(cropSrc.value) } catch {} }
   cropSrc.value = URL.createObjectURL(f)
   imgMeta.ready = false
@@ -283,10 +310,9 @@ function onImgLoad(e) {
   imgMeta.naturalH = e.target.naturalHeight
   imgMeta.ready = true
 
-  // Compute a "fit to view" scale so the whole image is visible within the outer square (C x C)
-  fitScale.value = Math.min(C / imgMeta.naturalW, C / imgMeta.naturalH)
+  // Fit INSIDE the mask (D×D), not the outer container.
+  fitScale.value = Math.min(D / imgMeta.naturalW, D / imgMeta.naturalH)
 
-  // Start by fitting the whole picture
   cropScale.value = fitScale.value
   nextTick(centerImage)
 }
@@ -318,31 +344,70 @@ function getPoint(ev) {
   if (ev.touches?.[0]) return { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
   return { x: ev.clientX, y: ev.clientY }
 }
+
+/* Constrain: if the scaled image is smaller than the mask in any axis, keep it centered.
+   Otherwise, keep the mask fully inside the image. */
 function constrainPosition() {
   const w = imgMeta.naturalW * cropScale.value
   const h = imgMeta.naturalH * cropScale.value
   const half = D / 2
-  const minLeft = C/2 + half - w
-  const maxLeft = C/2 - half
-  const minTop  = C/2 + half - h
-  const maxTop  = C/2 - half
-  pos.left = Math.min(Math.max(pos.left, minLeft), maxLeft)
-  pos.top  = Math.min(Math.max(pos.top,  minTop),  maxTop)
+  const maskLeft = C/2 - half
+  const maskRight = C/2 + half
+  const maskTop = C/2 - half
+  const maskBottom = C/2 + half
+
+  if (w <= D) {
+    pos.left = C/2 - w/2
+  } else {
+    const minLeft = maskRight - w
+    const maxLeft = maskLeft
+    pos.left = Math.min(Math.max(pos.left, minLeft), maxLeft)
+  }
+
+  if (h <= D) {
+    pos.top = C/2 - h/2
+  } else {
+    const minTop = maskBottom - h
+    const maxTop = maskTop
+    pos.top = Math.min(Math.max(pos.top, minTop), maxTop)
+  }
 }
-function onZoomChange(val) {
+
+/* ====== Anchored Zoom Helpers ====== */
+function setZoom(nextScale, anchorX, anchorY) {
+  nextScale = Math.max(minZoom.value, Math.min(3, Number(nextScale)))
   const old = cropScale.value
-  const next = Number(val)
-  if (!imgMeta.ready) { cropScale.value = next; return }
-  const cx = C/2, cy = C/2
-  const relX = cx - pos.left, relY = cy - pos.top
-  const ratio = next / old
-  pos.left = cx - relX * ratio
-  pos.top  = cy  - relY * ratio
-  cropScale.value = next
+  if (!imgMeta.ready || nextScale === old) return
+
+  const u = (anchorX - pos.left) / old
+  const v = (anchorY - pos.top)  / old
+
+  cropScale.value = nextScale
+  pos.left = anchorX - u * nextScale
+  pos.top  = anchorY - v * nextScale
+
   constrainPosition()
 }
+
+function onWheelZoom(e) {
+  if (!imgMeta.ready || !areaRef.value) return
+  const rect = areaRef.value.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+  const factor = 1 - Math.sign(e.deltaY) * 0.12
+  setZoom(cropScale.value * factor, x, y)
+}
+
+/* Slider zoom anchored to mask center */
+function onZoomChange(val) {
+  if (!imgMeta.ready) return
+  const cx = C / 2
+  const cy = C / 2
+  setZoom(val, cx, cy)
+}
+
 function resetCrop() {
-  cropScale.value = 1
+  cropScale.value = fitScale.value
   centerImage()
 }
 function zoomToFit() {
@@ -389,7 +454,6 @@ async function submitReverseSearch() {
   fileError.value = ''
 
   try {
-    // prefer the crop if present or can be built; else original file
     let blobToSend = cropBlob
     if (!blobToSend && cropSrc.value) {
       blobToSend = await buildCropBlob()
@@ -399,34 +463,27 @@ async function submitReverseSearch() {
       : selectedFile.value
 
     const form = new FormData()
-    form.append('photo', fileToSend) // <-- match backend field name
+    form.append('photo', fileToSend)
 
-    // Call backend endpoint
     const { data } = await http.post('/search/reverseSearch', form, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
 
-    // Convert to Data URL for persistence
     const dataUrl = await readAsDataURL(fileToSend)
 
-    // Save payload for ReverseImageView to consume
     sessionStorage.setItem('reverseImagePayload', JSON.stringify({
       images: [dataUrl],
       results: data || null
     }))
 
-    // Close popup & reset
     showReversePopup.value = false
     removeFile()
-
-    // Always go to Reverse Image results page
     router.push('/reverseimage')
     return
   } catch (err) {
     console.warn('Backend reverse-image failed, falling back to local route:', err?.message || err)
   }
 
-  // Local fallback: still go to /reverseimage with the image only
   try {
     let dataUrl
     if (cropBlob) {
@@ -443,6 +500,16 @@ async function submitReverseSearch() {
   } finally {
     submitting.value = false
   }
+}
+
+/* Avatar menu actions */
+async function goLogoutPage() {
+  showAvatarMenu.value = false
+  try { http.post('/auth/logout').catch(() => {}) } catch (_) {}
+  localStorage.removeItem('token')
+  sessionStorage.removeItem('token')
+  localUser.value = null
+  router.push('/login')
 }
 
 function closeReversePopup() {
@@ -502,20 +569,17 @@ function onSearchInput(e) {
 
 /* ------------------------- Events ------------------------- */
 function handleOutsideClick(ev) {
-  if (!dropdownRef.value) return
-  if (!dropdownRef.value.contains(ev.target)) showDropdown.value = false
+  // close search dropdown
+  if (dropdownRef.value && !dropdownRef.value.contains(ev.target)) {
+    showDropdown.value = false
+  }
+  // close avatar menu
+  if (avatarMenuRef.value && !avatarMenuRef.value.contains(ev.target)) {
+    showAvatarMenu.value = false
+  }
 }
 
-/* ✅ Direct logout: navigate to /login regardless of API result */
-async function goLogoutPage() {
-  try { http.post('/auth/logout').catch(() => {}) } catch (_) {}
-  localStorage.removeItem('token')
-  sessionStorage.removeItem('token')
-  localUser.value = null
-  router.push('/login')
-}
-
-/* ------------------------- Lifecycle ------------------------- */
+/* Lifecycle */
 onMounted(async () => {
   document.addEventListener('mousedown', handleOutsideClick)
   if (!localUser.value) {
@@ -630,19 +694,60 @@ onBeforeUnmount(() => {
 /* Right side */
 .right { display: flex; align-items: center; gap: 0.75rem; }
 .bell { border-radius: 999px; cursor: pointer; }
-.avatar-wrap { display: flex; align-items: center; }
+
+/* Avatar + menu */
+.avatar-menu-wrap { position: relative; }
+.avatar-wrap {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
 .avatar-img { width: 36px; height: 36px; border-radius: 999px; overflow: hidden; }
 .avatar-img img { width: 100%; height: 100%; object-fit: cover; }
 .avatar-fallback {
   width: 36px; height: 36px; border-radius: 999px; background: #e5e7eb;
   display: grid; place-items: center; font-weight: 700; color: #111827;
 }
+
+/* popup */
+.avatar-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0,0,0,.08);
+  min-width: 160px;
+  z-index: 60;
+  padding: 6px;
+}
+.avatar-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #374151;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+.avatar-menu-item:hover { background: #f3f4f6; }
+.avatar-menu-item.danger { color: #b91c1c; }
+.avatar-menu-item.danger:hover { background: #fee2e2; }
+
 .welcome { display: none; color: #374151; }
 @media (min-width: 640px) {
   .welcome { display: inline; }
 }
 
-/* spacing tweak for logout; colors come from .rev-btn */
+/* spacing tweak for (removed) logout; keeping class in case referenced elsewhere */
 .logout { margin-left: 0.25rem; }
 
 /* Modal / reverse UI */
@@ -704,6 +809,9 @@ onBeforeUnmount(() => {
   user-select: none;
   -webkit-user-drag: none;
   will-change: transform;
+  /* prevent browser from auto-shrinking; our width/height are authoritative */
+  max-width: none;
+  max-height: none;
 }
 .ris-crop-mask {
   position: absolute;

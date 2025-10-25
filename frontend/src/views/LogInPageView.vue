@@ -2,43 +2,59 @@
 <template>
   <div class="auth-shell">
     <div class="card">
-      <!-- ✅ Placeholder logo you can replace later -->
-      <div class="logo-placeholder">LOGO</div>
+      <img class="logo" src="/images/forkinggood-logo.png" alt="ForkingGood" />
 
       <h1 class="title">Welcome back</h1>
-      <p class="subtitle">Sign in to continue</p>
+      <p class="subtitle">Log in to continue your food adventure</p>
 
-      <form @submit.prevent="onSubmit" class="form">
-        <label class="label">Email or Username</label>
-        <input
-          v-model.trim="identifier"
-          type="text"
-          class="input"
-          placeholder="you@example.com"
-          autocomplete="username"
-          required
-        />
-
-        <label class="label mt">Password</label>
-        <div class="password-wrap">
+      <form @submit.prevent="onSubmit" class="form" novalidate>
+        <div class="field">
+          <label class="label">Email or @username</label>
           <input
-            v-model="password"
-            :type="showPass ? 'text' : 'password'"
-            class="input pass-input"
-            placeholder="••••••••"
-            autocomplete="current-password"
+            v-model.trim="identifier"
+            type="text"
+            class="input"
+            placeholder="you@example.com or @yourhandle"
+            autocomplete="username"
             required
           />
-          <button type="button" class="toggle" @click="showPass = !showPass">
-            {{ showPass ? 'Hide' : 'Show' }}
-          </button>
         </div>
 
-        <p v-if="error" class="error">{{ error }}</p>
+        <div class="field">
+          <label class="label mt">Password</label>
+          <div class="password-wrap">
+            <input
+              v-model="password"
+              :type="showPass ? 'text' : 'password'"
+              class="input pass-input"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required
+            />
+            <button type="button" class="toggle" @click="showPass = !showPass">
+              {{ showPass ? 'Hide' : 'Show' }}
+            </button>
+          </div>
+        </div>
 
-        <button type="submit" class="submit" :disabled="loading">
-          <span v-if="loading">Signing in…</span>
-          <span v-else>Sign in</span>
+        <p v-if="error" class="alert error">{{ error }}</p>
+
+        <button
+          type="submit"
+          class="submit"
+          :disabled="loading"
+          title="Log in to ForkingGood"
+        >
+          <div class="btn-inner">
+            <div v-if="loading" class="btn-loader" aria-hidden="true">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
+            <span class="btn-text">
+              {{ loading ? 'Logging you in…' : 'Log in' }}
+            </span>
+          </div>
         </button>
       </form>
 
@@ -57,7 +73,6 @@ import axios from 'axios'
 
 const router = useRouter()
 
-// Create axios client
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
   withCredentials: true,
@@ -70,31 +85,69 @@ const showPass = ref(false)
 const loading = ref(false)
 const error = ref('')
 
+function looksLikeEmail(v) {
+  return /.+@.+\..+/.test(v)
+}
+
+async function getAllUserNames() {
+  try {
+    const { data } = await api.get('/auth/getAllUserNames')
+    return Array.isArray(data) ? data : data?.data || []
+  } catch (e) {
+    console.error('Error fetching usernames:', e)
+    throw new Error('Unable to verify user list.')
+  }
+}
+
 async function onSubmit() {
   if (loading.value) return
   error.value = ''
+
+  if (!identifier.value) return (error.value = 'Please enter your email or username.')
+  if (!password.value) return (error.value = 'Please enter your password.')
+
   loading.value = true
-
   try {
-    const payload = { email: identifier.value, password: password.value }
-    const { data } = await api.post('/auth/login', payload)
+    const allUsers = await getAllUserNames()
+    const input = identifier.value.trim().toLowerCase()
 
-    const token = data?.token || data?.access_token || null
+    const userExists = allUsers.some((u) =>
+      typeof u === 'string'
+        ? u.toLowerCase() === input
+        : u?.username?.toLowerCase() === input || u?.email?.toLowerCase() === input
+    )
+
+    if (!userExists) {
+      error.value = 'No such user found. Please sign up first.'
+      loading.value = false
+      return
+    }
+
+    const payload = looksLikeEmail(identifier.value)
+      ? { email: identifier.value, password: password.value }
+      : { username: identifier.value, password: password.value }
+
+    const { data } = await api.post('/auth/login', payload)
+    const token =
+      data?.token ||
+      data?.access_token ||
+      data?.accessToken ||
+      data?.data?.token ||
+      null
+
     if (token) {
       localStorage.setItem('token', token)
       sessionStorage.setItem('token', token)
+      router.replace('/dashboard')
+    } else {
+      error.value = 'Login failed. No token returned.'
     }
-
-    router.replace('/dashboard')
   } catch (e) {
     const status = e?.response?.status
-    if (status === 400 || status === 401) {
-      error.value = 'Invalid credentials. Please check your details.'
-    } else if (status >= 500) {
-      error.value = 'Server error. Please try again shortly.'
-    } else {
-      error.value = 'Unable to sign in. Please try again.'
-    }
+    const msg = e?.response?.data?.message || e?.response?.data?.detail || e?.message
+    if (status === 400 || status === 401) error.value = 'Invalid credentials. Please try again.'
+    else if (status >= 500) error.value = 'Server error. Please try again later.'
+    else error.value = msg || 'Unable to log in. Please try again.'
     console.error('Login failed:', e)
   } finally {
     loading.value = false
@@ -103,140 +156,167 @@ async function onSubmit() {
 </script>
 
 <style scoped>
+:root {
+  --fg-maroon: #8E1F2F;
+  --fg-terracotta: #b04c39;
+  --fg-terracotta-dark: #7d3025;
+  --fg-gold: #e3b23c;
+  --ink-dark: #2c1c15;
+}
+
 .auth-shell {
   min-height: 100vh;
-  background: #f0f2f5;
+  background:
+    radial-gradient(1000px 600px at 20% -10%, #fff6e0 0%, rgba(255,255,255,0) 55%),
+    radial-gradient(1200px 600px at 100% 0%, #ffe9ec 0%, rgba(255,255,255,0) 45%),
+    #fafafc;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 28px;
 }
 
 .card {
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
   background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-  padding: 28px;
+  border-radius: 18px;
+  box-shadow: 0 18px 40px rgba(142, 31, 47, 0.08);
+  padding: 30px 26px 24px;
   text-align: center;
 }
 
-/* ✅ Placeholder logo box */
-.logo-placeholder {
-  width: 60px;
-  height: 60px;
-  background: #d4816f33;
-  border: 2px dashed #d4816f;
-  border-radius: 12px;
-  color: #d4816f;
-  font-weight: 800;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 10px;
-}
-
-.title {
-  margin: 8px 0 4px;
-  color: #111827;
-  font-size: 1.5rem;
-  font-weight: 800;
-}
-
-.subtitle {
-  margin: 0 0 18px;
-  color: #6b7280;
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
+/* Left-align only form labels, not the rest */
+.field {
   text-align: left;
 }
 
-.label {
-  font-weight: 700;
-  color: #374151;
-  margin-bottom: 6px;
+.logo {
+  width: 80px;
+  height: 80px;
+  object-fit: contain;
+  margin: 0 auto 12px;
+  display: block;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(142,31,47,0.18);
 }
 
-.mt {
-  margin-top: 12px;
+.title {
+  margin: 8px 0 2px;
+  color: #111827;
+  font-size: 1.6rem;
+  font-weight: 900;
 }
+.subtitle {
+  color: #6b7280;
+  margin-bottom: 18px;
+  font-weight: 600;
+}
+
+/* Form */
+.label {
+  font-weight: 800;
+  color: #374151;
+  margin-bottom: 6px;
+  display: block;
+}
+.mt { margin-top: 12px; }
 
 .input {
   width: 100%;
   border: 1.5px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 12px 13px;
   outline: none;
   color: #111827;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   background: #fff;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
 .input:focus {
-  border-color: #d4816f;
-  box-shadow: 0 0 0 3px rgba(212, 129, 111, 0.15);
+  border-color: var(--fg-maroon);
+  box-shadow: 0 0 0 4px rgba(142,31,47,.12);
 }
 
-.password-wrap {
-  position: relative;
-}
-.pass-input {
-  padding-right: 72px;
-}
+/* Password toggle */
+.password-wrap { position: relative; }
+.pass-input { padding-right: 78px; }
 .toggle {
   position: absolute;
-  right: 8px;
-  top: 50%;
+  right: 10px; top: 50%;
   transform: translateY(-50%);
-  border: none;
-  background: transparent;
-  color: #6b7280;
-  font-weight: 700;
-  cursor: pointer;
+  border: none; background: transparent;
+  color: #6b7280; font-weight: 800; cursor: pointer;
 }
+.toggle:hover { color: var(--fg-maroon); }
 
-.error {
-  color: #ef4444;
+.alert.error {
+  color: #dc2626;
   margin: 10px 0 0;
-  font-weight: 600;
+  font-weight: 700;
 }
 
+/* Log In button */
 .submit {
-  margin-top: 16px;
-  background: #d4816f;
-  color: #fff;
+  margin-top: 20px;
+  background: linear-gradient(180deg, var(--fg-maroon) 0%, var(--fg-terracotta) 80%, var(--fg-terracotta-dark) 100%);
+  color: var(--ink-dark);
   border: none;
-  border-radius: 10px;
-  padding: 0.7rem 1rem;
-  font-weight: 800;
+  border-radius: 22px;
+  padding: 1rem 1.1rem;
+  font-weight: 900;
+  font-size: 1.05rem;
   cursor: pointer;
-  transition: filter 0.15s ease, transform 0.05s ease;
+  width: 100%;
+  min-height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 22px rgba(142,31,47,0.25), inset 0 1px 3px rgba(255,255,255,0.3);
+  transition: transform .06s ease, filter .15s ease, box-shadow .15s ease;
 }
 .submit:hover {
-  filter: brightness(1.03);
+  filter: brightness(1.05);
+  box-shadow: 0 12px 28px rgba(142,31,47,0.32), inset 0 1px 3px rgba(255,255,255,0.4);
 }
-.submit:active {
-  transform: translateY(1px);
+.submit:active { transform: translateY(1px); }
+.submit[disabled] { opacity: .65; cursor: not-allowed; }
+
+/* Loader */
+.btn-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
 }
-.submit[disabled] {
-  opacity: 0.6;
-  cursor: not-allowed;
+.btn-text { font-weight: 900; letter-spacing: .2px; }
+
+.btn-loader {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.btn-loader .dot {
+  width: 7px; height: 7px; border-radius: 999px;
+  background: var(--ink-dark);
+  opacity: .95;
+  animation: bounce 1.2s ease-in-out infinite;
+}
+.btn-loader .dot:nth-child(2) { animation-delay: .12s; }
+.btn-loader .dot:nth-child(3) { animation-delay: .24s; }
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); opacity: .75; }
+  50%      { transform: translateY(-5px); opacity: 1; }
 }
 
 .hint {
   text-align: center;
-  margin-top: 14px;
+  margin-top: 16px;
   color: #6b7280;
 }
 .link {
-  color: #d4816f;
-  font-weight: 700;
+  color: var(--fg-maroon);
+  font-weight: 800;
   text-decoration: none;
 }
-.link:hover {
-  text-decoration: underline;
-}
+.link:hover { text-decoration: underline; }
 </style>
