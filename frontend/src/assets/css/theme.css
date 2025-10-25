@@ -34,18 +34,30 @@
 /* ---------- Brand themes (override accents + background) ---------- */
 :root[data-theme="brand-mint"]  {
   --sage-600:#2fb686; --sage-500:#67c5a5;
+  --terra-500:#009970;
+  --terra-600:#007A59;
+  --terracotta-500:#009970;
+  --terracotta-600:#007A59;
   --bg:      linear-gradient(135deg, #ECF8F3 0%, #D6F2E8 100%);
   --surface: rgba(248, 253, 250, 0.92);
   --line-200:#E2EFE9;
 }
 :root[data-theme="brand-lagoon"]{
   --sage-600:#2a8ecf; --sage-500:#5aa8db;
+  --terra-500:#1E4F91;
+  --terra-600:#163B6B;
+  --terracotta-500:#1E4F91;
+  --terracotta-600:#163B6B;
   --bg:      linear-gradient(135deg, #EAF4FD 0%, #D9EEFB 100%);
   --surface: rgba(245, 250, 255, 0.92);
   --line-200:#DCEAF6;
 }
 :root[data-theme="brand-plum"]  {
-  --sage-600:#7a4ccf; --sage-500:#9872da;
+  --sage-600:rgb(113, 63, 207); --sage-500:#9872da;
+  --terra-500:#a881d0;
+  --terra-600:#D291BC;
+  --terracotta-500:#a881d0;
+  --terracotta-600:#957DAD;
   --bg:      linear-gradient(135deg, #F3ECFB 0%, #ECE3FA 100%);
   --surface: rgba(251, 248, 255, 0.92);
   --line-200:#E9E1F6;

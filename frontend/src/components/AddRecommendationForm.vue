@@ -4,6 +4,9 @@ const router = useRouter()
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import api from '@/lib/api'
 
+// TEMP: until auth is wired, use a fixed user for friends feed
+const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
+
 const emit = defineEmits(['added'])
 
 /** Form state */
@@ -19,18 +22,118 @@ const lng = ref(null)
 const placeId = ref('')
 const photoUrl = ref('')        // dataURL for submit
 const photos = ref([])          // array of dataURLs (we keep your original)
-const previewUrl = ref('')      // objectURL for fast, reliable preview
 const priceRange = ref(null)    // '$' | '$$' | '$$$' | '$$$$'
 const visibility = ref('friends')
 const isDragging = ref(false)
+const MAX_PHOTOS = 6
 
 /** Autocomplete DOM refs */
 const nameInputEl = ref(null)
 const addressInputEl = ref(null)
 const rootEl = ref(null)
+const nameWrap = ref(null)
+const addrWrap = ref(null)
 
 /** File input (so drop zone is clickable) */
 const fileInputEl = ref(null)
+
+// --- Google Places Autocomplete: classic predictions state/services ---
+const namePreds = ref([])
+const addrPreds = ref([])
+let acService = null
+let placesSvc = null
+
+// --- Helpers to allow free typing + hide lists on click-out / Esc ---
+function hideNameList() { namePreds.value = [] }
+function hideAddrList() { addrPreds.value = [] }
+
+function onNameBlur() { window.setTimeout(hideNameList, 120) }
+function onAddrBlur() { window.setTimeout(hideAddrList, 120) }
+
+function onDocClick(e) {
+  const nw = nameWrap.value
+  const aw = addrWrap.value
+  if (nw && !nw.contains(e.target)) hideNameList()
+  if (aw && !aw.contains(e.target)) hideAddrList()
+  const cw = cuisineWrap?.value
+  if (cw && !cw.contains(e.target)) hideCuisineList()
+}
+
+function onEscKey(e) {
+  if (e.key === 'Escape') { hideNameList(); hideAddrList() }
+}
+
+/** Cuisine suggestions (with free-typing + spell check) */
+const cuisineOptions = [
+  'Chinese','Malay','Indian','Peranakan','Thai','Japanese','Korean','Italian','French','Spanish','Mexican',
+  'Vietnamese','Indonesian','Turkish','Middle Eastern','Mediterranean','American','Burgers','BBQ','Seafood',
+  'Vegetarian','Vegan','Halal','Bakery','Cafe','Dim Sum','Noodles','Sushi','Ramen','Hotpot','Steakhouse',
+  'Pizza','Pasta','Desserts','Bubble Tea','Hawker','Teochew','Cantonese','Hainanese','Sichuan','Malay-Indo', 'Western'
+]
+const cuisinePreds = ref([])
+const cuisineHint = ref('')
+const cuisineWrap = ref(null)
+
+function hideCuisineList() { cuisinePreds.value = [] }
+function onCuisineBlur() { window.setTimeout(hideCuisineList, 120) }
+
+function filterCuisineOptions(query) {
+  const q = (query || '').trim().toLowerCase()
+  if (!q) return []
+  const starts = [], contains = []
+  for (const opt of cuisineOptions) {
+    const o = opt.toLowerCase()
+    if (o.startsWith(q)) starts.push(opt)
+    else if (o.includes(q)) contains.push(opt)
+  }
+  return [...starts, ...contains].slice(0, 8)
+}
+
+// Simple Levenshtein distance for spell checking
+function levenshtein(a = '', b = '') {
+  a = a.toLowerCase(); b = b.toLowerCase()
+  const m = a.length, n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const dp = Array.from({ length: n + 1 }, (_, j) => j)
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0]; dp[0] = i
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j]
+      dp[j] = Math.min(
+        dp[j] + 1,
+        dp[j - 1] + 1,
+        prev + (a[i - 1] === b[j - 1] ? 0 : 1)
+      )
+      prev = temp
+    }
+  }
+  return dp[n]
+}
+
+function bestCuisineSuggestion(q) {
+  const query = (q || '').trim()
+  if (!query) return ''
+  let best = '', bestDist = Infinity
+  for (const opt of cuisineOptions) {
+    const d = levenshtein(query, opt)
+    if (d < bestDist) { bestDist = d; best = opt }
+  }
+  // Only suggest if reasonably close (<=2 edits) and not exact
+  if (best && bestDist > 0 && bestDist <= 2) return best
+  return ''
+}
+
+function onCuisineInput() {
+  cuisinePreds.value = filterCuisineOptions(cuisine.value)
+  cuisineHint.value = bestCuisineSuggestion(cuisine.value)
+}
+
+function pickCuisine(opt) {
+  cuisine.value = opt
+  cuisinePreds.value = []
+  cuisineHint.value = ''
+}
 
 /** Stars */
 const stars = [1, 2, 3, 4, 5]
@@ -46,7 +149,7 @@ async function ensureMapsApiLoaded(key) {
   if (window.google?.maps?.importLibrary) return
   await new Promise((resolve, reject) => {
     const s = document.createElement('script')
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&v=weekly&libraries=places`
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&v=weekly&libraries=places&region=SG&language=en`
     s.async = true
     s.defer = true
     s.onload = resolve
@@ -72,49 +175,66 @@ onMounted(async () => {
     return
   }
   await ensureMapsApiLoaded(apiKey)
+  // Ensure Places library is ready
+  await google.maps.importLibrary('places')
   await nextTick()
 
-  const { places } = google.maps
+  // Initialize classic Places AutocompleteService and PlacesService (for details)
+  acService = new google.maps.places.AutocompleteService()
+  placesSvc = new google.maps.places.PlacesService(document.createElement('div'))
 
-  let circleBounds = null
-  const pos = await getUserLocation()
-  if (pos) {
-    const circle = new google.maps.Circle({ center: pos, radius: 3000 })
-    circleBounds = circle.getBounds()
-  }
-
-  const acName = new places.Autocomplete(nameInputEl.value, {
-    fields: ['place_id', 'name', 'formatted_address', 'geometry'],
-    types: ['establishment'],
-  })
-  if (circleBounds) acName.setBounds(circleBounds)
-  acName.addListener('place_changed', () => {
-    const place = acName.getPlace()
-    if (!place) return
-    placeId.value = place.place_id || ''
-    placeName.value = place.name || placeName.value || ''
-    address.value = place.formatted_address || address.value || ''
-    const location = place.geometry?.location
-    lat.value = location?.lat?.() ?? lat.value
-    lng.value = location?.lng?.() ?? lng.value
-  })
-
-  const acAddr = new places.Autocomplete(addressInputEl.value, {
-    fields: ['place_id', 'formatted_address', 'geometry', 'name'],
-    types: ['geocode'],
-  })
-  if (circleBounds) acAddr.setBounds(circleBounds)
-  acAddr.addListener('place_changed', () => {
-    const place = acAddr.getPlace()
-    if (!place) return
-    if (!placeName.value && place.name) placeName.value = place.name
-    placeId.value = place.place_id || placeId.value || ''
-    address.value = place.formatted_address || address.value || ''
-    const location = place.geometry?.location
-    lat.value = location?.lat?.() ?? lat.value
-    lng.value = location?.lng?.() ?? lng.value
-  })
+  document.addEventListener('mousedown', onDocClick)
+  document.addEventListener('keydown', onEscKey)
 })
+
+function onNameInput() {
+  const input = (placeName.value || '').trim()
+  if (!input) { namePreds.value = []; return }
+  acService.getPlacePredictions(
+    {
+      input,
+      componentRestrictions: { country: 'sg' },
+      types: ['establishment']
+    },
+    (preds) => { namePreds.value = preds || [] }
+  )
+}
+
+function onAddrInput() {
+  const input = (address.value || '').trim()
+  if (!input) { addrPreds.value = []; return }
+  acService.getPlacePredictions(
+    {
+      input,
+      componentRestrictions: { country: 'sg' },
+      types: ['address']
+    },
+    (preds) => { addrPreds.value = preds || [] }
+  )
+}
+
+function pickPrediction(pred, fillName = true) {
+  if (!pred?.place_id) return
+  placesSvc.getDetails(
+    { placeId: pred.place_id, fields: ['place_id','name','formatted_address','geometry'] },
+    (res, status) => {
+      if (status !== google.maps.places.PlacesServiceStatus.OK || !res) return
+      placeId.value = res.place_id || ''
+      if (fillName && res.name) placeName.value = res.name
+      address.value = res.formatted_address || address.value
+      const loc = res.geometry?.location
+      if (loc) {
+        const la = typeof loc.lat === 'function' ? loc.lat() : loc.lat
+        const ln = typeof loc.lng === 'function' ? loc.lng() : loc.lng
+        if (la != null) lat.value = la
+        if (ln != null) lng.value = ln
+      }
+      namePreds.value = []
+      addrPreds.value = []
+    }
+  )
+}
+
 
 function clampRating(num) {
   if (Number.isNaN(num)) return 1
@@ -126,47 +246,71 @@ function openFilePicker() {
   fileInputEl.value?.click()
 }
 
-function clearPreview() {
-  try { if (previewUrl.value) URL.revokeObjectURL(previewUrl.value) } catch {}
-  previewUrl.value = ''
-}
 
-function handleChosenFile(file) {
-  if (!file) return
-  // objectURL for reliable <img> preview (not blocked by CSP)
-  clearPreview()
-  previewUrl.value = URL.createObjectURL(file)
+function handleChosenFiles(fileList) {
+  const list = Array.from(fileList || []).filter(f => f && f.type && f.type.startsWith('image/'))
+  if (!list.length) return
 
-  // also keep your existing dataURL array for submission
-  const reader = new FileReader()
-  reader.onload = () => {
-    const data = String(reader.result || '')
-    photoUrl.value = data
-    photos.value = [data] // keep first image only (your code uses first anyway)
-  }
-  reader.readAsDataURL(file)
+  // Ensure we don't exceed MAX_PHOTOS
+  const remaining = Math.max(0, MAX_PHOTOS - photos.value.length)
+  const toAdd = list.slice(0, remaining)
+
+  // Read each file as DataURL and append to photos
+  toAdd.forEach((file, idx) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const data = String(reader.result || '')
+      if (idx === 0) photoUrl.value = data // keep the first as the main photo
+      photos.value = [...photos.value, data]
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 function onInputChange(e) {
-  const f = e.target?.files?.[0]
-  handleChosenFile(f)
+  const files = e.target?.files
+  handleChosenFiles(files)
 }
 
 function onDrop(e) {
   isDragging.value = false
-  const files = Array.from(e.dataTransfer?.files || [])
-  if (!files.length) return
-  const img = files.find((f) => f.type.startsWith('image/'))
-  if (img) handleChosenFile(img)
+  const files = e.dataTransfer?.files
+  if (!files || !files.length) return
+  handleChosenFiles(files)
 }
 function onDragOver(e) { e.preventDefault(); isDragging.value = true }
 function onDragLeave() { isDragging.value = false }
 
 function removePhoto() {
-  clearPreview()
   photos.value = []
   photoUrl.value = ''
   if (fileInputEl.value) fileInputEl.value.value = ''
+}
+
+function removePhotoAt(idx) {
+  try {
+    const arr = Array.isArray(photos.value) ? [...photos.value] : []
+    if (idx < 0 || idx >= arr.length) return
+    arr.splice(idx, 1)
+    photos.value = arr
+    // Keep the first image as the main data url fallback
+    photoUrl.value = arr[0] || ''
+    if (!arr.length && fileInputEl.value) fileInputEl.value.value = ''
+  } catch {}
+}
+
+// Helper: Convert DataURL to File object
+function dataURLtoFile(dataURL, filename) {
+  try {
+    const [meta, base64] = String(dataURL || '').split(',')
+    const mime = (meta.match(/data:(.*?);/) || [])[1] || 'application/octet-stream'
+    const bin = atob(base64 || '')
+    const arr = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+    return new File([arr], filename, { type: mime })
+  } catch {
+    return null
+  }
 }
 
 /** ---------- Submit ---------- */
@@ -177,32 +321,48 @@ async function submit() {
       alert('Please enter a rating between 1 and 5.'); return
     }
 
-    const restId = placeId?.value || crypto.randomUUID()
-    const restaurant = {
-      id: restId,
-      name: placeName.value.trim(),
-      address: address.value.trim(),
-      cuisine_type: cuisine.value.trim(),
-      latitude: lat.value || null,
-      longitude: lng.value || null,
-    }
+    const userEmail = ACTIVE_EMAIL
 
-    const payload = {
-      restaurant,
-      comment: comment.value.trim(),
-      rating: Number(rating.value),
-      price_range: priceRange.value,
-      visibility: visibility.value,
-      photos: photoUrl.value ? [photoUrl.value.trim()] : [],
-    }
+    // Build FormData matching backend (multer upload.array("photos"))
+    const fd = new FormData()
+    fd.append('user_email', String(userEmail))
+    fd.append('name', placeName.value.trim())
+    fd.append('address', address.value.trim())
+    fd.append('cuisine_type', cuisine.value.trim())
+    fd.append('rating', String(Number(rating.value)))
+    fd.append('review', comment.value.trim())
+    fd.append('is_public', String(visibility.value === 'everyone'))
 
-    const { data } = await api.post('/recommendations', payload)
-    const restaurantId = data?.restaurantId || restaurant.id
-    emit('added', { restaurantId })
+    // Attach photos (if any)
+    const sources = (Array.isArray(photos.value) && photos.value.length)
+      ? photos.value
+      : (photoUrl.value ? [photoUrl.value] : [])
+
+    sources.forEach((d, i) => {
+      const f = dataURLtoFile(d, `photo_${i + 1}.jpg`)
+      if (f) fd.append('photos', f)
+    })
+
+    submitting.value = true
+    errorMsg.value = ''
+
+    // POST multipart to /user/createPost
+    const res = await api.post('/user/createPost', fd) // axios will set multipart boundary automatically
+    const data = res?.data || {}
+    const payload = data?.data || data
+
+    const restaurantId = payload?.restaurantid || payload?.restaurantId || placeId.value || crypto.randomUUID()
+    const postId = payload?.postId
+
+    emit('added', { restaurantId, postId })
     router.push({ path: '/map', query: { restaurant: restaurantId } })
   } catch (err) {
-    console.error('Error adding recommendation:', err)
-    alert(err.message || 'Failed to add recommendation.')
+    console.error('Error creating post:', err)
+    const msg = err?.response?.data?.message || err.message || 'Failed to create post.'
+    alert(msg)
+    errorMsg.value = msg
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -245,7 +405,11 @@ function destroyTooltipsLocal() {
   } catch {}
 }
 onMounted(() => nextTick(() => initTooltipsLocal()))
-onBeforeUnmount(() => { destroyTooltipsLocal(); clearPreview() })
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocClick)
+  document.removeEventListener('keydown', onEscKey)
+  destroyTooltipsLocal()
+})
 </script>
 
 <template>
@@ -253,40 +417,82 @@ onBeforeUnmount(() => { destroyTooltipsLocal(); clearPreview() })
     <!-- Restaurant or Place -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Restaurant or Place</label>
-      <input
-        ref="nameInputEl"
-        v-model="placeName"
-        type="text"
-        class="form-control"
-        placeholder="E.g., Mario's Trattoria"
-        aria-autocomplete="list"
-        required
-      />
+      <div ref="nameWrap" class="ac-wrap">
+        <input
+          ref="nameInputEl"
+          v-model="placeName"
+          type="text"
+          class="form-control"
+          placeholder="E.g., Mario's Trattoria"
+          @input="onNameInput"
+          @focus="onNameInput"
+          @keydown.esc.prevent="hideNameList()"
+          @blur="onNameBlur"
+          autocomplete="off"
+          required
+        />
+        <ul v-if="namePreds.length" class="ac-list">
+          <li v-for="p in namePreds" :key="p.place_id" class="ac-item" @mousedown.prevent="pickPrediction(p, true)">
+            {{ p.description }}
+          </li>
+        </ul>
+      </div>
     </div>
 
     <!-- Address -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Address</label>
-      <input
-        ref="addressInputEl"
-        v-model="address"
-        type="text"
-        class="form-control"
-        placeholder="Start typing a location…"
-        required
-      />
+      <div ref="addrWrap" class="ac-wrap">
+        <input
+          ref="addressInputEl"
+          v-model="address"
+          type="text"
+          class="form-control"
+          placeholder="Start typing a location…"
+          @input="onAddrInput"
+          @focus="onAddrInput"
+          @keydown.esc.prevent="hideAddrList()"
+          @blur="onAddrBlur"
+          autocomplete="off"
+          required
+        />
+        <ul v-if="addrPreds.length" class="ac-list">
+          <li v-for="p in addrPreds" :key="p.place_id" class="ac-item" @mousedown.prevent="pickPrediction(p, !placeName)">
+            {{ p.description }}
+          </li>
+        </ul>
+      </div>
     </div>
 
     <!-- Cuisine Type -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Cuisine Type</label>
-      <input
-        v-model="cuisine"
-        type="text"
-        class="form-control"
-        placeholder="E.g., Italian, Thai, Mexican"
-        required
-      />
+      <div ref="cuisineWrap" class="ac-wrap">
+        <input
+          v-model="cuisine"
+          type="text"
+          class="form-control"
+          placeholder="E.g., Italian, Thai, Mexican"
+          @input="onCuisineInput"
+          @focus="onCuisineInput"
+          @keydown.esc.prevent="hideCuisineList()"
+          @blur="onCuisineBlur"
+          autocomplete="off"
+          required
+        />
+        <ul v-if="cuisinePreds.length" class="ac-list" role="listbox" aria-label="Cuisine suggestions">
+          <li
+            v-for="opt in cuisinePreds"
+            :key="opt"
+            class="ac-item"
+            role="option"
+            @mousedown.prevent="pickCuisine(opt)"
+          >
+            {{ opt }}
+          </li>
+        </ul>
+        <div v-if="!cuisinePreds.length && cuisine && cuisineHint" class="ac-hint">Did you mean <button type="button" class="hint-btn" @mousedown.prevent="pickCuisine(cuisineHint)">{{ cuisineHint }}</button>?</div>
+      </div>
     </div>
 
     <!-- Rating -->
@@ -335,26 +541,25 @@ onBeforeUnmount(() => { destroyTooltipsLocal(); clearPreview() })
         title="Click to choose an image or drop here"
       >
         <div class="drop-hint text-center">
-          Click to select an image or drag &amp; drop here
+          Click to select images or drag &amp; drop here (up to {{ MAX_PHOTOS }})
         </div>
         <input
           ref="fileInputEl"
           type="file"
           accept="image/*"
+          multiple
           class="hidden-file"
           @change="onInputChange"
         />
       </div>
 
-      <!-- Large live preview (always shows the first image) -->
-      <div v-if="previewUrl" class="live-preview">
-        <img :src="previewUrl" alt="Selected image preview" />
-        <button type="button" class="remove-btn" @click="removePhoto">Remove</button>
-      </div>
 
-      <!-- Thumbnails (kept for compatibility) -->
+      <!-- Thumbnails with per-item remove -->
       <div class="thumbs" v-if="photos.length">
-        <img v-for="(src, i) in photos" :key="i" :src="src" alt="" />
+        <div v-for="(src, i) in photos" :key="i" class="thumb">
+          <img :src="src" alt="" />
+          <button type="button" class="thumb-del" aria-label="Remove photo" @click.stop="removePhotoAt(i)">×</button>
+        </div>
       </div>
     </div>
 
@@ -431,49 +636,28 @@ onBeforeUnmount(() => { destroyTooltipsLocal(); clearPreview() })
 /* hide the actual file input */
 .hidden-file { display: none; }
 
-/* Live large preview */
-.live-preview {
-  margin-top: 10px;
-  padding: 10px;
-  border-radius: 12px;
-  background: #fff;
-  border: 1px solid var(--line-200);
-}
-:root[data-theme="dark"] .rec-form .live-preview {
-  background: #0E141B;
-  border-color: #2a3a52;
-}
-.live-preview img {
-  width: 100%;
-  max-height: 320px;
-  object-fit: cover;
-  border-radius: 10px;
-  background: #fff; /* ensure visible if image has transparency */
-  border: 1px solid #e5e7eb;
-}
-:root[data-theme="dark"] .rec-form .live-preview img {
-  border-color: #2a3a52;
-  background: #0B1117;
-}
-.remove-btn {
-  margin-top: 8px;
-  background: transparent;
-  color: #ef4444;
-  border: none;
-  font-weight: 700;
-  cursor: pointer;
-}
 
-/* Thumbs (kept) */
+/* Thumbnails */
 .thumbs { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.thumbs img {
-  width: 84px; height: 84px; object-fit: cover; border-radius: 10px;
+.thumb { position: relative; width: 84px; height: 84px; }
+.thumb img {
+  width: 100%; height: 100%; object-fit: cover; border-radius: 10px;
   box-shadow: var(--shadow-card);
   background: #fff; border: 1px solid #e5e7eb;
+  display: block;
 }
-:root[data-theme="dark"] .rec-form .thumbs img {
+:root[data-theme="dark"] .rec-form .thumb img {
   background: #0B1117; border-color: #2a3a52;
 }
+.thumb-del {
+  position: absolute; top: -6px; right: -6px;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 0; cursor: pointer; line-height: 1; font-weight: 900;
+  background: #111827; color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+}
+.thumb-del:hover { filter: brightness(1.05); }
+:root[data-theme="dark"] .rec-form .thumb-del { background: #e9eef6; color: #0B1117; }
 
 /* Visibility chips */
 .vis-group { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
@@ -501,4 +685,32 @@ onBeforeUnmount(() => { destroyTooltipsLocal(); clearPreview() })
   box-shadow: 0 8px 20px rgba(0,0,0,.18);
 }
 .submit-btn:disabled { opacity: 0.7; }
+
+.ac-wrap { position: relative; }
+.ac-list {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  background: #fff;
+  border: 1px solid var(--line-200);
+  border-radius: 10px;
+  margin: 6px 0 0; padding: 6px 0;
+  max-height: 260px; overflow: auto;
+  z-index: 2000;
+  box-shadow: 0 6px 18px rgba(0,0,0,.08);
+}
+:root[data-theme="dark"] .rec-form .ac-list { background: #0E141B; border-color: #2a3a52; }
+.ac-item { padding: 8px 12px; cursor: pointer; }
+.ac-item:hover { background: #f6faf7; }
+:root[data-theme="dark"] .rec-form .ac-item:hover { background: #0d1218; }
+
+
+/* Cuisine hint */
+.ac-hint { margin-top: 6px; font-size: 12px; color: #64748b; }
+.ac-hint .hint-btn { border: none; background: none; color: var(--sage-600); font-weight: 800; cursor: pointer; padding: 0; }
+.ac-hint .hint-btn:hover { text-decoration: underline; }
+:root[data-theme="dark"] .rec-form .ac-hint { color: #9fb0c6; }
 </style>
+
+
+
+

@@ -1,12 +1,17 @@
 <script setup>
-import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+
+const emit = defineEmits(['open-comments', 'like-error'])
 
 
 
 const props = defineProps({
   post: { type: Object, required: true },
   isActive: { type: Boolean, default: false },
+  controls: { type: Boolean, default: false },
+  // Optional: parent-provided live comment count
+  externalCommentCount: { type: Number, default: undefined },
 })
 
 // --- Image URL resolver (keeps layout, only fixes src values) ---
@@ -14,6 +19,18 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const IMAGE_BASE = import.meta.env.DEV
   ? ''
   : (import.meta.env.VITE_IMAGE_BASE_URL || API_BASE)
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
+const ENDPOINTS = {
+  getLikes: `${API_BASE}/friends/getLikesbyPostId`,
+  like: `${API_BASE}/friends/likePost`,
+  unlike: `${API_BASE}/friends/unlikePost`,
+  getComments: `${API_BASE}/friends/getCommentsbyPostId`,
+  comment: `${API_BASE}/friends/commentPost`,
+  deleteComment: `${API_BASE}/friends/deleteComment`,
+  editComment: `${API_BASE}/friends/editComment`,
+}
 
 function resolveImageUrl(p) {
   if (!p) return null
@@ -168,9 +185,37 @@ const priceRangeText = computed(() => {
   return '$'.repeat(Math.max(1, Math.min(5, Math.round(price))))
 })
 
+
 const areaText = computed(() => {
   const p = props.post || {}
   return p.area || p.restaurant?.area || p.raw?.restaurant?.area || null
+})
+
+const isPublicBool = computed(() => {
+  const p = props.post || {}
+  // check common fields in order: is_public → public? → raw.public
+  let v = (p.is_public !== undefined ? p.is_public
+           : (p['public?'] !== undefined ? p['public?']
+           : (p.raw && p.raw.public !== undefined ? p.raw.public : null)))
+  if (v === null || v === undefined) return null
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'number') return v === 1
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase()
+    if (['true','1','yes','y'].includes(s)) return true
+    if (['false','0','no','n'].includes(s)) return false
+  }
+  return !!v
+})
+
+const visibilityText = computed(() => {
+  const p = props.post || {}
+  // Prefer is_public, fallback to legacy "public?"
+  const val = (typeof p.is_public === 'boolean')
+    ? p.is_public
+    : (typeof p['public?'] === 'boolean' ? p['public?'] : null)
+  if (val === null) return null
+  return val ? 'Everyone' : 'Friends Only'
 })
 
 const tagLine = computed(() => {
@@ -225,20 +270,121 @@ function viewOnMap(p) {
   router.push({ path: '/map', query: { postId: pid } })
 }
 
-// local like/comment counters for demo
+// local like/comment counters (hydrated from backend)
 const liked = ref(false)
-const likeCount = ref(props.post.likes || 0)
-const commentCount = ref(props.post.comments || 0)
+const likeCount = ref(typeof props.post.likes === 'number' ? props.post.likes : 0)
+const commentCount = ref(
+  typeof props.externalCommentCount === 'number' && !Number.isNaN(props.externalCommentCount)
+    ? props.externalCommentCount
+    : (typeof props.post.comments === 'number' ? props.post.comments : 0)
+)
 
-// Toggle like button
-function toggleLike() {
-  liked.value = !liked.value
-  likeCount.value += liked.value ? 1 : -1
+watch(
+  () => props.externalCommentCount,
+  (n) => {
+    if (typeof n === 'number' && !Number.isNaN(n)) {
+      commentCount.value = n
+    }
+  },
+  { immediate: true }
+)
+
+async function refreshLikes() {
+  const postId = props.post?.id || props.post?.postid
+  if (!postId) return
+  try {
+    const res = await fetch(ENDPOINTS.getLikes, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ postid: String(postId) })
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const emails = Array.isArray(data?.data) ? data.data : []
+    likeCount.value = emails.length
+    liked.value = emails.includes(ACTIVE_EMAIL)
+  } catch (e) {
+    // keep existing optimistic state on failure
+  }
 }
 
-// Open comment modal or show placeholder action
+async function refreshComments() {
+  const postId = props.post?.id || props.post?.postid
+  if (!postId) return
+  try {
+    const res = await fetch(ENDPOINTS.getComments, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ postid: String(postId) })
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const list = Array.isArray(data?.data) ? data.data : []
+    commentCount.value = list.length
+  } catch (e) {
+    // ignore and keep last known count
+  }
+}
+
+async function refreshEngagement() {
+  await Promise.allSettled([refreshLikes(), refreshComments()])
+}
+
+onMounted(refreshEngagement)
+watch(() => props.post?.id || props.post?.postid, () => refreshEngagement())
+
+// Toggle like button (optimistic update, revert on error)
+async function toggleLike() {
+  const postId = props.post?.id || props.post?.postid
+  if (!postId) return
+
+  // optimistic update
+  const prevLiked = liked.value
+  const prevCount = likeCount.value
+  liked.value = !prevLiked
+  likeCount.value = prevCount + (liked.value ? 1 : -1)
+
+  const payload = {
+    postid: String(postId),
+    liker_email: ACTIVE_EMAIL,
+  }
+
+  const request = (url, method) =>
+    fetch(url, {
+      method,
+      headers: JSON_HEADERS,
+      body: JSON.stringify(payload),
+    })
+
+  try {
+    let res
+    if (liked.value) {
+      // now liked -> create like
+      res = await request(ENDPOINTS.like, 'POST')
+    } else {
+      // now unliked -> attempt DELETE first
+      res = await request(ENDPOINTS.unlike, 'DELETE')
+      // Fallback: some backends route unlike as POST instead of DELETE
+      if (!res.ok && (res.status === 404 || res.status === 405 || res.status === 415)) {
+        res = await request(ENDPOINTS.unlike, 'POST')
+      }
+    }
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    // Optionally: await refreshLikes() to resync exact count
+  } catch (err) {
+    // revert on failure
+    liked.value = prevLiked
+    likeCount.value = prevCount
+    emit('like-error', { postId, error: String(err) })
+  }
+}
+
+// Open comment modal or emit to parent
 function openComments() {
-  alert(`Opening comments for "${props.post.user?.name}"`)
+  const postId = props.post?.id || props.post?.postid
+  if (!postId) return
+  emit('open-comments', { postId })
 }
 </script>
 
@@ -247,30 +393,41 @@ function openComments() {
     <!-- Top image / hero -->
     <div class="hero">
       <img :src="heroDisplaySrc" alt="Post photo" crossorigin="anonymous" @error="(ev) => onImgError(ev, heroDisplaySrc)" />
+      <div class="vis-badge" v-if="isPublicBool !== null">
+        <span
+          class="badge visibility-tag"
+          :class="isPublicBool ? 'sage-tag' : 'terracotta-tag'"
+          :aria-label="isPublicBool ? 'Visible to everyone' : 'Visible to friends only'"
+        >
+          {{ isPublicBool ? 'Everyone' : 'Friends Only' }}
+        </span>
+      </div>
       <div v-if="tagLine" class="chip">{{ tagLine }}</div>
 
       <!-- Carousel controls -->
       <button
-        v-if="photoCount > 1"
+        v-if="controls && photoCount > 1"
         class="nav prev"
         type="button"
         aria-label="Previous photo"
-        @click="prevPhoto"
+        @click.stop="prevPhoto"
+        data-stop-preview
       >
         ‹
       </button>
       <button
-        v-if="photoCount > 1"
+        v-if="controls && photoCount > 1"
         class="nav next"
         type="button"
         aria-label="Next photo"
-        @click="nextPhoto"
+        @click.stop="nextPhoto"
+        data-stop-preview
       >
         ›
       </button>
 
       <!-- Dots -->
-      <div v-if="photoCount > 1" class="dots" role="tablist" aria-label="Photos">
+      <div v-if="controls && photoCount > 1" class="dots" role="tablist" aria-label="Photos" data-stop-preview>
         <button
           v-for="(_, i) in photoCount"
           :key="i"
@@ -278,7 +435,8 @@ function openComments() {
           class="dot"
           :class="{ active: i === currentIndex }"
           :aria-label="`Go to photo ${i+1}`"
-          @click="goToPhoto(i)"
+          @click.stop="goToPhoto(i)"
+          data-stop-preview
         />
       </div>
     </div>
@@ -308,9 +466,13 @@ function openComments() {
       <!-- Meta/footer -->
       <div class="meta">
         <div class="stats">
-          <span class="stat">🤍 {{ likeCount }}</span>
-          <span class="stat">💬 {{ commentCount }}</span>
-          
+          <button class="stat as-button" @click.stop="toggleLike" :aria-pressed="liked" data-stop-preview>
+            <span v-if="liked">💗</span><span v-else>🤍</span>
+            <span>{{ likeCount }}</span>
+          </button>
+          <button class="stat as-button" @click.stop="openComments" data-stop-preview title="Open comments">
+            💬 <span>{{ commentCount }}</span>
+          </button>
         </div>
 
         <div class="author" v-if="post.user">
@@ -327,7 +489,7 @@ function openComments() {
         </button>
         <span v-else class="map-btn disabled" title="No map data">Map</span>
 
-        <button class="icon-btn" @click="openComments" title="Share">⤴︎</button>
+        <button class="icon-btn" @click.stop="openComments" title="Share" data-stop-preview>⤴︎</button>
         <span v-if="postDateText" class="date-text">Posted on {{ postDateText }}</span>
       </div>
     </div>
@@ -519,4 +681,109 @@ function openComments() {
   cursor: pointer;
 }
 .dot.active { background: #fff; }
+
+.vis-badge { position: absolute; top: 10px; left: 10px; z-index: 6; }
+.visibility-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #fff;
+  border: none;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+}
+.sage-tag { background-color: var(--sage-600, #2f855a); }
+.terracotta-tag { background-color: var(--terracotta-500, #c05621); }
+
+/* ---------------- Responsive tweaks for PostCard ---------------- */
+
+/* Responsive hero image height using clamp and breakpoints */
+.hero img {
+  height: clamp(160px, 32vw, 220px);
+}
+@media (min-width: 576px) { /* sm */
+  .hero img { height: clamp(200px, 28vw, 260px); }
+}
+@media (min-width: 768px) { /* md */
+  .hero img { height: clamp(220px, 26vw, 300px); }
+}
+@media (min-width: 1200px) { /* xl */
+  .hero img { height: clamp(260px, 24vw, 360px); }
+}
+
+/* Title and text scale */
+.title {
+  font-size: clamp(16px, 2.4vw, 20px);
+}
+.desc {
+  font-size: clamp(13px, 1.8vw, 14px);
+  line-height: 1.45;
+}
+.address, .stats, .name, .date-text {
+  font-size: clamp(12px, 1.7vw, 13px);
+}
+
+/* Let long text wrap nicely */
+.title, .address, .desc {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Make the meta section adapt on small screens */
+@media (max-width: 575.98px) {
+  .meta {
+    grid-template-columns: 1fr auto; /* two columns: text and actions */
+    row-gap: 8px;
+    align-items: center;
+  }
+  .author,
+  .date-text {
+    grid-column: 1 / -1; /* full width rows */
+  }
+  .map-btn,
+  .icon-btn {
+    justify-self: end;
+  }
+  .chip {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+  .visibility-tag {
+    font-size: 10px;
+    padding: 3px 7px;
+  }
+  .nav {
+    width: 36px;
+    height: 36px;
+  }
+  .dots { bottom: 6px; }
+  .dot { width: 6px; height: 6px; }
+}
+
+/* Medium-up: keep layout tight but readable */
+@media (min-width: 768px) {
+  .map-btn { font-size: 14px; padding: 6px 14px; }
+}
+
+/* Ensure avatar doesn't distort on small screens */
+.avatar {
+  min-width: 22px;
+  min-height: 22px;
+}
+
+.stat.as-button {
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: #6b7280;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+}
+.stat.as-button:hover { color: #111827; }
+.stat.as-button[aria-pressed="true"] { color: var(--sage-600, #2f855a); }
 </style>

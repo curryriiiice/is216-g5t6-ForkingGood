@@ -72,12 +72,49 @@ onBeforeUnmount(() => {
 }
 .modal-panel {
   width: min(640px, 96vw);
-  max-height: 90vh;
-  overflow: auto;
+  max-height: 96dvh; /* taller viewport usage */
+  display: flex;
+  flex-direction: column; /* header / body / footer stack */
+  overflow: hidden; /* body will scroll internally */
   background: #fff;
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
   outline: none;
+  --modal-chrome: 128px; /* header + footer + paddings allowance */
+}
+
+/* Mobile: fullscreen like Bootstrap's modal-fullscreen-sm-down */
+@media (max-width: 575.98px) {
+  .modal-overlay { padding: 0; }
+  .modal-panel {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    --modal-chrome: 144px; /* slightly larger allowance on phones */
+  }
+}
+
+/* Bootstrap-like responsive widths */
+@media (min-width: 576px) { /* sm */
+  .modal-panel { width: min(540px, 95vw); }
+}
+@media (min-width: 768px) { /* md */
+  .modal-panel { width: min(720px, 94vw); }
+}
+@media (min-width: 992px) { /* lg */
+  .modal-panel { width: min(900px, 92vw); }
+}
+@media (min-width: 1200px) { /* xl */
+  .modal-panel { width: min(1140px, 90vw); }
+}
+@media (min-width: 1400px) { /* xxl */
+  .modal-panel {
+    width: min(1320px, 88vw);
+    max-height: 96dvh;
+  }
 }
 .modal-header {
   display: flex;
@@ -100,7 +137,24 @@ onBeforeUnmount(() => {
 }
 .modal-body {
   padding: 1rem 1.25rem;
+  flex: 1 1 auto;     /* fill remaining space */
+  min-height: 0;       /* allow child to shrink */
+  overflow: auto;      /* scroll inside body, not page */
 }
+
+/* Make images fully visible and responsive within modal */
+.modal-body img,
+:deep(.modal-body img) {
+  max-width: 100%;
+  max-height: calc(96dvh - var(--modal-chrome));
+  width: auto;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
+  object-fit: contain;
+  object-position: center;
+}
+
 .modal-footer {
   padding: 0 1.25rem 1.25rem;
   display: flex;

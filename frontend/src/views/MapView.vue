@@ -229,15 +229,25 @@ async function loadPinsFromFilters() {
     const area = r.area || inferArea(address || '')
     const cuisine = r.cuisine_type || 'Unknown'
 
+    // Normalize visibility field across backends
+    const isPublic = (typeof r.is_public === 'boolean')
+      ? r.is_public
+      : (typeof r.public === 'boolean')
+        ? r.public
+        : (typeof r['public?'] === 'boolean')
+          ? r['public?']
+          : null
+
     // Normalize a post object for the drawer list
     const post = {
       id: r.postid || r.post_id,
       rating: Number(r.rating ?? 0),
       text: r.review || '',
       photos: Array.isArray(r.pictures) ? r.pictures : [],
+      is_public: (isPublic === null ? true : isPublic),
       raw: {
         created_at: r.created_at,
-        public: r.public ?? r['public?'] ?? true,
+        public: (isPublic === null ? true : isPublic),
         upvote_count: r.upvote_count ?? 0,
         user_has_upvoted: r.user_has_upvoted ?? false,
         comments: r.comments ?? [],
@@ -261,6 +271,13 @@ async function loadPinsFromFilters() {
   const nextPins = []
   for (const [restaurantId, posts] of groups.entries()) {
     const first = posts[0]
+    const scores = posts
+      .map((p) => Number(p.rating))
+      .filter((n) => Number.isFinite(n) && n >= 0 && n <= 5)
+    const count = scores.length
+    const avg = count ? scores.reduce((a, b) => a + b, 0) / count : null
+    const avgLabel = (avg == null) ? '—' : avg.toFixed(1)
+
     nextPins.push({
       restaurant_id: restaurantId,
       post_id: first.id, // representative post for the View button id
@@ -271,9 +288,12 @@ async function loadPinsFromFilters() {
       cuisine: first.restaurant.cuisine_type || 'Unknown',
       position: { lat: Number(first.restaurant.latitude), lng: Number(first.restaurant.longitude) },
       by: first.user?.username || first.user?.name || first.user?.id,
-      rating: Number(first.rating ?? 0),
       photo: first.photos?.[0] || null,
       post: first, // keep the representative post
+      // NEW: aggregated rating fields
+      avg_rating: avg,
+      avg_rating_label: avgLabel,
+      rating_count: count,
     })
   }
 
@@ -951,14 +971,15 @@ function renderInfoWindow(pin) {
   const photo = pin.photo
     ? `<img src="${pin.photo}" alt="" style="width:100%;height:140px;object-fit:cover;border-radius:8px;margin-bottom:8px;" />`
     : ''
+  const avgLabel = (pin.avg_rating_label != null) ? pin.avg_rating_label : (pin.avg_rating != null ? Number(pin.avg_rating).toFixed(1) : '—')
+  const count = Number.isFinite(pin.rating_count) ? pin.rating_count : 1
   return `
     <div class="map-info">
       ${photo}
       <div class="title">${escapeHtml(pin.name)}</div>
       <div class="meta">${escapeHtml(pin.cuisine)} • ${escapeHtml(pin.address || '')}</div>
-      <div class="rating">
-        ⭐ ${Number(pin.rating).toFixed(1)}
-        <span style="color: var(--ink-400); font-weight: 500;"></span>
+      <div class="rating" style="margin: 6px 0 8px;">
+        ⭐ ${avgLabel} <span style="color: var(--ink-400); font-weight: 600;">(${count})</span>
       </div>
       <button id="${id}">View post</button>
     </div>
@@ -1085,22 +1106,18 @@ function clearFilters() {
 
 <template>
   <div class="page sage-bg">
-    <!-- Map -->
-    <div ref="mapEl" class="map sage-map"></div>
-
-    <!-- Responsive Filter Bar (Bootstrap + Vue bindings preserved) -->
-    <div
-      class="position-absolute top-0 start-50 translate-middle-x mt-3 w-100"
-      style="z-index: 95; max-width: 920px"
-    >
+    <!-- Filter Bar (static, above map) -->
+    <div class="filter-bar w-100 d-flex justify-content-center mt-3 mb-2">
       <div
         :class="[
           'card border-0 shadow rounded-4 glass sage-glass',
           { 'pe-none': uiLocked, 'opacity-75': uiLocked },
         ]"
+        style="width: 100%; max-width: 1000px"
       >
         <div class="card-body py-3 px-3 px-md-4">
           <!-- Row 1: Typeaheads -->
+          <!-- (keep existing inner content unchanged) -->
           <div class="row g-3 align-items-end">
             <!-- Cuisine typeahead -->
             <div class="col-12 col-md-6 col-lg-4 position-relative" ref="cuisineBox">
@@ -1296,9 +1313,13 @@ function clearFilters() {
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </div>
+
+    <!-- Map -->
+    <div ref="mapEl" class="map sage-map"></div>
 
     <!-- Overlays -->
     <div v-if="loading" class="overlay">Loading map…</div>
@@ -1386,16 +1407,34 @@ function clearFilters() {
                     <div class="fw-bold text-dark">
                       {{ p.user?.name || p.user?.username || p.user?.id }}
                     </div>
-                    <div class="text-muted small">Recommended this place</div>
+                    
                   </div>
                   <div class="ms-auto">
-                    <span
-                      class="badge text-bg-warning-subtle border border-warning-subtle text-dark"
-                    >
+                    <div class="vis-badge" v-if="p.is_public !== null">
+                      <span
+                        class="badge visibility-tag"
+                        :class="p.is_public ? 'vis-everyone' : 'vis-friends'"
+                        :aria-label="p.is_public ? 'Visible to everyone' : 'Visible to friends only'"
+                      >
+                        {{ p.is_public ? 'Everyone' : 'Friends Only' }}
+                      </span>
+                    </div>
+                    <span class="badge rating-tag">
                       ⭐ {{ Number(p.rating || 0).toFixed(1) }}
                     </span>
                   </div>
                 </div>
+                <!-- <div class="d-flex justify-content-end mt-1">
+                  <span
+                    class="badge fw-semibold"
+                    :class="p.is_public
+                      ? 'bg-success-subtle text-success border border-success-subtle'
+                      : 'bg-warning-subtle text-warning border border-warning-subtle'"
+                    style="font-size: 0.75rem; padding: 4px 8px; border-radius: 8px;"
+                  >
+                    {{ p.is_public ? 'Everyone' : 'Friends Only' }}
+                  </span>
+                </div> -->
 
                 <p v-if="p.text" class="mb-2">{{ p.text }}</p>
 
@@ -1428,14 +1467,24 @@ function clearFilters() {
 <style scoped>
 .page {
   position: relative;
-  min-height: calc(100vh - 56px);
+  height: 100vh; /* exactly viewport height */
   background: transparent;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden; /* prevent page scroll */
 }
+
 .map {
-  width: min(1100px, 94vw);
-  height: min(70vh, 68vw);
+  flex: 1; /* fills all remaining space below filter bar */
+  width: 100%;
+  max-width: 1400px;
+}
+
+@media (max-width: 768px) {
+  .map {
+    flex: 1;
+  }
 }
 .overlay {
   position: absolute;
@@ -1469,16 +1518,16 @@ function clearFilters() {
 .backdrop {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  z-index: 5000; /* above filter bar + map */
 }
 .side {
   position: fixed;
   top: 0;
   right: 0;
-  width: 360px;
+  width: 420px;
   max-width: 92vw;
   height: 100vh;
-  z-index: 100;
+  z-index: 5100; /* above backdrop */
   overflow-y: auto; /* allow scrolling inside the drawer */
   -webkit-overflow-scrolling: touch; /* smooth iOS scroll */
   overscroll-behavior: contain; /* stop scroll from propagating to map/body */
@@ -1563,9 +1612,86 @@ aside.side.clicking {
   box-shadow: inset 0 0 0 1px var(--sage-500);
   color: var(--charcoal);
 }
-</style>
 
 .dropdown-menu.filter-list {
   max-height: calc(44px * 4); /* header + 3 options */
   overflow: auto;
 }
+
+.filter-bar {
+  /* position: sticky; */
+  top: 0;
+  z-index: 2000; /* higher than Google Map overlays, lower than drawer/backdrop */
+  width: 100%;
+  padding-top: 8px;
+  background: transparent;
+}
+
+.vis-badge {
+  position: relative;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.visibility-tag {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: none;
+}
+
+.sage-tag {
+  background-color: var(--sage-600, #8B9D83);
+  color: #fff;
+}
+
+.terracotta-tag {
+  background-color: var(--terracotta-500, #D4816F);
+  color: #fff;
+}
+
+.rating-tag {
+  font-size: 0.75rem;
+  background-color: var(--plum-200, #E1BEE7);
+  color: var(--plum-900, #4A148C);
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+/* Theme-aware visibility badges driven by data-theme */
+:global(html[data-theme="light"]) {
+  --vis-everyone-bg: var(--sage-600, #8B9D83);
+  --vis-everyone-fg: #fff;
+  --vis-friends-bg: var(--terracotta-500, #D4816F);
+  --vis-friends-fg: #fff;
+}
+:global(html[data-theme="brand-mint"]) {
+  --vis-everyone-bg: var(--mint-600, #2CA58D);
+  --vis-everyone-fg: #fff;
+  --vis-friends-bg: var(--terracotta-500, #D4816F);
+  --vis-friends-fg: #fff;
+}
+:global(html[data-theme="brand-lagoon"]) {
+  --vis-everyone-bg: var(--lagoon-600, #2B6CB0);
+  --vis-everyone-fg: #fff;
+  --vis-friends-bg: var(--terracotta-500, #D4816F);
+  --vis-friends-fg: #fff;
+}
+:global(html[data-theme="brand-plum"]) {
+  --vis-everyone-bg: var(--plum-600, #7E55A3);
+  --vis-everyone-fg: #fff;
+  --vis-friends-bg: var(--terracotta-500, #D4816F);
+  --vis-friends-fg: #fff;
+}
+
+.vis-everyone {
+  background-color: var(--vis-everyone-bg, var(--sage-600, #8B9D83));
+  color: var(--vis-everyone-fg, #fff);
+}
+.vis-friends {
+  background-color: var(--vis-friends-bg, var(--terracotta-500, #D4816F));
+  color: var(--vis-friends-fg, #fff);
+}
+
+
+</style>
