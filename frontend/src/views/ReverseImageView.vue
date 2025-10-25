@@ -8,7 +8,7 @@
         </div>
         <div>
           <h1 class="title">Reverse Image Results</h1>
-          <p class="subtitle" v-if="loading">Analyzing your image…</p>
+          <p class="subtitle" v-if="loading">Analyzing your photo for nearby matches…</p>
           <p class="subtitle" v-else-if="items.length">
             We found <strong>{{ items.length }}</strong> match{{ items.length === 1 ? '' : 'es' }} for your image.
           </p>
@@ -23,10 +23,57 @@
       </div>
     </div>
 
-    <!-- Loading -->
+    <!-- ✨ Moving loader (animated SVG + bouncing dots) -->
     <div v-if="loading" class="loading">
-      <div class="spinner" />
-      <div class="loading-text">Calling Vision AI and Places…</div>
+      <div class="spinner-wrap">
+        <!-- Animated “plate” spinner (SVG) -->
+        <svg
+          class="spinner"
+          width="64"
+          height="64"
+          viewBox="0 0 64 64"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <!-- outer ring -->
+          <circle
+            class="ring"
+            cx="32"
+            cy="32"
+            r="28"
+            stroke="var(--terra-500, #d4816f)"
+            stroke-width="4"
+            stroke-linecap="round"
+            stroke-dasharray="140"
+            stroke-dashoffset="100"
+          />
+          <!-- inner plate -->
+          <circle cx="32" cy="32" r="16" stroke="#e5e7eb" stroke-width="4" fill="white" />
+          <!-- spoon (rotates) -->
+          <g class="spoon" transform="translate(32,32)">
+            <circle r="4" fill="var(--terra-500, #d4816f)" />
+            <rect x="-2" y="-18" width="4" height="11" rx="2" fill="var(--terra-500, #d4816f)" />
+          </g>
+        </svg>
+
+        <div class="loading-lines">
+          <div class="line shimmering"></div>
+          <div class="line short shimmering"></div>
+        </div>
+      </div>
+
+      <div class="loading-text">
+        <span>Analyzing your photo for nearby matches…</span>
+        <div class="dots">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+        <p class="loading-sub">
+          Detecting dishes, scanning restaurants, and fetching recommendations 🍽️
+        </p>
+      </div>
     </div>
 
     <!-- Results -->
@@ -53,20 +100,19 @@
             <span class="price" v-if="r.price_level !== undefined && r.price_level !== null">
               <span v-for="i in clampPrice(r.price_level)" :key="i">$</span>
             </span>
-            <!-- coords intentionally hidden -->
           </div>
         </div>
 
-        <!-- ✅ Keep only external Google Maps button -->
+        <!-- ✅ Themed & aligned Google Maps button -->
         <div class="footer">
           <a
             v-if="gmapsLink(r)"
-            class="btn small ghost"
+            class="btn small"
             :href="gmapsLink(r)"
             target="_blank"
             rel="noopener"
           >
-            Open in Google Maps
+            View on Google Maps
           </a>
         </div>
       </div>
@@ -82,7 +128,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 
 const previewImage = ref('')
@@ -97,17 +143,45 @@ const api = axios.create({
   withCredentials: false,
 })
 
+let pollId = null
+const lastPayloadStr = ref('')
+
 onMounted(async () => {
+  await loadFromSession()
+
+  // Auto-update when user performs new reverse search
+  pollId = window.setInterval(checkForPayloadChange, 700)
+  window.addEventListener('focus', checkForPayloadChange)
+})
+
+onBeforeUnmount(() => {
+  if (pollId) window.clearInterval(pollId)
+  window.removeEventListener('focus', checkForPayloadChange)
+})
+
+async function checkForPayloadChange() {
+  const currentStr = sessionStorage.getItem('reverseImagePayload') || ''
+  if (currentStr !== lastPayloadStr.value) {
+    await loadFromSession()
+  }
+}
+
+async function loadFromSession() {
   const raw = sessionStorage.getItem('reverseImagePayload')
   if (!raw) {
     error.value = 'No image payload found. Please upload an image from the Image Search button in the navbar.'
+    lastPayloadStr.value = ''
     return
   }
 
+  lastPayloadStr.value = raw
   try {
     const payload = JSON.parse(raw)
     const imgs = Array.isArray(payload?.images) ? payload.images : []
     previewImage.value = imgs[0] || ''
+    error.value = ''
+    noFoodMessage.value = ''
+    items.value = []
 
     if (payload?.results && typeof payload.results === 'object') {
       const apiRes = payload.results
@@ -130,6 +204,7 @@ onMounted(async () => {
         images: [previewImage.value],
         results: data
       }))
+      lastPayloadStr.value = sessionStorage.getItem('reverseImagePayload') || raw
 
       if (Array.isArray(data?.data)) items.value = data.data.slice(0, 10)
       else if (typeof data?.data === 'string') noFoodMessage.value = data.data
@@ -146,7 +221,7 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
 
 function clampPrice(n) {
   const val = Number.isFinite(n) ? Math.max(1, Math.min(5, Math.round(n))) : 0
@@ -156,11 +231,9 @@ function onImgError(e) { if (fallbackPhoto) e.target.src = fallbackPhoto }
 
 /**
  * Build a Google Maps URL preferring placeID, then lat/lng, then address.
- * Returns empty string if nothing usable is available (button will be hidden).
  */
 function gmapsLink(r) {
   if (r?.placeID) {
-    // Use query_place_id if we also have a name, otherwise just open by place ID
     const name = r?.name ? encodeURIComponent(r.name) : ''
     const base = 'https://www.google.com/maps/search/?api=1'
     return name
@@ -192,27 +265,90 @@ async function dataURLToBlob(dataUrl) {
 .subtitle { margin: 2px 0 0; color: #6b7280; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* Loading */
-.loading { display: grid; place-items: center; gap: 10px; color: #6b7280; margin: 24px 0; }
-.spinner { width: 28px; height: 28px; border-radius: 999px; border: 3px solid #e5e7eb; border-top-color: #d4816f; animation: spin 0.8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg) } }
-.loading-text { font-weight: 700; }
+/* ✨ Moving Loader */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: #6b7280;
+  margin: 48px 0 36px;
+  text-align: center;
+  animation: fadeIn 0.5s ease;
+}
+.spinner-wrap {
+  display: grid;
+  grid-template-columns: auto;
+  justify-items: center;
+  gap: 10px;
+}
+.spinner {
+  display: block;
+  animation: spin 1.2s linear infinite;
+}
+.spinner .ring {
+  transform-origin: 32px 32px;
+}
+.spinner .spoon {
+  transform-origin: 0 0;
+  animation: spoonOrbit 1.2s linear infinite;
+}
+.loading-lines {
+  width: 240px;
+  display: grid;
+  gap: 8px;
+}
+.line {
+  height: 10px;
+  border-radius: 999px;
+  background: #f0f1f3;
+  overflow: hidden;
+  position: relative;
+}
+.line.short { width: 70%; justify-self: center; }
+.shimmering::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(212,129,111,0.15), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.loading-text { font-weight: 800; font-size: 1.1rem; color: #374151; }
+.loading-sub { font-weight: 500; color: #9ca3af; font-size: 0.95rem; margin-top: 4px; }
+
+.dots {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--terra-500, #d4816f);
+  animation: bounce 0.9s infinite ease-in-out;
+}
+.dot:nth-child(2) { animation-delay: 0.15s; }
+.dot:nth-child(3) { animation-delay: 0.3s; }
 
 /* Results grid */
 .grid { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .card { background: #fff; border-radius: 14px; box-shadow: 0 10px 24px rgba(0,0,0,.06); overflow: hidden; display: flex; flex-direction: column; }
 .photo { width: 100%; height: 160px; background: #f3f4f6; overflow: hidden; }
 .photo img { width: 100%; height: 100%; object-fit: cover; }
-.body { padding: 12px 12px 8px; }
+.body { padding: 12px 12px 8px; flex: 1; }
 .name { margin: 0; color: #1f2937; font-weight: 800; font-size: 1.05rem; }
 .meta { margin: 4px 0 2px; color: #6b7280; font-weight: 600; }
 .meta .dot { margin: 0 6px; }
 .addr { margin: 2px 0 0; color: #4b5563; font-size: 0.925rem; }
-
 .row { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; color: #6b7280; font-weight: 700; }
 .price { letter-spacing: 1px; }
 
-.footer { display: flex; gap: 8px; padding: 10px 12px 12px; }
+.footer { margin-top: auto; display: flex; justify-content: center; padding: 10px 12px 12px; }
 
 .empty { margin: 24px 0; text-align: center; color: #6b7280; }
 .hint { margin-bottom: 10px; }
@@ -223,4 +359,20 @@ async function dataURLToBlob(dataUrl) {
 .btn:active { transform: translateY(1px); }
 .btn.small { padding: 0.45rem 0.7rem; font-size: 0.9rem; }
 .btn.ghost { background: #fff; color: #374151; border: 1.5px solid #e5e7eb; }
+
+/* Animations */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spoonOrbit {
+  0% { transform: rotate(0deg) translate(16px, -16px) rotate(0deg); }
+  100% { transform: rotate(360deg) translate(16px, -16px) rotate(-360deg); }
+}
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  60%, 100% { transform: translateX(100%); }
+}
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: .8; }
+  40% { transform: translateY(-6px); opacity: 1; }
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 </style>
