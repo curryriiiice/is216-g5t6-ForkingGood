@@ -1,19 +1,43 @@
-import { createRouter, createWebHistory } from "vue-router";
-import DashboardView from "@/views/DashboardView.vue";
-import MapView from "@/views/MapView.vue";
-import FriendsView from "@/views/FriendsView.vue";
+// src/router/index.js
+import { createRouter, createWebHistory } from 'vue-router'
 
-// ✅ Lazy-load the Profile page
-const ProfileView = () => import("@/views/ProfileView.vue");
+// Eager-loaded views
+import DashboardView from '@/views/DashboardView.vue'
+import MapView from '@/views/MapView.vue'
+import FriendsView from '@/views/FriendsView.vue'
 
-export default createRouter({
+// Lazy-loaded views
+const ProfileView = () => import('@/views/ProfileView.vue')
+const LoginPageView = () => import('@/views/LoginPageView.vue')
+const SignupPageView = () => import('@/views/SignupPageView.vue')
+const ReverseImageView = () => import('@/views/ReverseImageView.vue')
+
+const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", redirect: "/dashboard" },
-    { path: "/dashboard", component: DashboardView },
-    { path: "/map", component: MapView },
-    { path: "/friends", component: FriendsView },
-    // ✅ New route
-    { path: "/profile", name: "profile", component: ProfileView },
+    // Default redirect
+    { path: '/', redirect: '/dashboard' },
+
+    // Main app views
+    { path: '/dashboard', name: 'dashboard', component: DashboardView },
+    { path: '/map', name: 'map', component: MapView },
+    { path: '/friends', name: 'friends', component: FriendsView },
+    { path: '/profile', name: 'profile', component: ProfileView },
+
+    // Reverse Image Results page
+    { path: '/reverseimage', name: 'reverseimage', component: ReverseImageView },
+
+    // Auth pages (hide navbar)
+    { path: '/login', name: 'login', component: LoginPageView, meta: { public: true, hideNavbar: true } },
+    { path: '/signup', name: 'signup', component: SignupPageView, meta: { public: true, hideNavbar: true } },
+
+    // Catch-all fallback
+    { path: '/:pathMatch(.*)*', redirect: '/dashboard' }
   ],
-});
+
+  scrollBehavior() {
+    return { top: 0 }
+  }
+})
+
+export default router

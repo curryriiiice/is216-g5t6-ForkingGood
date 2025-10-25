@@ -66,12 +66,13 @@
           {{ pendingRequestsCount > 99 ? '99+' : pendingRequestsCount }}
         </span>
       </RouterLink>
-      <!-- Settings link removed -->
     </div>
 
     <!-- Right side -->
     <div class="right">
       <img src="/images/Bell.png" alt="Notifications" width="28" height="28" class="bell" />
+
+      <!-- Avatar -->
       <RouterLink to="/profile" class="avatar-wrap">
         <div v-if="localUser?.avatar_url" class="avatar-img">
           <img :src="localUser.avatar_url" alt="avatar" />
@@ -79,12 +80,11 @@
         <div v-else class="avatar-fallback">{{ initials }}</div>
       </RouterLink>
 
-      <template v-if="localUser">
-        <span class="welcome">Welcome, {{ localUser.username || localUser.first_name }}!</span>
-        <button class="logout" :disabled="loading" @click="handleLogout">
-          {{ loading ? 'Logging out...' : 'Log out' }}
-        </button>
-      </template>
+      <!-- Welcome (optional) -->
+      <span v-if="localUser" class="welcome">Welcome, {{ localUser.username || localUser.first_name }}!</span>
+
+      <!-- Logout button styled like .rev-btn -->
+      <button class="rev-btn logout" @click.stop="goLogoutPage">Log out</button>
     </div>
   </nav>
 
@@ -144,25 +144,29 @@
               alt="Crop source"
             />
             <!-- square guide -->
-            <div class="ris-crop-mask" :style="{ width: D + 'px', height: D + 'px', left: (C - D)/2 + 'px', top: (C - D)/2 + 'px' }"></div>
+            <div
+              class="ris-crop-mask"
+              :style="{ width: D + 'px', height: D + 'px', left: (C - D)/2 + 'px', top: (C - D)/2 + 'px' }"
+            ></div>
           </div>
 
+          <!-- Zoom control -->
           <div class="mt-3">
             <label class="form-label small text-muted">Zoom</label>
             <input
               class="form-range"
               type="range"
-              min="0.5"
-              max="3"
+              :min="minZoom"
+              :max="3"
               step="0.01"
               :value="cropScale"
               @input="onZoomChange($event.target.value)"
             />
-          </div>
-
-          <div class="d-flex gap-2 mt-2">
-            <button type="button" class="btn btn-ghost" @click="resetCrop">Reset</button>
-            <button type="button" class="btn btn-ghost" @click="removeFile">Remove Image</button>
+            <div class="zoom-actions">
+              <button type="button" class="btn btn-ghost" @click="zoomToFit">Fit to view</button>
+              <button type="button" class="btn btn-ghost" @click="resetCrop">Reset</button>
+              <button type="button" class="btn btn-ghost" @click="removeFile">Remove Image</button>
+            </div>
           </div>
         </div>
 
@@ -206,7 +210,6 @@ const emit = defineEmits(['update:searchTerm'])
 
 /* ------------------------- State ------------------------- */
 const router = useRouter()
-const loading = ref(false)
 const term = ref(props.searchTerm)
 const searchResults = ref([])
 const searchLoading = ref(false)
@@ -225,8 +228,10 @@ const submitting = ref(false)
 /* Cropper state (square) */
 const cropSrc = ref('')            // object URL of selected image
 const cropScale = ref(1)           // zoom
-const C = 420                      // container size
-const D = 360                      // square selection size
+const fitScale = ref(1)            // computed scale to show whole image inside the square view
+const minZoom = computed(() => Math.min(0.25, fitScale.value)) // allow zooming out to at least fit (or further down to 0.25)
+const C = 420                      // container size (outer square)
+const D = 360                      // square selection size (inner mask)
 const OUT = 640                    // export resolution (square)
 const pos = reactive({ left: 0, top: 0 })
 const dragging = ref(false)
@@ -239,30 +244,18 @@ let cropBlob = null                // exported blob to send
 const MAX_BYTES = 6 * 1024 * 1024 // 6MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
 
-function openReversePopup() {
-  showReversePopup.value = true
-}
-
-function triggerPick() {
-  fileInputRef.value?.click()
-}
+function openReversePopup() { showReversePopup.value = true }
+function triggerPick() { fileInputRef.value?.click() }
 
 function handleSingleFile(e) {
   fileError.value = ''
   const f = e.target?.files?.[0]
-  if (!f) {
-    removeFile()
-    return
-  }
+  if (!f) { removeFile(); return }
   if (!ALLOWED_TYPES.includes(f.type) && !f.type.startsWith('image/')) {
-    fileError.value = 'Please select an image file.'
-    e.target.value = ''
-    return
+    fileError.value = 'Please select an image file.'; e.target.value = ''; return
   }
   if (f.size > MAX_BYTES) {
-    fileError.value = 'Image is too large (max 6MB).'
-    e.target.value = ''
-    return
+    fileError.value = 'Image is too large (max 6MB).'; e.target.value = ''; return
   }
   selectedFile.value = f
 
@@ -271,8 +264,8 @@ function handleSingleFile(e) {
   cropSrc.value = URL.createObjectURL(f)
   imgMeta.ready = false
   cropScale.value = 1
+  fitScale.value = 1
   cropBlob = null
-  // allow re-selecting same file later
   if (fileInputRef.value) fileInputRef.value.value = ''
   e.target.value = ''
 }
@@ -289,6 +282,12 @@ function onImgLoad(e) {
   imgMeta.naturalW = e.target.naturalWidth
   imgMeta.naturalH = e.target.naturalHeight
   imgMeta.ready = true
+
+  // Compute a "fit to view" scale so the whole image is visible within the outer square (C x C)
+  fitScale.value = Math.min(C / imgMeta.naturalW, C / imgMeta.naturalH)
+
+  // Start by fitting the whole picture
+  cropScale.value = fitScale.value
   nextTick(centerImage)
 }
 
@@ -346,6 +345,10 @@ function resetCrop() {
   cropScale.value = 1
   centerImage()
 }
+function zoomToFit() {
+  cropScale.value = fitScale.value
+  centerImage()
+}
 
 /* Build a crop and store cropBlob */
 async function buildCropBlob() {
@@ -368,6 +371,17 @@ async function buildCropBlob() {
   return cropBlob
 }
 
+/* Helper: File/Blob -> dataURL for sessionStorage */
+function readAsDataURL(fileOrBlob) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(fr.result)
+    fr.onerror = reject
+    fr.readAsDataURL(fileOrBlob)
+  })
+}
+
+/* ✅ Submit reverse image search and ALWAYS go to /reverseimage */
 async function submitReverseSearch() {
   if (submitting.value) return
   if (!selectedFile.value && !cropBlob) return
@@ -385,45 +399,40 @@ async function submitReverseSearch() {
       : selectedFile.value
 
     const form = new FormData()
-    form.append('image', fileToSend)
-    const { data } = await http.post('/reverse-image', form, {
+    form.append('photo', fileToSend) // <-- match backend field name
+
+    // Call backend endpoint
+    const { data } = await http.post('/search/reverseSearch', form, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
 
-    const restaurantId = data?.restaurantId
-    const keyword = data?.keyword
+    // Convert to Data URL for persistence
+    const dataUrl = await readAsDataURL(fileToSend)
 
+    // Save payload for ReverseImageView to consume
+    sessionStorage.setItem('reverseImagePayload', JSON.stringify({
+      images: [dataUrl],
+      results: data || null
+    }))
+
+    // Close popup & reset
     showReversePopup.value = false
     removeFile()
 
-    if (restaurantId) {
-      router.push({ path: '/map', query: { restaurant: restaurantId } })
-    } else if (keyword) {
-      router.push({ path: '/search', query: { q: keyword } })
-    } else {
-      alert('No match found from the image. Try another photo.')
-    }
+    // Always go to Reverse Image results page
+    router.push('/reverseimage')
     return
   } catch (err) {
     console.warn('Backend reverse-image failed, falling back to local route:', err?.message || err)
   }
 
-  // Local fallback: push to /reverseimage (uses sessionStorage)
+  // Local fallback: still go to /reverseimage with the image only
   try {
-    // If we have a crop, use it; else use original
     let dataUrl
     if (cropBlob) {
-      dataUrl = await new Promise((res) => {
-        const fr = new FileReader()
-        fr.onload = () => res(fr.result)
-        fr.readAsDataURL(cropBlob)
-      })
+      dataUrl = await readAsDataURL(cropBlob)
     } else if (selectedFile.value) {
-      dataUrl = await new Promise((res) => {
-        const fr = new FileReader()
-        fr.onload = () => res(fr.result)
-        fr.readAsDataURL(selectedFile.value)
-      })
+      dataUrl = await readAsDataURL(selectedFile.value)
     }
     if (dataUrl) {
       sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl] }))
@@ -497,18 +506,13 @@ function handleOutsideClick(ev) {
   if (!dropdownRef.value.contains(ev.target)) showDropdown.value = false
 }
 
-async function handleLogout() {
-  loading.value = true
-  try {
-    await http.post('/auth/logout')
-    localUser.value = null
-    router.push('/login')
-  } catch (e) {
-    console.error('Logout error:', e)
-    alert('Error logging out. Please try again.')
-  } finally {
-    loading.value = false
-  }
+/* ✅ Direct logout: navigate to /login regardless of API result */
+async function goLogoutPage() {
+  try { http.post('/auth/logout').catch(() => {}) } catch (_) {}
+  localStorage.removeItem('token')
+  sessionStorage.removeItem('token')
+  localUser.value = null
+  router.push('/login')
 }
 
 /* ------------------------- Lifecycle ------------------------- */
@@ -530,6 +534,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* (your styles unchanged) */
 .navbar {
   position: sticky;
   top: 0;
@@ -561,7 +566,7 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-/* Reverse button */
+/* Reverse button (and shared style for Logout via .rev-btn) */
 .rev-btn {
   margin-left: 0.5rem;
   white-space: nowrap;
@@ -633,12 +638,12 @@ onBeforeUnmount(() => {
   display: grid; place-items: center; font-weight: 700; color: #111827;
 }
 .welcome { display: none; color: #374151; }
-@media (min-width: 640px) { .welcome { display: inline; } }
-.logout {
-  padding: 0.5rem 0.9rem; font-size: 0.875rem; font-weight: 600; color: #fff;
-  background: #ff595e; border: none; border-radius: 0.5rem; cursor: pointer;
+@media (min-width: 640px) {
+  .welcome { display: inline; }
 }
-.logout:hover { background: #ff474d; }
+
+/* spacing tweak for logout; colors come from .rev-btn */
+.logout { margin-left: 0.25rem; }
 
 /* Modal / reverse UI */
 .rev-title { font-weight: 600; color: var(--charcoal, #2c3333); }
@@ -663,6 +668,13 @@ onBeforeUnmount(() => {
 .rev-preview img {
   width: 100%; max-height: 240px; object-fit: cover;
   border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.1);
+}
+
+/* Extra controls */
+.zoom-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* Error text */
