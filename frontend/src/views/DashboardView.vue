@@ -150,7 +150,6 @@ async function editComment(item, newText) {
   }
 }
 
-
 const posts = ref([])
 const showAdd = ref(false)
 const currentUser = ref({ email: ACTIVE_EMAIL })
@@ -172,9 +171,106 @@ function openPreview(p) {
   showPreview.value = true
   nextTick(() => initTooltips())
 }
-function closePreview() {
+async function closePreview() {
   showPreview.value = false
+  const snap = previewPost.value
+  let latestPatch = null
+
+  // 1) Merge any in-modal state if present
+  if (snap && (snap.id || snap.postid)) {
+    applyPostPatch(snap)
+    // 2) Hard refresh this post from backend to ensure counts/flags are correct
+    try {
+      const key = String(snap.id ?? snap.postid)
+      const fresh = await getPostById(key)
+      if (fresh) {
+        const latestCount = Number(
+          fresh.upvote_count ??
+            fresh.upvotes ??
+            fresh.likes ??
+            snap?.raw?.upvote_count ??
+            snap?.likes ??
+            0,
+        )
+        const latestFlag = Boolean(
+          fresh.user_has_upvoted ??
+            fresh.has_upvoted ??
+            snap?.raw?.user_has_upvoted ??
+            snap?.user_has_upvoted ??
+            false,
+        )
+        latestPatch = {
+          id: key,
+          postid: key,
+          likes: latestCount,
+          user_has_upvoted: latestFlag,
+          raw: { upvote_count: latestCount, user_has_upvoted: latestFlag },
+        }
+        applyPostPatch(latestPatch)
+      }
+    } catch {}
+  }
+  // 3) Refresh the feed and then re-apply the latest known engagement so it doesn't "disappear"
+  await runSearch()
+  if (latestPatch) applyPostPatch(latestPatch)
   previewPost.value = null
+}
+
+function applyPostPatch(patch) {
+  if (!patch || (!patch.id && !patch.postid)) return
+  const pid = String(patch.id ?? patch.postid)
+  // Update list item by id/postid
+  const i = Array.isArray(posts.value)
+    ? posts.value.findIndex((p) => String(p?.id ?? p?.postid ?? '') === pid)
+    : -1
+  if (i >= 0) {
+    const cur = posts.value[i]
+    const next = {
+      ...cur,
+      ...patch,
+      raw: { ...(cur?.raw || {}), ...(patch?.raw || {}) },
+    }
+    // Mirror raw fields to flat props that cards read from
+    const rawCount = patch?.raw?.upvote_count
+    if (typeof rawCount === 'number' && !Number.isNaN(rawCount)) next.likes = rawCount
+    const rawFlag = patch?.raw?.user_has_upvoted
+    if (typeof rawFlag === 'boolean') next.user_has_upvoted = rawFlag
+    posts.value.splice(i, 1, next)
+  }
+  // Also sync the preview object if it's the same post
+  if (previewPost.value) {
+    const curId = String(previewPost.value.id ?? previewPost.value.postid ?? '')
+    if (curId === pid) {
+      const cur = previewPost.value
+      const next = {
+        ...cur,
+        ...patch,
+        raw: { ...(cur?.raw || {}), ...(patch?.raw || {}) },
+      }
+      const rawCount = patch?.raw?.upvote_count
+      if (typeof rawCount === 'number' && !Number.isNaN(rawCount)) next.likes = rawCount
+      const rawFlag = patch?.raw?.user_has_upvoted
+      if (typeof rawFlag === 'boolean') next.user_has_upvoted = rawFlag
+      previewPost.value = next
+    }
+  }
+  // Also sync the randomiser card if it's the same post
+  if (randomPost.value) {
+    const rndId = String(randomPost.value.id ?? randomPost.value.postid ?? '')
+    if (rndId === pid) {
+      const cur = randomPost.value
+      const next = {
+        ...cur,
+        ...patch,
+        raw: { ...(cur?.raw || {}), ...(patch?.raw || {}) },
+      }
+      const rawCount2 = patch?.raw?.upvote_count
+      if (typeof rawCount2 === 'number' && !Number.isNaN(rawCount2)) next.likes = rawCount2
+      const rawFlag2 = patch?.raw?.user_has_upvoted
+      if (typeof rawFlag2 === 'boolean') next.user_has_upvoted = rawFlag2
+      randomPost.value = next
+    }
+  }
 }
 
 // Guard clicks so internal controls (e.g., carousel/swiper arrows) don't open the preview
@@ -276,6 +372,20 @@ const areaInput = ref(null)
 // Caches of all options (so we can show full list when input is empty)
 const allCuisines = ref([])
 const allAreas = ref([])
+
+// === Randomiser typeahead state (mirrors main filters but isolated) ===
+const rCuisineQuery = ref('')
+const rAreaQuery = ref('')
+const rCuisineSuggestions = ref([])
+const rAreaSuggestions = ref([])
+const showRCuisineList = ref(false)
+const showRAreaList = ref(false)
+const rCuisineBox = ref(null)
+const rAreaBox = ref(null)
+const rCuisineInput = ref(null)
+const rAreaInput = ref(null)
+let rCuisineTimer = null
+let rAreaTimer = null
 
 // Normalize to unique, trimmed, sorted strings
 function normalizeList(arr) {
@@ -419,6 +529,61 @@ function onAreaInput() {
     }
   }, 150)
 }
+
+function r_onCuisineInput() {
+  showRCuisineList.value = true
+  clearTimeout(rCuisineTimer)
+  const qRaw = rCuisineQuery.value
+  const q = qRaw == null ? '' : String(qRaw).trim()
+  rCuisineTimer = setTimeout(async () => {
+    if (!allCuisines.value.length) {
+      allCuisines.value = normalizeList(await getAllCuisines(''))
+    }
+    if (!q) {
+      rCuisineSuggestions.value = allCuisines.value.slice(0, 500)
+    } else {
+      const needle = q.toLowerCase()
+      const base = allCuisines.value.length
+        ? allCuisines.value
+        : normalizeList(await getAllCuisines(''))
+      rCuisineSuggestions.value = base.filter((s) => s.toLowerCase().includes(needle)).slice(0, 500)
+      try {
+        const remote = await getAllCuisines(q)
+        const merged = normalizeList([...base, ...remote]).filter((s) =>
+          s.toLowerCase().includes(needle),
+        )
+        rCuisineSuggestions.value = merged.slice(0, 500)
+      } catch {}
+    }
+  }, 150)
+}
+
+function r_onAreaInput() {
+  showRAreaList.value = true
+  clearTimeout(rAreaTimer)
+  const qRaw = rAreaQuery.value
+  const q = qRaw == null ? '' : String(qRaw).trim()
+  rAreaTimer = setTimeout(async () => {
+    if (!allAreas.value.length) {
+      allAreas.value = normalizeList(await getAllLocations(''))
+    }
+    if (!q) {
+      rAreaSuggestions.value = allAreas.value.slice(0, 500)
+    } else {
+      const needle = q.toLowerCase()
+      const base = allAreas.value.length ? allAreas.value : normalizeList(await getAllLocations(''))
+      rAreaSuggestions.value = base.filter((s) => s.toLowerCase().includes(needle)).slice(0, 500)
+      try {
+        const remote = await getAllLocations(q)
+        const merged = normalizeList([...base, ...remote]).filter((s) =>
+          s.toLowerCase().includes(needle),
+        )
+        rAreaSuggestions.value = merged.slice(0, 500)
+      } catch {}
+    }
+  }, 150)
+}
+
 function pickCuisine(v) {
   // "Show all" clears selection and query
   if (!v) {
@@ -458,6 +623,36 @@ function pickArea(v) {
   showAreaList.value = false
   requestAnimationFrame(() => areaInput.value && areaInput.value.blur())
   runSearch()
+}
+
+function pickRCuisine(v) {
+  if (!v) {
+    randomFilters.value.cuisine = 'Any'
+    rCuisineQuery.value = ''
+    showRCuisineList.value = false
+    if (allCuisines.value.length) rCuisineSuggestions.value = allCuisines.value.slice(0, 500)
+    requestAnimationFrame(() => rCuisineInput.value && rCuisineInput.value.blur())
+    return
+  }
+  randomFilters.value.cuisine = v
+  rCuisineQuery.value = v
+  showRCuisineList.value = false
+  requestAnimationFrame(() => rCuisineInput.value && rCuisineInput.value.blur())
+}
+
+function pickRArea(v) {
+  if (!v) {
+    randomFilters.value.area = 'Any'
+    rAreaQuery.value = ''
+    showRAreaList.value = false
+    if (allAreas.value.length) rAreaSuggestions.value = allAreas.value.slice(0, 500)
+    requestAnimationFrame(() => rAreaInput.value && rAreaInput.value.blur())
+    return
+  }
+  randomFilters.value.area = v
+  rAreaQuery.value = v
+  showRAreaList.value = false
+  requestAnimationFrame(() => rAreaInput.value && rAreaInput.value.blur())
 }
 
 // Price helpers
@@ -645,13 +840,13 @@ async function runSearch() {
   // Initialize comment counts for visible posts (fallback to raw.comments_count if present)
   const nextCounts = {}
   for (const p of feed) {
-    const n = Array.isArray(p?.raw?.comments) ? p.raw.comments.length : (p?.raw?.comments_count ?? 0)
-    if (p?.id != null) nextCounts[String(p.id)] = Number(n) || 0
+    const n = Array.isArray(p?.raw?.comments)
+      ? p.raw.comments.length
+      : (p?.raw?.comments_count ?? 0)
+    const key = String(p?.id ?? p?.postid)
+    if (key) nextCounts[key] = Number(n) || 0
   }
   commentCounts.value = nextCounts
-
-  await nextTick()
-  await scrollToPostIfAny()
 }
 
 // Router bits
@@ -678,57 +873,85 @@ function applyVisibilityFromQuery() {
   return false
 }
 async function scrollToPostIfAny() {
-  const postId = route.query.postId
+  // Accept multiple casings/keys from router
+  const q = route.query || {}
+  const postId = q.postId || q.postID || q.postid
   if (!postId) return
+  const targetId = String(postId)
+
+  // Helper: is the post already in the current feed?
+  const hasPostInFeed = () =>
+    Array.isArray(posts.value) && posts.value.some((p) => String(p?.id ?? p?.postid) === targetId)
+
+  // Align visibility with URL and reload if changed
   const prev = friendsOnly.value
   const changed = applyVisibilityFromQuery()
-  if (changed && friendsOnly.value !== prev) await runSearch()
+  if (changed && friendsOnly.value !== prev) {
+    await runSearch()
+  }
+
+  // If the post isn't present yet (first load / race), fetch the feed
+  if (!hasPostInFeed()) {
+    await runSearch()
+  }
+
   await nextTick()
-  const el = document.getElementById(`post-${postId}`)
-  if (!el) return
-  highlightedPostId.value = String(postId)
-  const header = document.querySelector('.navbar, header.sticky')
-  const headerOffset = header ? Math.max(header.clientHeight, 56) : 56
-  const pad = 12
-  const viewport = window.innerHeight
-  const rect = el.getBoundingClientRect()
-  const elTopAbs = rect.top + window.pageYOffset
-  const elHeight = el.offsetHeight
-  const available = viewport - headerOffset - pad * 2
-  let y
-  if (elHeight <= available) {
-    const extra = (available - elHeight) / 2
-    y = elTopAbs - headerOffset - pad - extra
-  } else {
-    y = elTopAbs - headerOffset - pad
-  }
-  window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
-  if (typeof el.focus === 'function') {
-    el.setAttribute('tabindex', '-1')
-    el.focus({ preventScroll: true })
-  }
-  setTimeout(() => {
-    const rect2 = el.getBoundingClientRect()
-    const elTopAbs2 = rect2.top + window.pageYOffset
-    const elHeight2 = el.offsetHeight
-    let y2
-    if (elHeight2 <= available) {
-      const extra2 = (available - elHeight2) / 2
-      y2 = elTopAbs2 - headerOffset - pad - extra2
+
+  // Try to find and scroll to the element, with retries in case of async rendering
+  const tryScroll = () => {
+    const el = document.getElementById(`post-${targetId}`)
+    if (!el) return false
+
+    highlightedPostId.value = targetId
+    const header = document.querySelector('.navbar, header.sticky')
+    const headerOffset = header ? Math.max(header.clientHeight, 56) : 56
+    const pad = 12
+    const viewport = window.innerHeight
+    const rect = el.getBoundingClientRect()
+    const elTopAbs = rect.top + window.pageYOffset
+    const elHeight = el.offsetHeight
+    const available = viewport - headerOffset - pad * 2
+    let y
+    if (elHeight <= available) {
+      const extra = (available - elHeight) / 2
+      y = elTopAbs - headerOffset - pad - extra
     } else {
-      y2 = elTopAbs2 - headerOffset - pad
+      y = elTopAbs - headerOffset - pad
     }
-    window.scrollTo({ top: Math.max(0, y2), behavior: 'auto' })
-  }, 350)
-  setTimeout(() => {
-    highlightedPostId.value = null
-    clearPostQuery()
-  }, 1400)
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
+    if (typeof el.focus === 'function') {
+      el.setAttribute('tabindex', '-1')
+      el.focus({ preventScroll: true })
+    }
+    setTimeout(() => {
+      highlightedPostId.value = null
+      clearPostQuery()
+    }, 1400)
+    return true
+  }
+
+  let attempts = 0
+  const maxAttempts = 8
+  const step = 150
+  let ok = tryScroll()
+  while (!ok && attempts < maxAttempts) {
+    await new Promise((r) => setTimeout(r, step))
+    await nextTick()
+    ok = tryScroll()
+    attempts++
+  }
 }
 function clearPostQuery() {
-  const q = { ...route.query }
-  delete q.postId
-  router.replace({ query: q })
+  try {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('postId')
+    url.searchParams.delete('postID')
+    url.searchParams.delete('postid')
+    // Preserve hash and other params, only remove postId-like keys
+    window.history.replaceState(window.history.state, '', url.toString())
+  } catch {
+    // Fallback: do nothing if URL parsing fails; better than jumping scroll
+  }
 }
 
 // Bootstrap tooltips (optional)
@@ -745,9 +968,21 @@ function initTooltips() {
   } catch {}
 }
 watch(
-  () => route.query.postId,
+  () => [route.query.postId, route.query.postID, route.query.postid],
   () => {
     scrollToPostIfAny()
+  },
+  { immediate: true },
+)
+
+// Secondary safeguard: retry scroll when posts list populates (useful on first load)
+watch(
+  () => posts.value.length,
+  () => {
+    const q = route.query || {}
+    if (q.postId || q.postID || q.postid) {
+      scrollToPostIfAny()
+    }
   },
 )
 
@@ -758,6 +993,10 @@ function handleGlobalClick(e) {
   const inArea = areaBox.value && areaBox.value.contains(t)
   if (!inCuisine) showCuisineList.value = false
   if (!inArea) showAreaList.value = false
+  const inRCuisine = rCuisineBox.value && rCuisineBox.value.contains(t)
+  const inRArea = rAreaBox.value && rAreaBox.value.contains(t)
+  if (!inRCuisine) showRCuisineList.value = false
+  if (!inRArea) showRAreaList.value = false
 }
 function handleGlobalPointerDown(e) {
   const t = e.target
@@ -770,6 +1009,8 @@ function handleKeydown(e) {
   if (e.key === 'Escape' || e.key === 'Esc') {
     showCuisineList.value = false
     showAreaList.value = false
+    showRCuisineList.value = false
+    showRAreaList.value = false
   }
 }
 onMounted(() => {
@@ -838,9 +1079,9 @@ function rf_to_payload() {
     payload.price_symbol = sym
     const pr0 = priceSymbolToIndex(sym) // 0..3
     if (pr0 !== null) {
-      payload.price_range = pr0          // 0..3 (some backends)
+      payload.price_range = pr0 // 0..3 (some backends)
       payload.price_range_eq = pr0
-      payload.price_level_eq = pr0 + 1   // 1..4 (others)
+      payload.price_level_eq = pr0 + 1 // 1..4 (others)
       payload.price_eq = pr0 + 1
       payload.price_level = pr0 + 1
     }
@@ -851,6 +1092,37 @@ function rf_to_payload() {
   delete payload.priceLevel
 
   return payload
+}
+
+// Strict Randomiser payload builder matching FE → BE contract
+function rf_to_payload_random() {
+  const areaRaw = normStr(randomFilters.value.area ?? '')
+  const cuisineRaw = normStr(randomFilters.value.cuisine ?? '')
+
+  // Contract requires exactly these keys
+  const payload = {
+    user_email: ACTIVE_EMAIL,
+    area: areaRaw ? (/^any$/i.test(areaRaw) ? 'any' : areaRaw) : 'any',
+    cuisine_type: cuisineRaw ? (/^any$/i.test(cuisineRaw) ? 'any' : cuisineRaw) : 'any',
+    price_level: 'any', // we decide numeric levels in fetch
+  }
+  return payload
+}
+
+// Helper: given a price symbol, return desired backend price_level(s)
+function desiredLevelsForSymbol(sym) {
+  switch (sym) {
+    case '$':
+      return [1, 0]
+    case '$$':
+      return [2]
+    case '$$$':
+      return [3]
+    case '$$$$':
+      return [4]
+    default:
+      return [] // Any
+  }
 }
 function rowToPostRandom(row) {
   // Shape per randomiserSearch response
@@ -893,15 +1165,76 @@ function rowToPostRandom(row) {
 // Randomise Post (uses dedicated endpoint + its own filters)
 async function fetchRandomPost() {
   try {
-    const payload = rf_to_payload()
-    const r = await api.post(RANDOMISER_EP, payload)
-    const arr = Array.isArray(r.data?.data) ? r.data.data
-      : Array.isArray(r.data) ? r.data
-      : []
-    if (!arr.length) {
+    const basePayload = rf_to_payload_random()
+    const sym = normStr(randomFilters.value.priceSymbol)
+    const levels = desiredLevelsForSymbol(sym)
+
+    const call = async (p) => {
+      const r = await api.post(RANDOMISER_EP, p)
+      return Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? r.data : []
+    }
+
+    let arr = []
+
+    // Try explicit levels first (e.g., '$' → [1,0])
+    if (levels.length) {
+      for (const lvl of levels) {
+        const payload = { ...basePayload, price_level: lvl }
+        arr = await call(payload)
+        if (arr && arr.length) break
+      }
+    }
+
+    // If still empty (or "Any" selected), try with price_level='any'
+    if (!arr || !arr.length) {
+      const anyPayload = { ...basePayload, price_level: 'any' }
+      arr = await call(anyPayload)
+      // If we actually wanted a price symbol, apply client-side filter
+      if (arr && arr.length && levels.length) {
+        arr = arr.filter((row) => {
+          const lvl = Number(row?.price_level)
+          if (Number.isNaN(lvl)) return false
+          switch (sym) {
+            case '$':
+              return lvl === 0 || lvl === 1
+            case '$$':
+              return lvl === 2
+            case '$$$':
+              return lvl === 3
+            case '$$$$':
+              return lvl === 4
+            default:
+              return true
+          }
+        })
+      }
+    }
+
+    // Enforce client-side price filter even if backend ignored our price_level
+    if (arr && arr.length && levels.length) {
+      arr = arr.filter((row) => {
+        const lvl = Number(row?.price_level)
+        if (Number.isNaN(lvl)) return false
+        switch (sym) {
+          case '$':
+            return lvl === 0 || lvl === 1
+          case '$$':
+            return lvl === 2
+          case '$$$':
+            return lvl === 3
+          case '$$$$':
+            return lvl === 4
+          default:
+            return true
+        }
+      })
+    }
+
+    if (!arr || !arr.length) {
       randomPost.value = null
       return
     }
+
     const pickRaw = arr[Math.floor(Math.random() * arr.length)]
     randomPost.value = rowToPostRandom(pickRaw)
     await nextTick()
@@ -941,6 +1274,31 @@ function clearFilters() {
     } catch {}
   })
   runSearch()
+}
+
+function setRandomPrice(sym) {
+  const cur = randomFilters.value.priceSymbol
+  randomFilters.value.priceSymbol = cur === sym ? 'Any' : sym
+}
+
+function clearRandomFilters() {
+  randomFilters.value.cuisine = 'Any'
+  randomFilters.value.area = 'Any'
+  randomFilters.value.priceSymbol = 'Any'
+  rCuisineQuery.value = ''
+  rAreaQuery.value = ''
+  showRCuisineList.value = false
+  showRAreaList.value = false
+  rCuisineSuggestions.value = []
+  rAreaSuggestions.value = []
+  Promise.resolve().then(async () => {
+    try {
+      if (!allCuisines.value.length) allCuisines.value = normalizeList(await getAllCuisines(''))
+      if (!allAreas.value.length) allAreas.value = normalizeList(await getAllLocations(''))
+      rCuisineSuggestions.value = allCuisines.value.slice(0, 500)
+      rAreaSuggestions.value = allAreas.value.slice(0, 500)
+    } catch {}
+  })
 }
 
 // API helpers
@@ -1046,6 +1404,10 @@ async function load() {
       allAreas.value = normalizeList(await getAllLocations(''))
     } catch {}
   })
+  Promise.resolve().then(() => {
+    rCuisineSuggestions.value = allCuisines.value.slice(0, 500)
+    rAreaSuggestions.value = allAreas.value.slice(0, 500)
+  })
   try {
     await runSearch()
   } catch (e) {
@@ -1057,16 +1419,29 @@ function handleAdded() {
   load()
 }
 function viewOnMap(post) {
-  router.push({
-    path: '/map',
-    query: { postId: String(post?.id), feed: friendsOnly.value ? 'friends' : 'public' },
-  })
+  const pid = String(post?.id ?? post?.postid ?? '')
+  const rid = String(
+    post?.restaurant?.id ?? post?.restaurant_id ?? post?.restaurant?.name ?? ''
+  )
+  const scope = friendsOnly.value ? 'friends' : 'public'
+  const query = { feed: scope }
+  if (pid) query.postId = pid
+  if (rid) query.restaurant = rid
+
+  router.push({ path: '/map', query })
 }
 
 onMounted(load)
 onMounted(() => nextTick(() => initTooltips()))
 watch(
-  () => [filters.value.priceSymbol, showCuisineList.value, showAreaList.value],
+  () => [
+    filters.value.priceSymbol,
+    showCuisineList.value,
+    showAreaList.value,
+    randomFilters.value.priceSymbol,
+    showRCuisineList.value,
+    showRAreaList.value,
+  ],
   () => nextTick(() => initTooltips()),
 )
 </script>
@@ -1103,98 +1478,154 @@ watch(
     <!-- Posts Feed -->
     <section class="feed container">
       <!-- Randomise Post (above Posts) -->
-      <div class="card mb-3">
-        <div class="card-body py-2">
-          <div class="d-flex align-items-center justify-content-between mb-2">
-            <h6 class="mb-0 fw-bold">Randomise Post</h6>
-            <button type="button" class="btn btn-sm btn-outline-secondary" @click="fetchRandomPost">
-              🎲 Get randomised post
-            </button>
-          </div>
-          <div class="row g-2 align-items-end">
-            <div class="col-12 col-md-4">
-              <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine (Randomiser)</label>
-              <input
-                class="form-control form-control-sm"
-                placeholder="Any"
-                v-model="randomFilters.cuisine"
-              />
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h3 class="feed-title mb-0">Randomise Post</h3>
+      </div>
+      <div class="feed-shell sage-glass p-3 mb-3">
+        <div class="card mb-3">
+          <div class="card-body py-2">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary" @click="fetchRandomPost">
+                🎲 Get randomised post
+              </button>
             </div>
-            <div class="col-12 col-md-4">
-              <label class="form-label mb-1 small fw-semibold text-secondary">Area (Randomiser)</label>
-              <input
-                class="form-control form-control-sm"
-                placeholder="Any"
-                v-model="randomFilters.area"
-              />
-            </div>
-            <div class="col-12 col-md-4">
-              <label class="form-label mb-1 small fw-semibold text-secondary">Price (Randomiser)</label>
-              <div class="d-flex gap-2 flex-wrap">
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
-                  :class="{ active: randomFilters.priceSymbol === 'Any' }"
-                  @click="randomFilters.priceSymbol = 'Any'"
-                  title="Any price"
-                >
-                  Any
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
-                  :class="{ active: randomFilters.priceSymbol === '$' }"
-                  @click="randomFilters.priceSymbol = '$'"
-                  title="Inexpensive"
-                >
-                  $
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
-                  :class="{ active: randomFilters.priceSymbol === '$$' }"
-                  @click="randomFilters.priceSymbol = '$$'"
-                  title="Moderate"
-                >
-                  $$
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
-                  :class="{ active: randomFilters.priceSymbol === '$$$' }"
-                  @click="randomFilters.priceSymbol = '$$$'"
-                  title="Expensive"
-                >
-                  $$$
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
-                  :class="{ active: randomFilters.priceSymbol === '$$$$' }"
-                  @click="randomFilters.priceSymbol = '$$$$'"
-                  title="Very Expensive"
-                >
-                  $$$$
-                </button>
+            <div class="row g-3 align-items-end">
+              <!-- Cuisine (Randomiser) -->
+              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rCuisineBox">
+                <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine (Randomiser)</label>
+                <input
+                  class="form-control form-control-sm text-start"
+                  placeholder="Type to search (e.g. Japanese)"
+                  v-model="rCuisineQuery"
+                  @focus="r_onCuisineInput"
+                  @input="r_onCuisineInput"
+                  @blur="() => (showRCuisineList = false)"
+                  ref="rCuisineInput"
+                />
+                <ul v-if="showRCuisineList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                  <li>
+                    <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRCuisine('')">
+                      Show all cuisines
+                    </button>
+                  </li>
+                  <li v-if="rCuisineQuery && !rCuisineSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                  <li v-for="(c, i) in rCuisineSuggestions" :key="'rc-' + i">
+                    <button type="button" class="dropdown-item" @mousedown.prevent="pickRCuisine(c)">{{ c }}</button>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Area (Randomiser) -->
+              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rAreaBox">
+                <label class="form-label mb-1 small fw-semibold text-secondary">Area (Randomiser)</label>
+                <input
+                  class="form-control form-control-sm text-start"
+                  placeholder="Type to search (e.g. Bugis)"
+                  v-model="rAreaQuery"
+                  @focus="r_onAreaInput"
+                  @input="r_onAreaInput"
+                  @blur="() => (showRAreaList = false)"
+                  ref="rAreaInput"
+                />
+                <ul v-if="showRAreaList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                  <li>
+                    <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRArea('')">
+                      Show all areas
+                    </button>
+                  </li>
+                  <li v-if="rAreaQuery && !rAreaSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                  <li v-for="(a, i) in rAreaSuggestions" :key="'ra-' + i">
+                    <button type="button" class="dropdown-item" @mousedown.prevent="pickRArea(a)">{{ a }}</button>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Price chips (Randomiser) -->
+              <div class="col-12 col-lg-4">
+                <label class="form-label mb-1 small fw-semibold text-secondary">Price (Randomiser)</label>
+                <div class="d-flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip"
+                    :class="{ active: randomFilters.priceSymbol === '$' }"
+                    @click="setRandomPrice('$')"
+                    data-bs-toggle="tooltip"
+                    title="Inexpensive"
+                  >
+                    $
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip"
+                    :class="{ active: randomFilters.priceSymbol === '$$' }"
+                    @click="setRandomPrice('$$')"
+                    data-bs-toggle="tooltip"
+                    title="Moderate"
+                  >
+                    $$
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip"
+                    :class="{ active: randomFilters.priceSymbol === '$$$' }"
+                    @click="setRandomPrice('$$$')"
+                    data-bs-toggle="tooltip"
+                    title="Expensive"
+                  >
+                    $$$
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip"
+                    :class="{ active: randomFilters.priceSymbol === '$$$$' }"
+                    @click="setRandomPrice('$$$$')"
+                    data-bs-toggle="tooltip"
+                    title="Very Expensive"
+                  >
+                    $$$$
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip"
+                    :class="{ active: randomFilters.priceSymbol === 'Any' }"
+                    @click="setRandomPrice('Any')"
+                    data-bs-toggle="tooltip"
+                    title="All prices"
+                  >
+                    All
+                  </button>
+                  <button type="button" class="btn btn-sm btn-clear px-3" @click="clearRandomFilters">Clear</button>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-      <div
-        v-if="randomPost"
-        class="card themed-card position-relative mb-3 randomised-panel post-clickable"
-        @click="onCardClick($event, randomPost)"
-        role="button"
-        tabindex="0"
-      >
-        <PostCard
-          :post="randomPost"
-          :feed="randomPost.is_public ? 'public' : 'friends'"
-          :controls="false"
-          :external-comment-count="commentCounts[randomPost?.id] ?? (randomPost?.raw?.comments?.length || 0)"
-          @open-comments="onOpenComments"
-        />
+
+        <!-- Randomised post result in the same background shell -->
+        <div
+          v-if="randomPost"
+          class="card themed-card position-relative randomised-panel post-clickable"
+          @click="onCardClick($event, randomPost)"
+          role="button"
+          tabindex="0"
+        >
+          <PostCard
+            :post="randomPost"
+            :feed="randomPost.is_public ? 'public' : 'friends'"
+            :controls="false"
+            :external-comment-count="
+              commentCounts[randomPost?.id] ??
+              commentCounts[randomPost?.postid] ??
+              (randomPost?.raw?.comments?.length || 0)
+            "
+            @open-comments="onOpenComments"
+            @updated="applyPostPatch"
+            @post-updated="applyPostPatch"
+            @liked="applyPostPatch"
+            @unliked="applyPostPatch"
+          />
+        </div>
+        <div v-else class="empty">No post found for that filter.</div>
       </div>
       <div class="d-flex align-items-center justify-content-between mb-2">
         <h3 class="feed-title mb-0">Posts</h3>
@@ -1380,15 +1811,11 @@ watch(
 
         <template v-if="posts.length">
           <div class="row g-3 g-md-4">
-            <div
-              v-for="(p, i) in posts"
-              :key="p.id || p.raw?.id || p.restaurant?.id || i"
-              class="col-12 col-lg-6"
-            >
+            <div v-for="p in posts" :key="String(p.id ?? p.postid)" class="col-12 col-lg-6">
               <div
                 class="card themed-card position-relative post-clickable"
-                :id="`post-${p.id}`"
-                :class="{ active: highlightedPostId === p.id }"
+                :id="`post-${p.id ?? p.postid}`"
+                :class="{ active: String(highlightedPostId) === String(p.id ?? p.postid) }"
                 @click="onCardClick($event, p)"
                 role="button"
                 tabindex="0"
@@ -1397,8 +1824,16 @@ watch(
                   :post="p"
                   :feed="friendsOnly ? 'friends' : 'public'"
                   :controls="false"
-                  :external-comment-count="commentCounts[p?.id] ?? (p?.raw?.comments?.length || 0)"
+                  :external-comment-count="
+                    commentCounts[p?.id] ??
+                    commentCounts[p?.postid] ??
+                    (p?.raw?.comments?.length || 0)
+                  "
                   @open-comments="onOpenComments"
+                  @updated="applyPostPatch"
+                  @post-updated="applyPostPatch"
+                  @liked="applyPostPatch"
+                  @unliked="applyPostPatch"
                 />
               </div>
             </div>
@@ -1409,8 +1844,9 @@ watch(
     </section>
 
     <!-- Floating Create button -->
-    <button class="fab fab-terracotta" aria-label="Create Post" @click="showAdd = true">+</button>
-    <div class="fab-label sage-chip">Create Post</div>
+    <button class="fab fab-terracotta fab-img" @click="showAdd = true" title="Create Post">
+      <img src="/images/CreatePost_White.png" alt="Create Post" class="fab-icon" />
+    </button>
 
     <!-- Bottom social bar -->
     <footer class="bottom-bar fixed-bottom d-flex align-items-center px-3">
@@ -1435,8 +1871,16 @@ watch(
           :post="previewPost"
           :feed="previewPost?.is_public ? 'public' : 'friends'"
           :controls="true"
-          :external-comment-count="commentCounts[previewPost?.id] ?? (previewPost?.raw?.comments?.length || 0)"
+          :external-comment-count="
+            commentCounts[previewPost?.id] ??
+            commentCounts[previewPost?.postid] ??
+            (previewPost?.raw?.comments?.length || 0)
+          "
           @open-comments="onOpenComments"
+          @updated="applyPostPatch"
+          @post-updated="applyPostPatch"
+          @liked="applyPostPatch"
+          @unliked="applyPostPatch"
         />
       </div>
     </div>
@@ -1460,7 +1904,12 @@ watch(
             <button
               class="btn btn-sm btn-outline-secondary"
               :disabled="c.commenter_email !== ACTIVE_EMAIL"
-              @click="() => { newComment = c.comment; editingComment = c }"
+              @click="
+                () => {
+                  newComment = c.comment
+                  editingComment = c
+                }
+              "
             >
               Edit
             </button>
@@ -1476,7 +1925,17 @@ watch(
       </ul>
       <div v-if="editingComment" class="text-muted small mb-2">
         Editing your comment…
-        <button class="btn btn-link btn-sm p-0 ms-1" @click="() => { editingComment = null; newComment = '' }">cancel</button>
+        <button
+          class="btn btn-link btn-sm p-0 ms-1"
+          @click="
+            () => {
+              editingComment = null
+              newComment = ''
+            }
+          "
+        >
+          cancel
+        </button>
       </div>
       <form class="d-flex gap-2" @submit.prevent="submitComment">
         <input
@@ -1485,7 +1944,9 @@ watch(
           class="form-control"
           placeholder="Write a comment..."
         />
-        <button class="btn btn-primary" type="submit" :disabled="!newComment.trim()">{{ editingComment ? 'Save' : 'Send' }}</button>
+        <button class="btn btn-primary" type="submit" :disabled="!newComment.trim()">
+          {{ editingComment ? 'Save' : 'Send' }}
+        </button>
       </form>
     </div>
   </Modal>
@@ -1517,7 +1978,7 @@ watch(
 .fab {
   position: fixed;
   right: 28px;
-  bottom: 86px;
+  bottom: 28px;
   border: none;
   cursor: pointer;
   display: grid;
@@ -1528,6 +1989,32 @@ watch(
   right: 28px;
   bottom: 54px;
 }
+
+/* Custom image FAB styling */
+.fab-img {
+  background: transparent;
+  border: none;
+  padding: 0;
+  /* border-radius: 50%; */
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.fab-img:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.fab-img:active {
+  transform: scale(0.96);
+}
+
+.fab-icon {
+  width: 50px;
+  height: 50px;
+  /* border-radius: 50%; */
+  object-fit: contain;
+}
+
 .icon {
   width: 20px;
   height: 20px;
@@ -1722,6 +2209,11 @@ watch(
   overflow: visible !important;
 }
 
-.card .form-label { font-size: 0.75rem; }
-.card .form-control-sm { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+.card .form-label {
+  font-size: 0.75rem;
+}
+.card .form-control-sm {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
 </style>

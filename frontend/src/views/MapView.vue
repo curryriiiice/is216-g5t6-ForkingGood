@@ -11,6 +11,14 @@ const ACTIVE_EMAIL = 'clarice.lim.2024@computing.smu.edu.sg' // TEMP: replace wh
 
 const api = axios.create({ baseURL: API_BASE })
 
+// --- THEME PERSISTENCE ---
+// Apply theme from localStorage on mount
+const THEME_KEY = 'fg_theme_v2'
+function applyStoredTheme() {
+  const savedTheme = localStorage.getItem(THEME_KEY) || 'light'
+  document.documentElement.setAttribute('data-theme', savedTheme)
+}
+
 // --- Filter + data endpoints --- //
 // Suggestions (searchable dropdowns if you later hook @search)
 async function getAllCuisines(query = '') {
@@ -50,6 +58,7 @@ const router = useRouter()
 function clearRestaurantQuery() {
   const q = { ...route.query }
   delete q.restaurant
+  delete q.postId
   router.replace({ query: q })
 }
 
@@ -323,11 +332,8 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
   const id = String(postId || '')
   if (!id) return
 
-  // Find the restaurant for this post
-  const rid = postIdToRestaurantId.value.get(id)
+  let restaurantId = postIdToRestaurantId.value.get(id)
 
-  // Fallback: scan if index is missing (should be rare)
-  let restaurantId = rid
   if (!restaurantId && postsByRestaurant?.value instanceof Map) {
     for (const [rKey, posts] of postsByRestaurant.value.entries()) {
       if (posts.some((p) => String(p.id) === id)) {
@@ -341,34 +347,8 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
     return
   }
 
-  // Find the corresponding pin
-  const pin = pins.value.find((p) => String(p.restaurant_id) === String(restaurantId))
-  if (!pin) {
-    console.warn('[map] pin not found for restaurant:', restaurantId)
-    return
-  }
-
-  // Select it, populate drawer posts, and center/zoom
-  selected.value = pin
-  selectedPosts.value = postsByRestaurant.value.get(restaurantId) || []
-
-  try {
-    // Center and zoom (tweak zoom as you like)
-    if (map?.value) {
-      map.value.panTo(pin.position)
-      if (map.value.getZoom && map.value.setZoom) {
-        const z = map.value.getZoom()
-        if (typeof z === 'number' && z < 16) map.value.setZoom(16)
-      }
-    }
-  } catch (e) {
-    console.warn('[map] pan/zoom failed', e)
-  }
-
-  // Optionally open your side drawer if you gate it behind a flag
-  if (openDrawer && typeof showDetails === 'function') {
-    // If you have a function to open a drawer, call it here.
-  }
+  // Delegate to focusRestaurant to pan/zoom + open UI
+  focusRestaurant(String(restaurantId), { openDrawer })
 }
 
 async function rebuildMarkers() {
@@ -597,6 +577,7 @@ function onKeydown(e) {
 
 onMounted(() => {
   document.addEventListener('keydown', onKeydown)
+  applyStoredTheme() // Apply saved theme from localStorage
   init()
   nextTick(() => initTooltips())
 })
@@ -604,27 +585,53 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 watch(
   () => route.query.restaurant,
-  (rid) => {
-    if (rid && pins.value.length && map.value) {
-      focusRestaurant(String(rid), { openDrawer: true })
+  async (rid) => {
+    if (!rid) return
+    // wait for map and pins to be ready
+    let tries = 0
+    while ((!map.value || !pins.value.length) && tries < 20) {
+      await new Promise((r) => setTimeout(r, 120)) // ~2.4s max
+      tries++
     }
+    if (!map.value || !pins.value.length) return
+    await nextTick()
+    focusRestaurant(String(rid), { openDrawer: true })
   },
+  { immediate: true },
 )
 
 watch(
   () => route.query.postId,
   async (newId) => {
     if (!newId) return
-    // Ensure pins have been loaded at least once
-    if (!pins.value.length) {
+    
+    // Wait for map to be initialized
+    let tries = 0
+    while ((!map.value || !pins.value.length) && tries < 30) {
+      await new Promise((r) => setTimeout(r, 100)) // ~3s max
+      tries++
+    }
+    
+    if (!map.value) return
+    
+    // Check if post is in current filters - if not, temporarily clear filters
+    const postExists = postIdToRestaurantId.value.has(String(newId))
+    
+    if (!postExists) {
+      // Clear filters to ensure the post loads
+      selectedCuisine.value = 'All'
+      selectedArea.value = 'All'
+      selectedPrice.value = 'All'
+      
+      // Wait for pins to reload
       await loadPinsFromFilters()
     }
+    
+    // Try to focus on the post
     await focusPostOnMap(String(newId), { openDrawer: true })
 
-    // Optional: clear the query after focusing so back/forward feels clean
-    const q = { ...route.query }
-    delete q.postId
-    router.replace({ query: q })
+    // Don't clear query param - let the drawer handle it when closed
+    // This ensures back/forward navigation works properly
   },
   { immediate: true },
 )
@@ -918,24 +925,31 @@ function addPinsWith(GMarker) {
 function focusRestaurant(restaurantId, { openDrawer = false } = {}) {
   const pin = pins.value.find((p) => String(p.restaurant_id) === String(restaurantId))
   if (!pin || !map.value) return
-  map.value.setCenter(pin.position)
-  map.value.setZoom(16)
+
+  // Center and zoom in tightly
+  try {
+    map.value.panTo(pin.position)
+    const z = map.value.getZoom && map.value.getZoom()
+    if (typeof z !== 'number' || z < 17) {
+      map.value.setZoom(17)
+    }
+  } catch {}
+
+  // Open InfoWindow on that marker so it's obvious which pin
+  const marker = markers.value.find((m) => {
+    const pos = m.getPosition && m.getPosition()
+    return pos && pos.lat && pos.lng && pos.lat() === pin.position.lat && pos.lng() === pin.position.lng
+  })
+  if (marker) {
+    const html = renderInfoWindow(pin)
+    infoWindow.value.setContent(html)
+    infoWindow.value.open({ anchor: marker, map: map.value })
+  }
 
   if (openDrawer) {
     selected.value = pin
     selectedPost.value = null
     selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
-    return
-  } else {
-    const marker = markers.value.find((m) => {
-      const pos = m.getPosition()
-      return pos?.lat() === pin.position.lat && pos?.lng() === pin.position.lng
-    })
-    if (marker) {
-      const html = renderInfoWindow(pin)
-      infoWindow.value.setContent(html)
-      infoWindow.value.open({ anchor: marker, map: map.value })
-    }
   }
 }
 
@@ -981,7 +995,7 @@ function renderInfoWindow(pin) {
       <div class="rating" style="margin: 6px 0 8px;">
         ⭐ ${avgLabel} <span style="color: var(--ink-400); font-weight: 600;">(${count})</span>
       </div>
-      <button id="${id}">View post</button>
+      <button id="${id}">View posts</button>
     </div>
   `
 }
@@ -1107,10 +1121,10 @@ function clearFilters() {
 <template>
   <div class="page sage-bg">
     <!-- Filter Bar (static, above map) -->
-    <div class="filter-bar w-100 d-flex justify-content-center mt-3 mb-2">
+    <div class="filter-bar w-100 d-flex justify-content-center">
       <div
         :class="[
-          'card border-0 shadow rounded-4 glass sage-glass',
+          'card',
           { 'pe-none': uiLocked, 'opacity-75': uiLocked },
         ]"
         style="width: 100%; max-width: 1000px"
@@ -1206,55 +1220,51 @@ function clearFilters() {
               <div class="d-flex gap-2 flex-wrap">
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
+                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                   :class="{ active: selectedPrice === '$' }"
                   @click="selectedPrice = '$'"
-                  data-bs-toggle="tooltip"
-                  title="Inexpensive"
                   :disabled="uiLocked"
+                  data-tooltip="Inexpensive"
                 >
                   $
                 </button>
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
+                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                   :class="{ active: selectedPrice === '$$' }"
                   @click="selectedPrice = '$$'"
-                  data-bs-toggle="tooltip"
-                  title="Moderate"
                   :disabled="uiLocked"
+                  data-tooltip="Moderate"
                 >
                   $$
                 </button>
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
+                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                   :class="{ active: selectedPrice === '$$$' }"
                   @click="selectedPrice = '$$$'"
-                  data-bs-toggle="tooltip"
-                  title="Expensive"
                   :disabled="uiLocked"
+                  data-tooltip="Expensive"
                 >
                   $$$
                 </button>
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
+                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                   :class="{ active: selectedPrice === '$$$$' }"
                   @click="selectedPrice = '$$$$'"
-                  data-bs-toggle="tooltip"
-                  title="Very Expensive"
                   :disabled="uiLocked"
+                  data-tooltip="Very Expensive"
                 >
                   $$$$
                 </button>
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip"
-                  :class="{ active: selectedPrice === 'All' }"
+                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                  :class="{ active: selectedPrice === '' || selectedPrice === 'All' }"
                   @click="selectedPrice = 'All'"
-                  title="Show all prices"
                   :disabled="uiLocked"
+                  data-tooltip="Show all prices"
                 >
                   All
                 </button>
@@ -1263,37 +1273,34 @@ function clearFilters() {
           </div>
 
           <!-- Row 2: Scope + Actions -->
-          <div class="row g-3 align-items-center mt-1">
+          <div class="row g-3 align-items-center mt-2">
             <div class="col-12 col-md-6">
               <div class="btn-group" role="group" aria-label="Scope toggle">
-                <input
-                  type="radio"
-                  class="btn-check"
-                  name="scopeToggle"
-                  id="scopeFriends"
-                  value="friends"
-                  v-model="feedScope"
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  :class="{ active: feedScope === 'friends' }"
+                  @click="feedScope = 'friends'"
                   :disabled="uiLocked"
-                />
-                <label class="btn btn-outline-primary btn-sm" for="scopeFriends">Friends</label>
-
-                <input
-                  type="radio"
-                  class="btn-check"
-                  name="scopeToggle"
-                  id="scopePublic"
-                  value="public"
-                  v-model="feedScope"
+                >
+                  Friends Only
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  :class="{ active: feedScope === 'public' }"
+                  @click="feedScope = 'public'"
                   :disabled="uiLocked"
-                />
-                <label class="btn btn-outline-primary btn-sm" for="scopePublic">Public</label>
+                >
+                  Everyone
+                </button>
               </div>
             </div>
             <div class="col-12 col-md-6 text-md-end">
               <div class="d-inline-flex gap-2">
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary px-3 btn-clear"
+                  class="btn btn-sm btn-clear px-3"
                   @click="clearFilters"
                   :disabled="uiLocked"
                   :aria-disabled="uiLocked ? 'true' : null"
@@ -1356,9 +1363,10 @@ function clearFilters() {
       </div>
     </div>
 
-    <!-- FAB: Create Post -->
-    <button class="fab fab-terracotta" @click="showAdd = true" title="Create Post">＋</button>
-    <div class="fab-label sage-chip">Create Post</div>
+    <!-- FAB: Create Post (image button) -->
+    <button class="fab fab-terracotta fab-img" @click="showAdd = true" title="Create Post">
+      <img src="/images/CreatePost_White.png" alt="Create Post" class="fab-icon" />
+    </button>
 
     <!-- Backdrop for drawers -->
     <div v-if="selected || showAdd" class="backdrop" @click="onBackdropClick"></div>
@@ -1500,7 +1508,7 @@ function clearFilters() {
 .fab {
   position: fixed;
   right: 28px;
-  bottom: 86px;
+  bottom: 28px;
   border: none;
   cursor: pointer;
   display: grid;
@@ -1513,12 +1521,37 @@ function clearFilters() {
   bottom: 54px;
   z-index: 85;
 }
+/* Custom image FAB styling */
+.fab-img {
+  background: transparent;
+  border: none;
+  padding: 0;
+  /* border-radius: 50%; */
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
 
+.fab-img:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.fab-img:active {
+  transform: scale(0.96);
+}
+
+.fab-icon {
+  width: 50px;
+  height: 50px;
+  /* border-radius: 50%; */
+  object-fit: contain;
+}
 /* Backdrop + Drawer */
 .backdrop {
   position: fixed;
   inset: 0;
   z-index: 5000; /* above filter bar + map */
+  background: transparent !important;
+  backdrop-filter: none !important;
 }
 .side {
   position: fixed;
@@ -1613,18 +1646,79 @@ aside.side.clicking {
   color: var(--charcoal);
 }
 
+/* Custom tooltip for price chips */
+.price-tooltip {
+  position: relative;
+}
+
+.price-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 1000;
+}
+
+.price-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-2px);
+  border: 5px solid transparent;
+  border-top-color: rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 1000;
+}
+
+.price-tooltip:hover::after,
+.price-tooltip:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.price-tooltip:hover::before {
+  transform: translateX(-50%) translateY(-4px);
+}
+
 .dropdown-menu.filter-list {
   max-height: calc(44px * 4); /* header + 3 options */
   overflow: auto;
 }
 
 .filter-bar {
-  /* position: sticky; */
   top: 0;
-  z-index: 2000; /* higher than Google Map overlays, lower than drawer/backdrop */
+  z-index: 10; /* lower than navbar (20), but visible above map content */
   width: 100%;
-  padding-top: 8px;
-  background: transparent;
+  margin: 14px auto 0;
+  padding: 0;
+}
+
+/* Filter bar card styling to match dashboard */
+.filter-bar .card {
+  border: 0;
+  box-shadow: 0 12px 24px rgba(17, 24, 39, 0.08);
+  border-radius: 16px;
+}
+
+/* Scope toggle button styling */
+.btn-outline-secondary.active {
+  background-color: var(--sage-600);
+  border-color: var(--sage-600);
+  color: #fff;
 }
 
 .vis-badge {
@@ -1652,10 +1746,11 @@ aside.side.clicking {
 
 .rating-tag {
   font-size: 0.75rem;
-  background-color: var(--plum-200, #E1BEE7);
-  color: var(--plum-900, #4A148C);
+  background-color: var(--line-100, #f1f1f1);
+  color: var(--charcoal, #111827);
   border-radius: 8px;
   padding: 4px 8px;
+  font-weight: 600;
 }
 
 /* Theme-aware visibility badges driven by data-theme */

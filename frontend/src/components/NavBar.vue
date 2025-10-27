@@ -1,59 +1,16 @@
-<template>   
+<template>
   <nav class="navbar">
-    <!-- Search -->
-    <div class="search-wrap" ref="dropdownRef">
-      <img src="/images/Search.png" alt="Search" width="18" height="18" class="search-icon" />
-      <input
-        type="text"
-        class="search-input"
-        placeholder="Search for restaurants or cuisine..."
-        :value="term"
-        @input="onSearchInput"
-        @focus="searchResults.length && (showDropdown = true)"
-      />
-
-      <!-- Reverse Image Search button (right of the search bar) -->
+    <!-- Left: Image Search -->
+    <div class="search-wrap">
       <button
         type="button"
-        class="rev-btn"
+        class="rev-btn with-icon"
         @click="openReversePopup"
         aria-label="Reverse image search"
       >
-        Image Search
+        <img src="/images/Search.png" alt="" aria-hidden="true" class="btn-icon" />
+        <span>Image Search</span>
       </button>
-
-      <!-- Dropdown -->
-      <div v-if="showDropdown" class="dropdown">
-        <div v-if="searchLoading" class="dd-empty">Searching...</div>
-        <div v-else-if="!searchResults.length" class="dd-empty">No results found</div>
-        <div v-else class="dd-list">
-          <RouterLink
-            v-for="r in searchResults"
-            :key="r.id"
-            :to="{ path: '/map', query: { restaurant: r.id } }"
-            class="dd-item"
-            @click="showDropdown = false"
-          >
-            <div class="dd-item-main">
-              <h3 class="dd-title">{{ r.name }}</h3>
-              <p class="dd-sub">{{ r.cuisine_type }} - {{ r.address }}</p>
-              <div class="dd-rating">
-                <span>⭐</span>
-                <span class="dd-rating-num">{{ r.avgRating }}</span>
-                <span class="dd-reviews">({{ r.reviewCount }} reviews)</span>
-              </div>
-            </div>
-            <img
-              v-if="r.photo"
-              :src="r.photo"
-              alt="Preview"
-              width="60"
-              height="60"
-              class="dd-thumb"
-            />
-          </RouterLink>
-        </div>
-      </div>
     </div>
 
     <!-- Center links -->
@@ -90,39 +47,63 @@
 
         <!-- Small popup menu -->
         <div v-if="showAvatarMenu" class="avatar-menu" role="menu">
-          <RouterLink to="/profile" class="avatar-menu-item" role="menuitem" @click="showAvatarMenu=false">
+          <RouterLink
+            to="/profile"
+            class="avatar-menu-item"
+            role="menuitem"
+            @click="showAvatarMenu = false"
+          >
             Edit profile
           </RouterLink>
-          <button type="button" class="avatar-menu-item danger" role="menuitem" @click="goLogoutPage">
+          <button
+            type="button"
+            class="avatar-menu-item danger"
+            role="menuitem"
+            @click="goLogoutPage"
+          >
             Log out
           </button>
         </div>
       </div>
 
-      <!-- Welcome (optional) -->
-      <span v-if="localUser" class="welcome">Welcome, {{ localUser.username || localUser.first_name }}!</span>
+      <span v-if="localUser" class="welcome">
+        Welcome, {{ localUser.username || localUser.first_name }}!
+      </span>
 
-      <!-- (Removed the old Logout button) -->
+      <!-- 🔥 Hamburger (mobile only) -->
+      <button
+        type="button"
+        class="hamburger"
+        @click="toggleMobileMenu"
+        aria-label="Open menu"
+        :aria-expanded="showMobileMenu ? 'true' : 'false'"
+        aria-controls="mobile-menu"
+      >
+        <svg v-if="!showMobileMenu" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <svg v-else width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
     </div>
   </nav>
 
-  <!-- Reverse Image Search Modal (teleported to body, with cropper) -->
+  <!-- Reverse Image Search Modal -->
   <Teleport to="body">
     <Modal :show="showReversePopup" title="Reverse Image Search" @close="closeReversePopup">
       <div class="p-3">
         <p class="mb-2 rev-title">Upload an image, zoom/drag to adjust, then submit.</p>
 
-        <!-- hidden native input, triggered by the button below -->
         <input
           ref="fileInputRef"
           type="file"
           accept="image/*"
           class="sr-only"
-          style="display:none"
+          style="display: none"
           @change="handleSingleFile"
         />
 
-        <!-- file picker / file chip -->
         <div class="file-row">
           <button type="button" class="pick-btn" @click="triggerPick">Choose File</button>
 
@@ -134,7 +115,6 @@
           <div v-else class="no-file">No file chosen</div>
         </div>
 
-        <!-- CROP UI -->
         <div v-if="cropSrc" class="ris-crop-wrap">
           <div
             class="ris-crop-area"
@@ -156,21 +136,24 @@
               :style="{
                 left: pos.left + 'px',
                 top: pos.top + 'px',
-                width: (imgMeta.naturalW * cropScale) + 'px',
-                height: (imgMeta.naturalH * cropScale) + 'px'
+                width: imgMeta.naturalW * cropScale + 'px',
+                height: imgMeta.naturalH * cropScale + 'px',
               }"
               @load="onImgLoad"
               draggable="false"
               alt="Crop source"
             />
-            <!-- square guide -->
             <div
               class="ris-crop-mask"
-              :style="{ width: D + 'px', height: D + 'px', left: (C - D)/2 + 'px', top: (C - D)/2 + 'px' }"
+              :style="{
+                width: D + 'px',
+                height: D + 'px',
+                left: (C - D) / 2 + 'px',
+                top: (C - D) / 2 + 'px',
+              }"
             ></div>
           </div>
 
-          <!-- Zoom control -->
           <div class="mt-3">
             <label class="form-label small text-muted">Zoom</label>
             <input
@@ -190,7 +173,6 @@
           </div>
         </div>
 
-        <!-- errors -->
         <p v-if="fileError" class="rev-error">{{ fileError }}</p>
 
         <div class="rev-actions">
@@ -206,6 +188,41 @@
       </div>
     </Modal>
   </Teleport>
+
+  <!-- 📱 Mobile Menu -->
+  <Teleport to="body">
+    <Transition name="mm-fade">
+      <div
+        v-if="showMobileMenu"
+        id="mobile-menu"
+        class="mm-overlay"
+        @click.self="closeMobileMenu"
+      >
+        <div class="mm-panel" role="menu">
+          <RouterLink to="/dashboard" class="mm-link" role="menuitem" @click="closeMobileMenu">Home</RouterLink>
+          <RouterLink to="/map" class="mm-link" role="menuitem" @click="closeMobileMenu">Map</RouterLink>
+          <RouterLink to="/myposts" class="mm-link" role="menuitem" @click="closeMobileMenu">Activity</RouterLink>
+          <RouterLink to="/friends" class="mm-link badge-wrap" role="menuitem" @click="closeMobileMenu">
+            Friends
+            <span v-if="pendingRequestsCount > 0" class="badge">
+              {{ pendingRequestsCount > 99 ? '99+' : pendingRequestsCount }}
+            </span>
+          </RouterLink>
+
+          <hr class="mm-sep" />
+
+          <button
+            type="button"
+            class="rev-btn with-icon mm-rev"
+            @click="() => { closeMobileMenu(); openReversePopup(); }"
+          >
+            <img src="/images/Search.png" alt="" aria-hidden="true" class="btn-icon" />
+            <span>Image Search</span>
+          </button>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup>
@@ -217,24 +234,17 @@ import Modal from '@/components/Modal.vue'
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
   withCredentials: true,
-  headers: { 'Content-Type': 'application/json' }
+  headers: { 'Content-Type': 'application/json' },
 })
 
-/* ------------------------- Props & Emits ------------------------- */
+/* ------------------------- Props ------------------------- */
 const props = defineProps({
-  searchTerm: { type: String, default: '' },
   user: { type: Object, default: null },
   pendingRequestsCount: { type: Number, default: 0 },
 })
-const emit = defineEmits(['update:searchTerm'])
 
 /* ------------------------- State ------------------------- */
 const router = useRouter()
-const term = ref(props.searchTerm)
-const searchResults = ref([])
-const searchLoading = ref(false)
-const showDropdown = ref(false)
-const dropdownRef = ref(null)
 const localUser = ref(props.user)
 
 /* Avatar menu */
@@ -254,13 +264,13 @@ const fileError = ref('')
 const submitting = ref(false)
 
 /* Cropper state (square) */
-const cropSrc = ref('')            // object URL of selected image
-const cropScale = ref(1)           // zoom
-const fitScale = ref(1)            // scale to keep whole image inside D×D
+const cropSrc = ref('') // object URL of selected image
+const cropScale = ref(1) // zoom
+const fitScale = ref(1) // scale to keep whole image inside D×D
 const minZoom = computed(() => fitScale.value) // floor at fit-to-mask
-const C = 420                      // outer square
-const D = 360                      // inner mask square
-const OUT = 640                    // export size
+const C = 420 // outer square
+const D = 360 // inner mask square
+const OUT = 640 // export size
 const pos = reactive({ left: 0, top: 0 }) // image top-left in container coords
 const dragging = ref(false)
 const dragStart = reactive({ x: 0, y: 0 })
@@ -270,7 +280,14 @@ let cropBlob = null
 
 /* -------------------- Reverse helpers -------------------- */
 const MAX_BYTES = 6 * 1024 * 1024
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif']
+const ALLOWED_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+]
 
 function openReversePopup() { showReversePopup.value = true }
 function triggerPick() { fileInputRef.value?.click() }
@@ -301,7 +318,10 @@ function removeFile() {
   selectedFile.value = null
   previewUrl.value = ''
   cropBlob = null
-  if (cropSrc.value) { try { URL.revokeObjectURL(cropSrc.value) } catch {} ; cropSrc.value = '' }
+  if (cropSrc.value) {
+    try { URL.revokeObjectURL(cropSrc.value) } catch {}
+    cropSrc.value = ''
+  }
   if (fileInputRef.value) fileInputRef.value.value = ''
 }
 
@@ -309,10 +329,7 @@ function onImgLoad(e) {
   imgMeta.naturalW = e.target.naturalWidth
   imgMeta.naturalH = e.target.naturalHeight
   imgMeta.ready = true
-
-  // Fit INSIDE the mask (D×D), not the outer container.
   fitScale.value = Math.min(D / imgMeta.naturalW, D / imgMeta.naturalH)
-
   cropScale.value = fitScale.value
   nextTick(centerImage)
 }
@@ -321,22 +338,24 @@ function centerImage() {
   const w = imgMeta.naturalW * cropScale.value
   const h = imgMeta.naturalH * cropScale.value
   pos.left = (C - w) / 2
-  pos.top  = (C - h) / 2
+  pos.top = (C - h) / 2
   constrainPosition()
 }
 
 function onDragStart(ev) {
   dragging.value = true
   const p = getPoint(ev)
-  dragStart.x = p.x; dragStart.y = p.y
-  posStart.left = pos.left; posStart.top = pos.top
+  dragStart.x = p.x
+  dragStart.y = p.y
+  posStart.left = pos.left
+  posStart.top = pos.top
   ev.preventDefault()
 }
 function onDragMove(ev) {
   if (!dragging.value) return
   const p = getPoint(ev)
   pos.left = posStart.left + (p.x - dragStart.x)
-  pos.top  = posStart.top  + (p.y - dragStart.y)
+  pos.top = posStart.top + (p.y - dragStart.y)
   constrainPosition()
 }
 function onDragEnd() { dragging.value = false }
@@ -345,50 +364,36 @@ function getPoint(ev) {
   return { x: ev.clientX, y: ev.clientY }
 }
 
-/* Constrain: if the scaled image is smaller than the mask in any axis, keep it centered.
-   Otherwise, keep the mask fully inside the image. */
 function constrainPosition() {
   const w = imgMeta.naturalW * cropScale.value
   const h = imgMeta.naturalH * cropScale.value
   const half = D / 2
-  const maskLeft = C/2 - half
-  const maskRight = C/2 + half
-  const maskTop = C/2 - half
-  const maskBottom = C/2 + half
+  const maskLeft = C / 2 - half
+  const maskRight = C / 2 + half
+  const maskTop = C / 2 - half
+  const maskBottom = C / 2 + half
 
-  if (w <= D) {
-    pos.left = C/2 - w/2
-  } else {
-    const minLeft = maskRight - w
-    const maxLeft = maskLeft
-    pos.left = Math.min(Math.max(pos.left, minLeft), maxLeft)
-  }
+  if (w <= D) { pos.left = C / 2 - w / 2 }
+  else { pos.left = Math.min(Math.max(pos.left, maskRight - w), maskLeft) }
 
-  if (h <= D) {
-    pos.top = C/2 - h/2
-  } else {
-    const minTop = maskBottom - h
-    const maxTop = maskTop
-    pos.top = Math.min(Math.max(pos.top, minTop), maxTop)
-  }
+  if (h <= D) { pos.top = C / 2 - h / 2 }
+  else { pos.top = Math.min(Math.max(pos.top, maskBottom - h), maskTop) }
 }
 
-/* ====== Anchored Zoom Helpers ====== */
+/* Anchored Zoom */
 function setZoom(nextScale, anchorX, anchorY) {
   nextScale = Math.max(minZoom.value, Math.min(3, Number(nextScale)))
   const old = cropScale.value
   if (!imgMeta.ready || nextScale === old) return
 
   const u = (anchorX - pos.left) / old
-  const v = (anchorY - pos.top)  / old
+  const v = (anchorY - pos.top) / old
 
   cropScale.value = nextScale
   pos.left = anchorX - u * nextScale
-  pos.top  = anchorY - v * nextScale
-
+  pos.top = anchorY - v * nextScale
   constrainPosition()
 }
-
 function onWheelZoom(e) {
   if (!imgMeta.ready || !areaRef.value) return
   const rect = areaRef.value.getBoundingClientRect()
@@ -397,25 +402,15 @@ function onWheelZoom(e) {
   const factor = 1 - Math.sign(e.deltaY) * 0.12
   setZoom(cropScale.value * factor, x, y)
 }
-
-/* Slider zoom anchored to mask center */
 function onZoomChange(val) {
   if (!imgMeta.ready) return
-  const cx = C / 2
-  const cy = C / 2
+  const cx = C / 2, cy = C / 2
   setZoom(val, cx, cy)
 }
+function resetCrop() { cropScale.value = fitScale.value; centerImage() }
+function zoomToFit() { cropScale.value = fitScale.value; centerImage() }
 
-function resetCrop() {
-  cropScale.value = fitScale.value
-  centerImage()
-}
-function zoomToFit() {
-  cropScale.value = fitScale.value
-  centerImage()
-}
-
-/* Build a crop and store cropBlob */
+/* Build crop and store cropBlob */
 async function buildCropBlob() {
   if (!cropSrc.value || !imgMeta.ready) return null
   const canvas = document.createElement('canvas')
@@ -429,14 +424,14 @@ async function buildCropBlob() {
     pos.left * k,
     pos.top * k,
     imgMeta.naturalW * cropScale.value * k,
-    imgMeta.naturalH * cropScale.value * k
+    imgMeta.naturalH * cropScale.value * k,
   )
   const dataURL = canvas.toDataURL('image/png')
   cropBlob = await (await fetch(dataURL)).blob()
   return cropBlob
 }
 
-/* Helper: File/Blob -> dataURL for sessionStorage */
+/* File/Blob -> dataURL for sessionStorage */
 function readAsDataURL(fileOrBlob) {
   return new Promise((resolve, reject) => {
     const fr = new FileReader()
@@ -446,7 +441,7 @@ function readAsDataURL(fileOrBlob) {
   })
 }
 
-/* ✅ Submit reverse image search and ALWAYS go to /reverseimage */
+/* Submit reverse image search and go to /reverseimage */
 async function submitReverseSearch() {
   if (submitting.value) return
   if (!selectedFile.value && !cropBlob) return
@@ -455,9 +450,7 @@ async function submitReverseSearch() {
 
   try {
     let blobToSend = cropBlob
-    if (!blobToSend && cropSrc.value) {
-      blobToSend = await buildCropBlob()
-    }
+    if (!blobToSend && cropSrc.value) blobToSend = await buildCropBlob()
     const fileToSend = blobToSend
       ? new File([blobToSend], 'reverse-crop.png', { type: 'image/png' })
       : selectedFile.value
@@ -466,31 +459,23 @@ async function submitReverseSearch() {
     form.append('photo', fileToSend)
 
     const { data } = await http.post('/search/reverseSearch', form, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
     })
 
     const dataUrl = await readAsDataURL(fileToSend)
-
-    sessionStorage.setItem('reverseImagePayload', JSON.stringify({
-      images: [dataUrl],
-      results: data || null
-    }))
-
+    sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl], results: data || null }))
     showReversePopup.value = false
     removeFile()
     router.push('/reverseimage')
     return
   } catch (err) {
-    console.warn('Backend reverse-image failed, falling back to local route:', err?.message || err)
+    console.warn('Reverse-image request failed, falling back to local route:', err?.message || err)
   }
 
   try {
     let dataUrl
-    if (cropBlob) {
-      dataUrl = await readAsDataURL(cropBlob)
-    } else if (selectedFile.value) {
-      dataUrl = await readAsDataURL(selectedFile.value)
-    }
+    if (cropBlob) dataUrl = await readAsDataURL(cropBlob)
+    else if (selectedFile.value) dataUrl = await readAsDataURL(selectedFile.value)
     if (dataUrl) {
       sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl] }))
       showReversePopup.value = false
@@ -517,14 +502,10 @@ function closeReversePopup() {
   removeFile()
 }
 
-/* ------------------------- Keep in sync with prop ------------------------- */
-watch(
-  () => props.user,
-  (u) => { if (u) localUser.value = u },
-  { immediate: true },
-)
+/* Keep user in sync with prop */
+watch(() => props.user, (u) => { if (u) localUser.value = u }, { immediate: true })
 
-/* ------------------------- Computed ------------------------- */
+/* Initials */
 const initials = computed(() => {
   const u = localUser.value
   if (!u) return 'U'
@@ -534,46 +515,25 @@ const initials = computed(() => {
   return 'U'
 })
 
-/* ------------------------- Search Logic ------------------------- */
-let debounceId = null
-function debounce(fn, delay = 500) {
-  return (...args) => {
-    clearTimeout(debounceId)
-    debounceId = setTimeout(() => fn(...args), delay)
-  }
+/* ------------------------- Mobile menu ------------------------- */
+const showMobileMenu = ref(false)
+function toggleMobileMenu() {
+  showMobileMenu.value = !showMobileMenu.value
+  toggleBodyScroll(showMobileMenu.value)
 }
-const performSearch = debounce(async (value) => {
-  if (!value || value.length < 2) {
-    searchResults.value = []
-    showDropdown.value = false
-    return
-  }
-  searchLoading.value = true
-  showDropdown.value = true
-  try {
-    const { data } = await http.get('/search', { params: { q: value } })
-    searchResults.value = data?.results || []
-  } catch (e) {
-    console.error('Search error:', e)
-    searchResults.value = []
-  } finally {
-    searchLoading.value = false
-  }
-}, 500)
-
-function onSearchInput(e) {
-  term.value = e.target.value
-  emit('update:searchTerm', term.value)
-  performSearch(term.value)
+function closeMobileMenu() {
+  showMobileMenu.value = false
+  toggleBodyScroll(false)
+}
+function onEscClose(ev) {
+  if (ev.key === 'Escape' && showMobileMenu.value) closeMobileMenu()
+}
+function toggleBodyScroll(lock) {
+  try { document.documentElement.style.overflow = lock ? 'hidden' : '' } catch {}
 }
 
-/* ------------------------- Events ------------------------- */
+/* Click-outside handler (avatar only) */
 function handleOutsideClick(ev) {
-  // close search dropdown
-  if (dropdownRef.value && !dropdownRef.value.contains(ev.target)) {
-    showDropdown.value = false
-  }
-  // close avatar menu
   if (avatarMenuRef.value && !avatarMenuRef.value.contains(ev.target)) {
     showAvatarMenu.value = false
   }
@@ -582,6 +542,7 @@ function handleOutsideClick(ev) {
 /* Lifecycle */
 onMounted(async () => {
   document.addEventListener('mousedown', handleOutsideClick)
+  document.addEventListener('keydown', onEscClose)
   if (!localUser.value) {
     try {
       const { data } = await http.get('/me')
@@ -592,236 +553,187 @@ onMounted(async () => {
   }
 })
 onBeforeUnmount(() => {
-  clearTimeout(debounceId)
   document.removeEventListener('mousedown', handleOutsideClick)
+  document.removeEventListener('keydown', onEscClose)
+  toggleBodyScroll(false)
 })
 </script>
 
 <style scoped>
-/* (your styles unchanged) */
 .navbar {
   position: sticky;
   top: 0;
   z-index: 20;
   background: #fff;
-  display: flex;
+
+  /* Grid keeps center perfectly centered */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
+
   gap: 1rem;
   padding: 0.75rem 2.5rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-/* Search */
+/* Left: Image Search */
 .search-wrap {
-  position: relative;
+  grid-column: 1;
+  justify-self: start;
   display: flex;
   align-items: center;
   background: #e9ebee;
   border-radius: 999px;
   padding: 0.5rem 0.9rem;
-  width: min(680px, 100%);
-}
-.search-icon { margin-right: 0.5rem; }
-.search-input {
-  background: transparent;
-  outline: none;
-  color: #374151;
-  width: 100%;
+  width: auto;
+  max-width: 100%;
 }
 
-/* Reverse button (and shared style for Logout via .rev-btn) */
-.rev-btn {
-  margin-left: 0.5rem;
-  white-space: nowrap;
-  background: var(--terra-500, #d4816f);
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  padding: 0.45rem 0.8rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: filter .15s ease, transform .05s ease;
+/* Center links (hidden on small) */
+.links {
+  grid-column: 2;
+  display: none;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
 }
-.rev-btn:hover { filter: brightness(1.03); }
-.rev-btn:active { transform: translateY(1px); }
-
-/* Dropdown */
-.dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  width: 100%;
-  max-height: 24rem;
-  overflow: auto;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.75rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-  margin-top: 0.5rem;
-  z-index: 50;
-  padding: 1rem;
-}
-.dd-empty { color: #6b7280; text-align: center; padding: 1rem 0; }
-.dd-list { display: flex; flex-direction: column; gap: 0.75rem; }
-.dd-item {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 0.75rem; padding: 1rem; border-bottom: 1px solid #f1f5f9;
-  text-decoration: none; color: inherit; border-radius: 0.5rem;
-}
-.dd-item:hover { background: #f9fafb; }
-.dd-item-main { flex: 1; }
-.dd-title { margin: 0; font-weight: 700; color: #1f2937; }
-.dd-sub { margin: 0.15rem 0 0 0; color: #6b7280; font-size: 0.9rem; }
-.dd-rating { display: flex; align-items: center; gap: 0.25rem; margin-top: 0.25rem; }
-.dd-rating-num { font-weight: 600; color: #111827; }
-.dd-reviews { color: #6b7280; }
-.dd-thumb { border-radius: 0.5rem; object-fit: cover; }
-
-/* Links */
-.links { display: none; gap: 2rem; flex: 1; justify-content: center; }
 @media (min-width: 768px) { .links { display: flex; } }
-.link { color: #374151; font-weight: 700; font-size: 1.1rem; text-decoration: none; }
+.link {
+  color: #374151;
+  font-weight: 700;
+  font-size: 1.1rem;
+  text-decoration: none;
+}
 .link:hover { color: #eebbc3; }
 .badge-wrap { position: relative; }
 .badge {
-  position: absolute; top: -8px; right: -16px; background: #ef4444; color: #fff;
-  font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 0.1rem 0.4rem;
+  position: absolute;
+  top: -8px; right: -16px;
+  background: #ef4444; color: #fff;
+  font-size: 0.75rem; font-weight: 700;
+  border-radius: 999px; padding: 0.1rem 0.4rem;
   min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
   border: 2px solid #fff;
 }
 
-/* Right side */
-.right { display: flex; align-items: center; gap: 0.75rem; }
+/* Right section */
+.right {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
 .bell { border-radius: 999px; cursor: pointer; }
 
 /* Avatar + menu */
 .avatar-menu-wrap { position: relative; }
-.avatar-wrap {
-  display: flex;
-  align-items: center;
-  background: transparent;
-  border: none;
-  padding: 0;
-  cursor: pointer;
-}
+.avatar-wrap { display: flex; align-items: center; background: transparent; border: none; padding: 0; cursor: pointer; }
 .avatar-img { width: 36px; height: 36px; border-radius: 999px; overflow: hidden; }
 .avatar-img img { width: 100%; height: 100%; object-fit: cover; }
 .avatar-fallback {
-  width: 36px; height: 36px; border-radius: 999px; background: #e5e7eb;
-  display: grid; place-items: center; font-weight: 700; color: #111827;
+  width: 36px; height: 36px; border-radius: 999px;
+  background: #e5e7eb; display: grid; place-items: center;
+  font-weight: 700; color: #111827;
 }
-
-/* popup */
 .avatar-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 8px);
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  box-shadow: 0 10px 24px rgba(0,0,0,.08);
-  min-width: 160px;
-  z-index: 60;
-  padding: 6px;
+  position: absolute; right: 0; top: calc(100% + 8px);
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08); min-width: 160px; z-index: 60; padding: 6px;
 }
 .avatar-menu-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: none;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: #374151;
-  font-weight: 700;
-  cursor: pointer;
-  text-decoration: none;
+  display: block; width: 100%; text-align: left;
+  background: transparent; border: none; padding: 8px 10px;
+  border-radius: 8px; color: #374151; font-weight: 700; cursor: pointer; text-decoration: none;
 }
 .avatar-menu-item:hover { background: #f3f4f6; }
 .avatar-menu-item.danger { color: #b91c1c; }
 .avatar-menu-item.danger:hover { background: #fee2e2; }
 
 .welcome { display: none; color: #374151; }
-@media (min-width: 640px) {
-  .welcome { display: inline; }
+@media (min-width: 640px) { .welcome { display: inline; } }
+
+/* Reverse Image button */
+.rev-btn {
+  margin-left: 0.5rem;
+  white-space: nowrap;
+  background: var(--terra-500, #d4816f);
+  color: #fff; border: none; border-radius: 10px;
+  padding: 0.45rem 0.8rem; font-weight: 700; cursor: pointer;
+  transition: filter 0.15s ease, transform 0.05s ease;
 }
+.rev-btn:hover { filter: brightness(1.03); }
+.rev-btn:active { transform: translateY(1px); }
 
-/* spacing tweak for (removed) logout; keeping class in case referenced elsewhere */
-.logout { margin-left: 0.25rem; }
-
-/* Modal / reverse UI */
+/* Reverse modal bits */
 .rev-title { font-weight: 600; color: var(--charcoal, #2c3333); }
-.file-row { display: flex; align-items: center; gap: .75rem; margin-bottom: 1rem; }
-.pick-btn {
-  background: #fff; border: 1.5px solid #e5e7eb; color: #374151;
-  border-radius: 10px; padding: .45rem .8rem; font-weight: 700; cursor: pointer;
-}
-.file-chip {
-  display: inline-flex; align-items: center; gap: .5rem;
-  background: #f3f4f6; border-radius: 999px; padding: .35rem .6rem;
-  max-width: 420px;
-}
+.file-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+.pick-btn { background: #fff; border: 1.5px solid #e5e7eb; color: #374151; border-radius: 10px; padding: 0.45rem 0.8rem; font-weight: 700; cursor: pointer; }
+.file-chip { display: inline-flex; align-items: center; gap: 0.5rem; background: #f3f4f6; border-radius: 999px; padding: 0.35rem 0.6rem; max-width: 420px; }
 .file-name { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.remove-file {
-  background: transparent; border: none; color: #6b7280; font-size: 1rem; cursor: pointer;
-}
+.remove-file { background: transparent; border: none; color: #6b7280; font-size: 1rem; cursor: pointer; }
 .no-file { color: #6b7280; }
-
-/* Preview */
-.rev-preview { margin-bottom: 12px; }
-.rev-preview img {
-  width: 100%; max-height: 240px; object-fit: cover;
-  border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.1);
-}
-
-/* Extra controls */
-.zoom-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-/* Error text */
+.zoom-actions { display: flex; gap: 8px; margin-top: 8px; }
 .rev-error { color: #ef4444; font-weight: 600; margin: 6px 0 0; }
-
-/* Actions */
 .rev-actions { display: flex; justify-content: flex-end; }
 .rev-submit {
-  background: var(--terra-500, #d4816f); color: #fff; border: none; border-radius: 10px;
-  padding: .55rem .95rem; font-weight: 800; cursor: pointer;
+  background: var(--terra-500, #d4816f);
+  color: #fff; border: none; border-radius: 10px;
+  padding: 0.55rem 0.95rem; font-weight: 800; cursor: pointer;
 }
-.rev-submit[disabled] { opacity: .6; cursor: not-allowed; }
+.rev-submit[disabled] { opacity: 0.6; cursor: not-allowed; }
 
-/* --- Reverse Image Search Cropper styles --- */
+/* Cropper */
 .ris-crop-wrap { margin-top: 6px; }
-.ris-crop-area {
-  position: relative;
-  background: #1111;
-  overflow: hidden;
-  border-radius: 12px;
-  touch-action: none;
-  box-shadow: 0 8px 20px rgba(0,0,0,.08);
-  margin: 0 auto;
-}
-.ris-crop-img {
-  position: absolute;
-  user-select: none;
-  -webkit-user-drag: none;
-  will-change: transform;
-  /* prevent browser from auto-shrinking; our width/height are authoritative */
-  max-width: none;
-  max-height: none;
-}
+.ris-crop-area { position: relative; background: #1111; overflow: hidden; border-radius: 12px; touch-action: none; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); margin: 0 auto; }
+.ris-crop-img { position: absolute; user-select: none; -webkit-user-drag: none; will-change: transform; max-width: none; max-height: none; }
 .ris-crop-mask {
-  position: absolute;
-  border-radius: 8px;
-  box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 0 2px rgba(255,255,255,.9);
+  position: absolute; border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(255, 255, 255, 0.9);
   pointer-events: none;
 }
-
-/* Inputs */
 .form-range { accent-color: var(--terra-500, #d4816f); }
+
+/* Mobile: hamburger + panel */
+.hamburger {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px;
+  border: 1px solid #e5e7eb; border-radius: 10px;
+  background: #fff; cursor: pointer;
+}
+.hamburger:hover { background: #f9fafb; }
+@media (min-width: 768px) { .hamburger { display: none; } }
+
+.mm-overlay {
+  position: fixed; inset: 0; z-index: 9998;
+  background: rgba(17, 24, 39, 0.45);
+  backdrop-filter: blur(2px);
+}
+.mm-panel {
+  position: absolute; left: 0; right: 0; top: 0;
+  background: #ffffff;
+  border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+  padding: 14px 18px 18px;
+}
+.mm-link {
+  display: block; padding: 12px 8px; margin: 2px 0;
+  color: #111827; text-decoration: none; font-weight: 700; border-radius: 10px;
+}
+.mm-link:hover { background: #f3f4f6; }
+.mm-sep { border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0; }
+.mm-rev { width: 100%; justify-content: center; }
+.mm-fade-enter-active, .mm-fade-leave-active { transition: opacity .16s ease; }
+.mm-fade-enter-from, .mm-fade-leave-to { opacity: 0; }
+</style>
+
+<style>
+/* Keep modal above everything */
+.modal-overlay { position: fixed !important; inset: 0 !important; z-index: 9999 !important; }
+
+/* Icon in the Image Search button */
+.rev-btn.with-icon { display: inline-flex; align-items: center; gap: 0.4rem; }
+.rev-btn .btn-icon { width: 18px; height: 18px; display: block; }
 </style>
 
 <!-- Make teleported modal overlay sit above all content -->
@@ -830,5 +742,18 @@ onBeforeUnmount(() => {
   position: fixed !important;
   inset: 0 !important;
   z-index: 9999 !important;
+}
+
+
+.rev-btn.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.rev-btn .btn-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 </style>
