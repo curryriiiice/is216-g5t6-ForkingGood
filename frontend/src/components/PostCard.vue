@@ -12,6 +12,7 @@ const props = defineProps({
   controls: { type: Boolean, default: false },
   // Optional: parent-provided live comment count
   externalCommentCount: { type: Number, default: undefined },
+  currentUserEmail: { type: String, default: null },
 })
 
 // --- Image URL resolver (keeps layout, only fixes src values) ---
@@ -21,7 +22,7 @@ const IMAGE_BASE = import.meta.env.DEV
   : (import.meta.env.VITE_IMAGE_BASE_URL || API_BASE)
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
-const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
+const currentUserEmail = computed(() => props.currentUserEmail || null)
 const ENDPOINTS = {
   getLikes: `${API_BASE}/friends/getLikesbyPostId`,
   like: `${API_BASE}/friends/likePost`,
@@ -310,7 +311,8 @@ async function refreshLikes() {
     const data = await res.json()
     const emails = Array.isArray(data?.data) ? data.data : []
     likeCount.value = emails.length
-    liked.value = emails.includes(ACTIVE_EMAIL)
+    const email = currentUserEmail.value
+    liked.value = email ? emails.includes(email) : false
   } catch (e) {
     // keep existing optimistic state on failure
   }
@@ -340,6 +342,7 @@ async function refreshEngagement() {
 
 onMounted(refreshEngagement)
 watch(() => props.post?.id || props.post?.postid, () => refreshEngagement())
+watch(() => currentUserEmail.value, () => refreshLikes())
 
 // Keep local like state in sync when parent patches the post (e.g., from preview/dashboard)
 watch(
@@ -378,9 +381,18 @@ async function toggleLike() {
   liked.value = !prevLiked
   likeCount.value = Math.max(0, prevCount + (liked.value ? 1 : -1))
 
+  const email = currentUserEmail.value
+  if (!email) {
+    isLiking.value = false
+    liked.value = prevLiked
+    likeCount.value = prevCount
+    emit('like-error', { postId, error: 'Missing authenticated user' })
+    return
+  }
+
   const payload = {
     postid: String(postId),
-    liker_email: ACTIVE_EMAIL,
+    liker_email: email,
   }
 
   const request = (url, method) =>

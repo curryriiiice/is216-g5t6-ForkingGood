@@ -1,11 +1,12 @@
 <script setup>
 import { useRouter } from 'vue-router'
 const router = useRouter()
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import api from '@/lib/api'
+import { useAuthUser } from '@/lib/useAuthUser'
 
-// TEMP: until auth is wired, use a fixed user for friends feed
-const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
+const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
+const activeEmail = computed(() => authUser.value?.email ?? null)
 
 const emit = defineEmits(['added'])
 
@@ -550,7 +551,15 @@ async function submit() {
       return
     }
 
-    const userEmail = ACTIVE_EMAIL
+    let userEmail = activeEmail.value
+    if (!userEmail) {
+      const refreshed = await refreshAuthUser()
+      userEmail = refreshed?.email ?? null
+    }
+    if (!userEmail) {
+      alert('Please log in to submit a recommendation.')
+      return
+    }
 
     // Build FormData matching backend (multer upload.array("photos"))
     const fd = new FormData()

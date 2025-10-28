@@ -8,7 +8,7 @@
 
       <form @submit.prevent="onSubmit" class="form" novalidate>
         <div class="field">
-          <label class="label">Email or @username</label>
+          <label class="label">Email</label>
           <input
             v-model.trim="identifier"
             type="text"

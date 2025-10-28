@@ -1,16 +1,17 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import axios from 'axios'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import { useRouter } from 'vue-router'
+import { useAuthUser } from '@/lib/useAuthUser'
 
 // API
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
-// TEMP active user until auth is wired
-const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
+const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
+const activeEmail = computed(() => authUser.value?.email ?? null)
 
 const router = useRouter()
 
@@ -45,8 +46,18 @@ const onSearchInput = () => {
     }
 
     try {
+      let email = activeEmail.value
+      if (!email) {
+        const refreshed = await refreshAuthUser()
+        email = refreshed?.email ?? null
+      }
+      if (!email) {
+        searchError.value = 'Please log in to search for friends.'
+        return
+      }
+
       const r = await api.post('/friends/searchAllUsers', {
-        user_email: ACTIVE_EMAIL,
+        user_email: email,
         query: q,
       })
       searchResults.value = Array.isArray(r.data?.data) ? r.data.data : []
@@ -65,8 +76,19 @@ async function sendFriendReq(user) {
   user.isPending = true
 
   try {
+    let email = activeEmail.value
+    if (!email) {
+      const refreshed = await refreshAuthUser()
+      email = refreshed?.email ?? null
+    }
+    if (!email) {
+      user.isPending = false
+      alert('Please log in to send friend requests.')
+      return
+    }
+
     await api.post('/friends/sendFriendReq', {
-      user_email: ACTIVE_EMAIL,
+      user_email: email,
       friend_email: user.email,
     })
     // Success, UI is already updated
@@ -86,9 +108,20 @@ async function removeFriend(user) {
   user.isFriend = false
 
   try {
+    let email = activeEmail.value
+    if (!email) {
+      const refreshed = await refreshAuthUser()
+      email = refreshed?.email ?? null
+    }
+    if (!email) {
+      user.isFriend = true
+      alert('Please log in to remove friends.')
+      return
+    }
+
     await api.delete('/friends/removeFriend', {
       data: {
-        user_email: ACTIVE_EMAIL,
+        user_email: email,
         friend_email: user.email,
       },
     })
@@ -106,7 +139,17 @@ async function loadPendingRequests() {
   pendingError.value = ''
   pendingRequests.value = []
   try {
-    const r = await api.post('/friends/getPendingFriendReqs', { user_email: ACTIVE_EMAIL })
+    let email = activeEmail.value
+    if (!email) {
+      const refreshed = await refreshAuthUser()
+      email = refreshed?.email ?? null
+    }
+    if (!email) {
+      pendingError.value = 'Please log in to view pending requests.'
+      return
+    }
+
+    const r = await api.post('/friends/getPendingFriendReqs', { user_email: email })
     const emailList = Array.isArray(r.data?.data) ? r.data.data : []
     pendingRequests.value = emailList.map((email) => ({
       sender_email: email,
@@ -126,8 +169,18 @@ async function openPendingModal() {
 
 async function acceptFriendReq(senderEmail) {
   try {
+    let email = activeEmail.value
+    if (!email) {
+      const refreshed = await refreshAuthUser()
+      email = refreshed?.email ?? null
+    }
+    if (!email) {
+      pendingError.value = 'Please log in to manage friend requests.'
+      return
+    }
+
     await api.post('/friends/acceptFriendReq', {
-      user_email: ACTIVE_EMAIL,
+      user_email: email,
       friend_email: senderEmail,
     })
     pendingRequests.value = pendingRequests.value.filter(
@@ -147,8 +200,18 @@ async function acceptFriendReq(senderEmail) {
 
 async function rejectFriendReq(senderEmail) {
   try {
+    let email = activeEmail.value
+    if (!email) {
+      const refreshed = await refreshAuthUser()
+      email = refreshed?.email ?? null
+    }
+    if (!email) {
+      pendingError.value = 'Please log in to manage friend requests.'
+      return
+    }
+
     await api.post('/friends/rejectFriendReq', {
-      user_email: ACTIVE_EMAIL,
+      user_email: email,
       friend_email: senderEmail,
     })
     pendingRequests.value = pendingRequests.value.filter(
