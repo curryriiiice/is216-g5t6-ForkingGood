@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import PostCard from '@/components/PostCard.vue'
 import Modal from '@/components/Modal.vue'
@@ -340,28 +340,78 @@ function onCardClick(e, post) {
 }
 
 // ==========================
-// CUISINE THEMES (Japanese / Italian / French / Chinese)
+// CUISINE THEMES (unified with App.vue + theme.css)
+// Keep backward compatibility with legacy keys/values
 // ==========================
-const THEME_KEY = 'fg_theme_cuisine'
-const CUISINE_THEMES = ['japanese', 'italian', 'french', 'chinese']
-const theme = ref(localStorage.getItem(THEME_KEY) || 'japanese')
+const THEME_KEY_CUISINE = 'fg_cuisine_theme'
+const THEME_KEY_BRAND = 'fg_theme_v2'
+const LEGACY_THEME_KEY = 'fg_theme_cuisine'
+
+// New canonical cuisine names
+const CUISINE_THEMES = ['Plum', 'Mint', 'Light', 'Lagoon']
+
+// Mappings
+const BRAND_TO_CUISINE = {
+  'brand-plum': 'Plum',
+  'brand-mint': 'Mint',
+  'light': 'Light',
+  'brand-lagoon': 'Lagoon',
+}
+const CUISINE_TO_BRAND = {
+  'Plum': 'brand-plum',
+  'Mint': 'brand-mint',
+  'Light': 'light',
+  'Lagoon': 'brand-lagoon',
+}
+// Legacy cuisine values used previously in this view
+const LEGACY_TO_CUISINE = {
+  'japanese': 'Plum',
+  'italian': 'Mint',
+  'french': 'Light',
+  'chinese': 'Lagoon',
+}
+
+function resolveInitialCuisine() {
+  try {
+    const savedBrand = localStorage.getItem(THEME_KEY_BRAND)
+    if (savedBrand && BRAND_TO_CUISINE[savedBrand]) return BRAND_TO_CUISINE[savedBrand]
+  } catch {}
+  try {
+    const savedCuisine = localStorage.getItem(THEME_KEY_CUISINE)
+    if (savedCuisine && CUISINE_THEMES.includes(savedCuisine)) return savedCuisine
+  } catch {}
+  try {
+    const legacy = localStorage.getItem(LEGACY_THEME_KEY)
+    if (legacy && LEGACY_TO_CUISINE[legacy]) return LEGACY_TO_CUISINE[legacy]
+  } catch {}
+  return 'Plum'
+}
+
+const theme = ref(resolveInitialCuisine())
 
 function applyTheme() {
-  // Persist selection
-  localStorage.setItem(THEME_KEY, theme.value)
-
-  // Apply a class like "theme-japanese" to the .page wrapper
-  const shell = document.querySelector('.page')
-  if (shell) {
-    CUISINE_THEMES.forEach((t) => shell.classList.remove(`theme-${t}`, 'themed-anim'))
-    shell.classList.add(`theme-${theme.value}`)
-
-    // If you want animated sprites (petals/lanterns/basil/stars), uncomment:
-    // shell.classList.add('themed-anim')
+  // Persist selection in both new and legacy keys
+  try { localStorage.setItem(THEME_KEY_CUISINE, theme.value) } catch {}
+  const brand = CUISINE_TO_BRAND[theme.value] || 'light'
+  try { localStorage.setItem(THEME_KEY_BRAND, brand) } catch {}
+  // Optional: also persist legacy value that best matches
+  const legacyVal = Object.entries(LEGACY_TO_CUISINE).find(([, c]) => c === theme.value)?.[0]
+  if (legacyVal) {
+    try { localStorage.setItem(LEGACY_THEME_KEY, legacyVal) } catch {}
   }
 
-  // (Optional) keep a data-attr if other CSS uses it
-  document.documentElement.setAttribute('data-theme', theme.value)
+  // Apply a class like "theme-Plum" to the .page wrapper (for any local CSS hooks)
+  const shell = document.querySelector('.page')
+  if (shell) {
+    // Remove both new and legacy class patterns
+    CUISINE_THEMES.forEach(t => shell.classList.remove(`theme-${t}`, 'themed-anim'))
+    Object.keys(LEGACY_TO_CUISINE).forEach(t => shell.classList.remove(`theme-${t}`))
+    shell.classList.add(`theme-${theme.value}`)
+    // shell.classList.add('themed-anim') // enable if needed
+  }
+
+  // Drive global styles via data-theme brand tokens
+  document.documentElement.setAttribute('data-theme', brand)
 }
 function cycleTheme() {
   const idx = CUISINE_THEMES.indexOf(theme.value)
@@ -1465,56 +1515,6 @@ watch(
 <template>
   <div class="page sage-bg">
     <!-- Top toolbar with Cuisine Theme Switcher -->
-    <section class="container mb-2">
-      <div class="d-flex align-items-center justify-content-end">
-        <div class="btn-group btn-group-sm" role="group" aria-label="Cuisine theme">
-          <button
-            type="button"
-            class="btn btn-outline-secondary"
-            :class="{ active: theme === 'japanese' }"
-            @click="setTheme('japanese')"
-            title="Japanese"
-          >
-            🇯🇵 Japanese
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline-secondary"
-            :class="{ active: theme === 'italian' }"
-            @click="setTheme('italian')"
-            title="Italian"
-          >
-            🇮🇹 Italian
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline-secondary"
-            :class="{ active: theme === 'french' }"
-            @click="setTheme('french')"
-            title="French"
-          >
-            🇫🇷 French
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline-secondary"
-            :class="{ active: theme === 'chinese' }"
-            @click="setTheme('chinese')"
-            title="Chinese"
-          >
-            🇨🇳 Chinese
-          </button>
-          <button
-            type="button"
-            class="btn btn-outline-secondary"
-            @click="cycleTheme"
-            title="Cycle themes"
-          >
-            🔁
-          </button>
-        </div>
-      </div>
-    </section>
 
     <!-- Posts Feed -->
     <section class="feed container">
@@ -1531,7 +1531,7 @@ watch(
                 class="btn btn-sm btn-outline-secondary"
                 @click="fetchRandomPost"
               >
-                🎲 Get randomised post
+                🎲 🎲 Get randomised post
               </button>
             </div>
             <div class="row g-3 align-items-end">
