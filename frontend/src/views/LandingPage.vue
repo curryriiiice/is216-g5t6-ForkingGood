@@ -50,9 +50,7 @@
               <router-link class="btn btn-outline-secondary px-4" to="/signup"
                 >Create an account</router-link
               >
-              <router-link class="btn btn-outline-secondary px-4" to="/map"
-                >Explore the map</router-link
-              >
+              
             </div>
             <div class="d-flex align-items-center gap-2 mt-3 small text-muted">
               <div class="d-inline-flex align-items-center">
@@ -113,7 +111,7 @@
         </p>
 
         <div class="row g-4 mt-2">
-          <div class="col-sm-6 col-lg-4" v-for="f in features" :key="f.title">
+          <div class="col-sm-6 col-lg-3" v-for="f in features" :key="f.title">
             <div class="card h-100 shadow-sm border-0">
               <div class="card-body">
                 <div class="mb-3" style="width: 112px; height: 112px">
@@ -204,7 +202,7 @@ const features = ref([
   },
   {
     title: 'Review Restaurants',
-    desc: 'Filter by cuisine, area, and $ range. Your randomiser mirrors your main filters.',
+    desc: 'Filter by cuisine, area, and price range. Your randomiser mirrors your main filters.',
     src: 'https://lottie.host/5784e39b-966f-441b-9512-d483ec1c9a7e/unIKkUOyVd.json',
   },
   {
@@ -217,23 +215,13 @@ const features = ref([
     desc: 'Add multiple images, crop to 3:2, and zoom before uploading.',
     src: 'https://lottie.host/f376fb80-3244-4210-9a75-1fb66ec751de/1f5sFqrptF.json',
   },
-  {
-    title: 'Lightweight social',
-    desc: 'Likes, comments & shares without the noise. Built for real recommendations.',
-    src: 'https://lottie.host/5784e39b-966f-441b-9512-d483ec1c9a7e/unIKkUOyVd.json',
-  },
-  {
-    title: 'Fast & secure',
-    desc: 'Vue + Vite frontend with clean APIs. No keys hard-coded, env-driven config.',
-    src: 'https://assets10.lottiefiles.com/packages/lf20_q5pk6p1k.json',
-  },
 ])
 
 const steps = ref([
   {
     title: 'Sign up',
     text: 'Create your account with email. Follow friends to see their food map.',
-    src: 'https://assets10.lottiefiles.com/packages/lf20_o1k9g6kj.json',
+    src: 'https://lottie.host/757df87e-ae70-4f12-9f9c-554a1ba28132/Qm0mLXe2JU.json',
   },
   {
     title: 'Add a rec',
@@ -243,7 +231,7 @@ const steps = ref([
   {
     title: 'Go eat',
     text: 'Use filters or randomiser, tap a pin, open the drawer, and go!',
-    src: 'https://assets10.lottiefiles.com/packages/lf20_1pxqjqps.json',
+    src: 'https://lottie.host/37c6ab0b-a4b8-423e-90f3-00d1ddba301c/dZLJRlrkis.json',
   },
 ])
 

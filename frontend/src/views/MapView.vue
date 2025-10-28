@@ -5,11 +5,14 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import Modal from '@/components/Modal.vue'
+import { useAuthUser } from '@/lib/useAuthUser'
 
 const API_BASE = 'http://localhost:8000'
-const ACTIVE_EMAIL = 'clarice.lim.2024@computing.smu.edu.sg' // TEMP: replace when auth is ready
 
 const api = axios.create({ baseURL: API_BASE })
+
+const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
+const activeEmail = computed(() => authUser.value?.email ?? null)
 
 // --- THEME PERSISTENCE ---
 // Apply theme from localStorage on mount
@@ -151,6 +154,15 @@ watch([feedScope, selectedCuisine, selectedArea, selectedPrice], async () => {
   await loadPinsFromFilters()
 })
 
+watch(
+  () => activeEmail.value,
+  (email, prev) => {
+    if (email && email !== prev) {
+      loadPinsFromFilters()
+    }
+  },
+)
+
 // Load pins based on current filter selections using /map/getFilteredPosts
 async function loadPinsFromFilters() {
   console.log(
@@ -165,8 +177,19 @@ async function loadPinsFromFilters() {
   )
 
   // Build payload: omit "All" keys, include both legacy and new fields for compatibility
+  let email = activeEmail.value
+  if (!email) {
+    const refreshed = await refreshAuthUser()
+    email = refreshed?.email ?? null
+  }
+  if (!email) {
+    console.warn('[map] no authenticated email found; skipping filtered pins fetch')
+    pins.value = []
+    return
+  }
+
   const payload = {
-    user_email: ACTIVE_EMAIL,
+    user_email: email,
 
     // scope semantics:
     //  - 'friends' => friends' private + public

@@ -1,10 +1,13 @@
-<!-- src/App.vue -->
+﻿<!-- src/App.vue -->
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
-import api from '@/lib/api' // Axios API client
+import api from '@/lib/api'
 
+/* =========================
+   Route + shell state
+   ========================= */
 const searchTerm = ref('')
 const user = ref(null)
 const pendingRequestsCount = ref(0)
@@ -12,35 +15,193 @@ const router = useRouter()
 const route = useRoute()
 const loading = ref(true)
 
-/** ✅ Hide navbar on routes with meta.hideNavbar (e.g. /login, /signup) */
+/** Hide navbar on routes with meta.hideNavbar (e.g. /login, /signup) */
 const hideNavbar = computed(() => !!route.meta?.hideNavbar)
 
+/* =========================
+   Cuisine Theme (global)
+   - Unified to html[data-theme] brands used in assets/css/theme.css
+   ========================= */
+const THEME_KEY_CUISINE = 'fg_cuisine_theme'
+const THEME_KEY_BRAND = 'fg_theme_v2'
+const CUISINE_THEMES = ['Plum', 'Mint', 'Light', 'Lagoon']
+
+const BRAND_BY_CUISINE = {
+  Plum: 'brand-plum',
+  Mint: 'brand-mint',
+  Light: 'light',
+  Lagoon: 'brand-lagoon',
+}
+const CUISINE_BY_BRAND = {
+  'brand-plum': 'Plum',
+  'brand-mint': 'Mint',
+  light: 'Light',
+  'brand-lagoon': 'Lagoon',
+}
+
+// Initialize cuisine from saved brand if present, else saved cuisine, else default
+const savedBrand = (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_BRAND)) || ''
+const initialCuisine = CUISINE_BY_BRAND[savedBrand] || (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_CUISINE)) || 'Plum'
+const theme = ref(initialCuisine)
+
+function applyRootThemeFromCuisine(cuisine) {
+  const brand = BRAND_BY_CUISINE[cuisine] || 'light'
+  try { localStorage.setItem(THEME_KEY_BRAND, brand) } catch {}
+  try { document.documentElement.setAttribute('data-theme', brand) } catch {}
+}
+
+function setTheme(t) {
+  if (!CUISINE_THEMES.includes(t)) return
+  theme.value = t
+  try { localStorage.setItem(THEME_KEY_CUISINE, t) } catch {}
+  applyRootThemeFromCuisine(t)
+}
+function cycleTheme() {
+  const i = CUISINE_THEMES.indexOf(theme.value)
+  const next = (i + 1) % CUISINE_THEMES.length
+  setTheme(CUISINE_THEMES[next])
+}
+watch(theme, (t) => {
+  try { localStorage.setItem(THEME_KEY_CUISINE, t) } catch {}
+})
+
+/* =========================
+   Draggable switcher panel
+   ========================= */
+const SWITCHER_POS_KEY = 'fg_switcher_pos'
+const SWITCHER_COLLAPSED_KEY = 'fg_switcher_collapsed'
+const switcherEl = ref(null)
+const dragging = ref(false)
+const didMove = ref(false)
+const justDragged = ref(false)
+const dragOffset = ref({ x: 0, y: 0 })
+const switcherPos = ref({ x: 12, y: 12 })
+const collapsed = ref(false) // collapsed â†’ tiny draggable button
+
+function clampToViewport(pos) {
+  const el = switcherEl.value
+  const pad = 6
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const w = el ? el.offsetWidth : (collapsed.value ? 44 : 320)
+  const h = el ? el.offsetHeight : (collapsed.value ? 44 : 56)
+  return {
+    x: Math.min(Math.max(pos.x, pad), vw - w - pad),
+    y: Math.min(Math.max(pos.y, pad), vh - h - pad),
+  }
+}
+function alignTopRight() {
+  const el = switcherEl.value
+  const pad = 12
+  const w = el ? el.offsetWidth : (collapsed.value ? 44 : 320)
+  switcherPos.value = clampToViewport({
+    x: window.innerWidth - w - pad,
+    y: 12,
+  })
+  localStorage.setItem(SWITCHER_POS_KEY, JSON.stringify(switcherPos.value))
+}
+
+function startDrag(e) {
+  const el = switcherEl.value
+  if (!el) return
+  dragging.value = true
+  didMove.value = false
+  const rect = el.getBoundingClientRect()
+  dragOffset.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  document.addEventListener('pointermove', onDrag)
+  document.addEventListener('pointerup', endDrag)
+}
+function onDrag(e) {
+  if (!dragging.value) return
+  didMove.value = true
+  switcherPos.value = clampToViewport({
+    x: e.clientX - dragOffset.value.x,
+    y: e.clientY - dragOffset.value.y
+  })
+}
+function endDrag() {
+  dragging.value = false
+  document.removeEventListener('pointermove', onDrag)
+  document.removeEventListener('pointerup', endDrag)
+  localStorage.setItem(SWITCHER_POS_KEY, JSON.stringify(switcherPos.value))
+  if (didMove.value) {
+    justDragged.value = true
+    setTimeout(() => { justDragged.value = false }, 200)
+  }
+  didMove.value = false
+}
+function startDragMini(e) {
+  dragging.value = true
+  didMove.value = false
+  const rect = switcherEl.value.getBoundingClientRect()
+  dragOffset.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  document.addEventListener('pointermove', onDrag)
+  document.addEventListener('pointerup', endDrag)
+}
+function onMiniClick() {
+  if (dragging.value || justDragged.value) return
+  toggleCollapse()
+}
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  localStorage.setItem(SWITCHER_COLLAPSED_KEY, JSON.stringify(collapsed.value))
+  nextTick(() => {
+    switcherPos.value = clampToViewport(switcherPos.value)
+    localStorage.setItem(SWITCHER_POS_KEY, JSON.stringify(switcherPos.value))
+  })
+}
+
+/* =========================
+   Boot: restore state + load user
+   ========================= */
 onMounted(async () => {
+  // Restore panel state/position
+  try {
+    const saved = JSON.parse(localStorage.getItem(SWITCHER_POS_KEY) || 'null')
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
+      switcherPos.value = saved
+    } else {
+      nextTick(() => alignTopRight())
+    }
+  } catch { nextTick(() => alignTopRight()) }
+
+  try {
+    collapsed.value = JSON.parse(localStorage.getItem(SWITCHER_COLLAPSED_KEY) || 'false')
+  } catch { collapsed.value = false }
+
+  // Load user (soft-fail)
   try {
     const { data } = await api.get('/me')
-    // normalize server response
     user.value = data?.user ?? data?.data ?? data ?? null
-    // If you want to force auth flow, uncomment:
-    // if (!user.value) router.replace({ name: 'login' })
-  } catch (err) {
-    if (err?.response?.status === 401 || err?.response?.status === 404) {
-      user.value = null
-      // router.replace({ name: 'login' })
-    } else {
-      console.error('Failed to fetch current user:', err)
-    }
+  } catch {
+    user.value = null
   } finally {
     loading.value = false
   }
+
+  // Ensure html[data-theme] reflects current cuisine on boot
+  applyRootThemeFromCuisine(theme.value)
 })
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointermove', onDrag)
+  document.removeEventListener('pointerup', endDrag)
+})
+
+/* =========================
+   Classes for the page root
+   ========================= */
+const pageClass = computed(() => ({
+  [`theme-${theme.value}`]: true,
+  'themed-anim': true // keeps your subtle per-theme decorative ::after, if defined in CSS
+}))
 </script>
 
 <template>
-  <div style="background: #f0f2f5; min-height: 100vh">
-    <div v-if="loading" style="padding: 16px; color: #6b7280">Loading…</div>
+  <div class="page" :class="pageClass" style="min-height: 100vh">
+    <div v-if="loading" style="padding: 16px; color: #6b7280">Loadingâ€¦</div>
 
-    <div v-else>
-      <!-- ✅ Navbar hidden when route.meta.hideNavbar = true -->
+    <div v-else class="content-safe">
       <NavBar
         v-if="!hideNavbar"
         v-model:searchTerm="searchTerm"
@@ -48,7 +209,46 @@ onMounted(async () => {
         :pendingRequestsCount="pendingRequestsCount"
       />
 
-      <!-- Page content -->
+      <!-- Draggable Theme Switcher -->
+      <template v-if="!hideNavbar">
+        <!-- Collapsed mini FAB -->
+        <button
+          v-if="collapsed"
+          ref="switcherEl"
+          class="switcher-mini"
+          :style="{ left: switcherPos.x + 'px', top: switcherPos.y + 'px' }"
+          title="Theme switcher"
+          @pointerdown.prevent.stop="startDragMini"
+          @click.stop="onMiniClick"
+        >🎨</button>
+
+        <!-- Expanded -->
+        <div
+          v-else
+          ref="switcherEl"
+          class="theme-switcher movable"
+          :class="{ dragging }"
+          :style="{ left: switcherPos.x + 'px', top: switcherPos.y + 'px' }"
+        >
+          <!-- Drag handle -->
+          <div class="switcher-handle" title="Drag" @pointerdown.prevent.stop="startDrag">⋮⋮</div>
+
+          <div class="switcher-col">
+            <div class="switcher-row">
+              <button class="chip" :class="{ active: theme==='Plum' }"  @click="setTheme('Plum')">🟣 Plum</button>
+              <button class="chip" :class="{ active: theme==='Mint' }"  @click="setTheme('Mint')">🌿 Mint</button>
+              <button class="chip" :class="{ active: theme==='Light' }" @click="setTheme('Light')">☀️ Light</button>
+              <button class="chip" :class="{ active: theme==='Lagoon' }" @click="setTheme('Lagoon')">🌊 Lagoon</button>
+            </div>
+          </div>
+
+          <!-- Collapse control -->
+          <div class="switcher-controls">
+            <button class="chip ghost" title="Collapse" @click="toggleCollapse">✖</button>
+          </div>
+        </div>
+      </template>
+
       <RouterView />
     </div>
   </div>
@@ -56,4 +256,77 @@ onMounted(async () => {
 
 <style>
 html, body, #app { height: 100%; margin: 0; }
+
+/* (Lottie removed: no .bg-lottie needed) */
+
+/* Movable Theme Switcher */
+.theme-switcher.movable {
+  position: fixed;
+  z-index: 60;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 8px;
+  background: var(--surface, rgba(255,255,255,.78));
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(24,24,27,.10);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 12px 28px rgba(0,0,0,.08);
+  user-select: none;
+}
+.switcher-handle {
+  display: grid;
+  place-items: center;
+  padding: 0 6px;
+  margin-right: 2px;
+  color: var(--brand, #8e1f2f);
+  font-weight: 900;
+  cursor: grab;
+  border-right: 1px dashed rgba(24,24,27,.15);
+}
+.theme-switcher.dragging .switcher-handle { cursor: grabbing; }
+.switcher-col { display: flex; flex-direction: column; gap: 6px; }
+.switcher-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.switcher-controls { display: flex; flex-direction: column; gap: 6px; margin-left: 6px; }
+
+.theme-switcher .chip {
+  appearance: none;
+  border: 1px solid rgba(24,24,27,.12);
+  background: #fff;
+  color: var(--brand, #8e1f2f);
+  font: 600 12px/1 system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+  padding: 7px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease, transform .04s ease;
+}
+.theme-switcher .chip:hover {
+  background: color-mix(in oklab, #fff 80%, var(--brand, #8e1f2f) 20%);
+}
+.theme-switcher .chip.active {
+  background: var(--brand, #8e1f2f);
+  color: #fff;
+  border-color: var(--brand, #8e1f2f);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, white 45%, transparent);
+}
+.theme-switcher .chip.cycle { font-weight: 800; }
+.theme-switcher .chip.ghost { background: #fff; color: var(--brand, #8e1f2f); }
+
+/* Collapsed mini button */
+.switcher-mini {
+  position: fixed;
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(24,24,27,.12);
+  background: #fff;
+  color: var(--brand, #8e1f2f);
+  font-size: 20px;
+  cursor: grab;
+  box-shadow: 0 12px 28px rgba(0,0,0,.12);
+}
+.switcher-mini:active { cursor: grabbing; }
 </style>
