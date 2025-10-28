@@ -118,6 +118,7 @@
         <div v-if="cropSrc" class="ris-crop-wrap">
           <div
             class="ris-crop-area"
+            :class="{ dragging: dragging }"
             ref="areaRef"
             :style="{ width: C + 'px', height: C + 'px' }"
             @mousedown="onDragStart"
@@ -133,12 +134,7 @@
               :src="cropSrc"
               id="ris-crop-img"
               class="ris-crop-img"
-              :style="{
-                left: pos.left + 'px',
-                top: pos.top + 'px',
-                width: imgMeta.naturalW * cropScale + 'px',
-                height: imgMeta.naturalH * cropScale + 'px',
-              }"
+              :style="imgStyleRS"
               @load="onImgLoad"
               draggable="false"
               alt="Crop source"
@@ -166,9 +162,10 @@
               @input="onZoomChange($event.target.value)"
             />
             <div class="zoom-actions">
-              <button type="button" class="btn btn-ghost" @click="zoomToFit">Fit to view</button>
-              <button type="button" class="btn btn-ghost" @click="resetCrop">Reset</button>
-              <button type="button" class="btn btn-ghost" @click="removeFile">Remove Image</button>
+              <button type="button" class="zoom-btn" @click="zoomOutBtn" aria-label="Zoom out">−</button>
+              <span class="zoom-readout" aria-live="polite">{{ Math.round(zoomFactor * 100) }}%</span>
+              <button type="button" class="zoom-btn" @click="zoomInBtn" aria-label="Zoom in">+</button>
+              <button type="button" class="zoom-btn reset" @click="resetCrop" aria-label="Reset crop">⟲</button>
             </div>
           </div>
         </div>
@@ -408,6 +405,35 @@ function onZoomChange(val) {
 }
 function resetCrop() { cropScale.value = fitScale.value; centerImage() }
 function zoomToFit() { cropScale.value = fitScale.value; centerImage() }
+
+// Center-anchored zoom (match Rec Form behavior)
+const zoomFactor = computed(() => (fitScale.value ? cropScale.value / fitScale.value : 1))
+const baseW = computed(() => imgMeta.naturalW * fitScale.value)
+const baseH = computed(() => imgMeta.naturalH * fitScale.value)
+// Convert existing top-left positioning into center-anchored translate offsets
+const offsetX = computed(() => pos.left - (C / 2 - (baseW.value * zoomFactor.value) / 2))
+const offsetY = computed(() => pos.top - (C / 2 - (baseH.value * zoomFactor.value) / 2))
+const imgStyleRS = computed(() => ({
+  position: 'absolute',
+  left: '50%',
+  top: '50%',
+  width: baseW.value + 'px',
+  height: baseH.value + 'px',
+  transform: `translate(calc(-50% + ${offsetX.value}px), calc(-50% + ${offsetY.value}px)) scale(${zoomFactor.value})`,
+  transformOrigin: 'center center',
+  userSelect: 'none',
+  pointerEvents: 'none',
+}))
+
+const ZSTEP = 0.15
+function zoomInBtn() {
+  const cx = C / 2, cy = C / 2
+  setZoom(cropScale.value * (1 + ZSTEP), cx, cy)
+}
+function zoomOutBtn() {
+  const cx = C / 2, cy = C / 2
+  setZoom(cropScale.value * (1 - ZSTEP), cx, cy)
+}
 
 /* Build crop and store cropBlob */
 async function buildCropBlob() {
@@ -743,7 +769,30 @@ onBeforeUnmount(() => {
 .file-name { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .remove-file { background: transparent; border: none; color: #6b7280; font-size: 1rem; cursor: pointer; }
 .no-file { color: #6b7280; }
-.zoom-actions { display: flex; gap: 8px; margin-top: 8px; }
+.zoom-actions { display: flex; gap: 8px; margin-top: 8px; align-items: center; justify-content: center; }
+.zoom-readout {
+  min-width: 52px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-weight: 800;
+  color: #374151;
+}
+.zoom-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 2px solid var(--line-200, #e5e7eb);
+  background: #fff;
+  font-weight: 900;
+  font-size: 18px;
+  cursor: pointer;
+}
+.zoom-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+:root[data-theme='dark'] .zoom-btn { background: #0e141b; color: #e9eef6; border-color: #2a3a52; }
+.zoom-btn.reset { font-size: 16px; }
 .rev-error { color: #ef4444; font-weight: 600; margin: 6px 0 0; }
 .rev-actions { display: flex; justify-content: flex-end; }
 .rev-submit {
@@ -755,11 +804,13 @@ onBeforeUnmount(() => {
 
 /* Cropper */
 .ris-crop-wrap { margin-top: 6px; }
-.ris-crop-area { position: relative; background: #1111; overflow: hidden; border-radius: 12px; touch-action: none; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); margin: 0 auto; }
+.ris-crop-area { position: relative; background: #faf9f6; overflow: hidden; border-radius: 12px; touch-action: none; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08); margin: 0 auto; border: 2px dashed rgba(139,157,131,0.55); transition: border-width 0.12s ease, border-color 0.12s ease; }
+.ris-crop-area.dragging { border-width: 3px; border-color: rgba(139,157,131,0.85); }
 .ris-crop-img { position: absolute; user-select: none; -webkit-user-drag: none; will-change: transform; max-width: none; max-height: none; }
 .ris-crop-mask {
-  position: absolute; border-radius: 8px;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(255, 255, 255, 0.9);
+  position: absolute; border-radius: 10px;
+ 
+  background: transparent;
   pointer-events: none;
 }
 .form-range { accent-color: var(--terra-500, #d4816f); }
