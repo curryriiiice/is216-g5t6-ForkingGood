@@ -55,6 +55,7 @@ const createPost = async (req, res) => {
     const { data, error: createPostError } = await service.createPost(user_email, name, address, cuisine_type, rating, review, is_public, photos);
 
     if (createPostError) {
+        console.log(createPostError);
         return res.status(500).json({ message: "Error creating post" });
     }
 
@@ -136,6 +137,123 @@ const getUserPosts = async (req, res) => {
     return res.status(200).json({ data });
 };
 
+const getPfpByEmail = async (req, res) => {
+    // get user_email from FE
+    const { user_email } = req.body;
+    
+    // check if user_email is received 
+    if (!user_email) {
+        return res.status(400).json({ error: "User email is required" });
+    }
+
+    const { data, error: getPfpError } = await service.getPfpByEmail(user_email);
+
+    if (getPfpError) {
+        return res.status(500).json({ message: "Error getting liked posts" });
+    }
+
+    return res.status(200).json({ data });
+};
+
+const editProfile = async (req, res) => {
+    // get data from FE
+    const { user_email, username, bio } = req.body;
+    const profile_photo = req.file; // Single file upload
+    
+    // check if required fields are received 
+    if (!user_email || !username) {
+        return res.status(400).json({ error: "User email and username are required" });
+    }
+
+    const { data, error: editProfileError } = await service.editProfile(user_email, username, bio, profile_photo);
+
+    if (editProfileError) {
+        return res.status(500).json({ message: "Error updating profile" });
+    }
+
+    return res.status(200).json({ data });
+};
+
+const removeProfilePicture = async (req, res) => {
+    // get user_email from FE
+    const { user_email } = req.body;
+    
+    // check if user_email is received 
+    if (!user_email) {
+        return res.status(400).json({ error: "User email is required" });
+    }
+
+    const { data, error: removeProfilePictureError } = await service.removeProfilePicture(user_email);
+
+    if (removeProfilePictureError) {
+        return res.status(500).json({ message: "Error removing profile picture" });
+    }
+
+    return res.status(200).json({ data });
+};
+
+const getProfile = async (req, res) => {
+    // get user_email from FE
+    const { user_email } = req.body;
+    
+    // check if user_email is received 
+    if (!user_email) {
+        return res.status(400).json({ error: "User email is required" });
+    }
+
+    const { data, error: getProfileError } = await service.getProfile(user_email);
+
+    if (getProfileError) {
+        return res.status(500).json({ message: "Error getting profile" });
+    }
+
+    return res.status(200).json({ data });
+};
+
+const deleteUserAccount = async (req, res) => {
+    // get user_email from FE
+    const { user_email } = req.body;
+    
+    // check if user_email is received 
+    if (!user_email) {
+        return res.status(400).json({ error: "User email is required" });
+    }
+
+    const { data, error: deleteUserAccountError } = await service.deleteUserAccount(user_email);
+
+    if (deleteUserAccountError) {
+        return res.status(500).json({ message: "Error deleting user account" });
+    }
+
+    return res.status(200).json({ data });
+};
+
+const editPost = async (req, res) => {
+    // get data from FE
+    const { postid, user_email, name, address, cuisine_type, rating, review, is_public } = req.body;
+    
+    // check if everything is received 
+    if (!postid || !user_email || !name || !address || !rating) {
+        return res.status(400).json({ error: "Missing information!" });
+    }
+
+    const { data, error: editPostError } = await service.editPost(
+        postid, 
+        user_email, 
+        name, 
+        address, 
+        cuisine_type, 
+        rating, 
+        review, 
+        is_public
+    );
+
+    if (editPostError) {
+        return res.status(500).json({ message: "Error editing post" });
+    }
+
+    return res.status(200).json({ data });
+};
 
 export{
     getPostbyId,
@@ -145,5 +263,12 @@ export{
     getAllUsers, 
     getLikedPosts,
     getUserPosts,
+    getPfpByEmail,
+    editProfile,
+    removeProfilePicture,
+    getProfile,
+    deleteUserAccount,
+    editPost,
+
 
 }

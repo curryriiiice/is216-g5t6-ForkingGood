@@ -15,7 +15,14 @@ import {
 	getAllUsers, 
 	getLikedPosts,
 	getUserPosts,
-	
+	getPfpByEmail,
+	editProfile,
+	removeProfilePicture, 
+	getProfile,
+	deleteUserAccount,
+	editPost,
+
+
 }from '../controllers/userController.js';
 
 //router.get
@@ -29,5 +36,12 @@ router.delete("/deletePost", deletePost);
 router.post("/getAllUsers", getAllUsers); 
 router.post("/getLikedPosts", getLikedPosts);
 router.post("/getUserPosts", getUserPosts); 
+router.post("/getPfpByEmail", getPfpByEmail);
+router.put('/editProfile', upload.single('profile_photo'), editProfile);
+router.delete('/removeProfilePicture', removeProfilePicture); 
+router.post('/getProfile', getProfile);
+router.delete('/deleteUserAccount', deleteUserAccount);
+router.put('/editPost', editPost);
+
 
 export default router;
