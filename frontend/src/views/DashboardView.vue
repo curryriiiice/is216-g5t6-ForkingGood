@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import PostCard from '@/components/PostCard.vue'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
+import { useAuthUser } from '@/lib/useAuthUser'
 
 // === Backend config ===
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -19,8 +20,9 @@ function resolveImageUrl(p) {
   return IMAGE_BASE ? `${IMAGE_BASE}/${clean}` : `/${clean}`
 }
 
-// TEMP: until auth is wired, use a fixed user for friends feed
-const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
+// Authenticated user (Supabase)
+const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
+const activeEmail = computed(() => authUser.value?.email ?? null)
 
 // === Comments modal state ===
 const showComments = ref(false)
@@ -82,15 +84,18 @@ async function submitComment() {
     return editComment(item, comment)
   }
 
+  const email = activeEmail.value
+  if (!email) return
+
   // Otherwise, create a new comment (optimistic)
-  const draft = { commenter_email: ACTIVE_EMAIL, comment }
+  const draft = { commenter_email: email, comment }
   comments.value = [...comments.value, draft]
   newComment.value = ''
   try {
     const res = await fetch(COMMENTS_EP.add, {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ commenter_email: ACTIVE_EMAIL, postid: String(postid), comment }),
+      body: JSON.stringify({ commenter_email: email, postid: String(postid), comment }),
     })
     if (!res.ok) throw new Error('comment failed')
     await loadComments(postid)
@@ -151,7 +156,6 @@ async function editComment(item, newText) {
 
 const posts = ref([])
 const showAdd = ref(false)
-const currentUser = ref({ email: ACTIVE_EMAIL })
 const highlightedPostId = ref(null)
 const randomPost = ref(null)
 // Randomiser-specific filters (independent from main feed filters)
@@ -213,6 +217,11 @@ async function closePreview() {
   await runSearch()
   if (latestPatch) applyPostPatch(latestPatch)
   previewPost.value = null
+  if (!email) {
+    posts.value = []
+    randomPost.value = null
+    return []
+  }
 }
 
 function applyPostPatch(patch) {
@@ -344,7 +353,7 @@ function applyTheme() {
   // Apply a class like "theme-japanese" to the .page wrapper
   const shell = document.querySelector('.page')
   if (shell) {
-    CUISINE_THEMES.forEach(t => shell.classList.remove(`theme-${t}`, 'themed-anim'))
+    CUISINE_THEMES.forEach((t) => shell.classList.remove(`theme-${t}`, 'themed-anim'))
     shell.classList.add(`theme-${theme.value}`)
 
     // If you want animated sprites (petals/lanterns/basil/stars), uncomment:
@@ -712,11 +721,20 @@ const isNonEmpty = (v) => normStr(v) !== ''
 
 // --- Main search runner ---
 async function runSearch() {
+  let email = activeEmail.value
+  if (!email) {
+    const refreshed = await refreshAuthUser()
+    email = refreshed?.email ?? null
+  }
+  if (!email) {
+    console.warn('[dashboard] no authenticated user available for feed fetch')
+    return []
+  }
   const cuisine = normStr(filters.value.cuisine || cuisineQuery.value)
   const area = normStr(filters.value.area || areaQuery.value)
   const sym = normStr(filters.value.priceSymbol)
 
-  const payload = { user_email: ACTIVE_EMAIL }
+  const payload = { user_email: email }
   payload.friends = !!friendsOnly.value
   payload.public = !friendsOnly.value
   payload.show_public = !friendsOnly.value
@@ -1026,11 +1044,13 @@ function setPublic() {
 
 // Helpers for Randomiser filters → backend payload
 function rf_to_payload() {
+  const email = activeEmail.value
+  if (!email) return null
   const area = normStr(randomFilters.value.area ?? '')
   const cuisine = normStr(randomFilters.value.cuisine ?? '')
   const sym = normStr(randomFilters.value.priceSymbol ?? '')
 
-  const payload = { user_email: ACTIVE_EMAIL }
+  const payload = { user_email: email }
 
   payload.friends = !!friendsOnly.value
   payload.public = !friendsOnly.value
@@ -1080,11 +1100,13 @@ function rf_to_payload() {
 
 // Strict Randomiser payload builder matching FE → BE contract
 function rf_to_payload_random() {
+  const email = activeEmail.value
+  if (!email) return null
   const areaRaw = normStr(randomFilters.value.area ?? '')
   const cuisineRaw = normStr(randomFilters.value.cuisine ?? '')
 
   const payload = {
-    user_email: ACTIVE_EMAIL,
+    user_email: email,
     area: areaRaw ? (/^any$/i.test(areaRaw) ? 'any' : areaRaw) : 'any',
     cuisine_type: cuisineRaw ? (/^any$/i.test(cuisineRaw) ? 'any' : cuisineRaw) : 'any',
     price_level: 'any',
@@ -1094,11 +1116,16 @@ function rf_to_payload_random() {
 
 function desiredLevelsForSymbol(sym) {
   switch (sym) {
-    case '$': return [1, 0]
-    case '$$': return [2]
-    case '$$$': return [3]
-    case '$$$$': return [4]
-    default: return []
+    case '$':
+      return [1, 0]
+    case '$$':
+      return [2]
+    case '$$$':
+      return [3]
+    case '$$$$':
+      return [4]
+    default:
+      return []
   }
 }
 function rowToPostRandom(row) {
@@ -1142,6 +1169,10 @@ function rowToPostRandom(row) {
 async function fetchRandomPost() {
   try {
     const basePayload = rf_to_payload_random()
+    if (!basePayload) {
+      randomPost.value = null
+      return
+    }
     const sym = normStr(randomFilters.value.priceSymbol)
     const levels = desiredLevelsForSymbol(sym)
 
@@ -1168,11 +1199,16 @@ async function fetchRandomPost() {
           const lvl = Number(row?.price_level)
           if (Number.isNaN(lvl)) return false
           switch (sym) {
-            case '$': return lvl === 0 || lvl === 1
-            case '$$': return lvl === 2
-            case '$$$': return lvl === 3
-            case '$$$$': return lvl === 4
-            default: return true
+            case '$':
+              return lvl === 0 || lvl === 1
+            case '$$':
+              return lvl === 2
+            case '$$$':
+              return lvl === 3
+            case '$$$$':
+              return lvl === 4
+            default:
+              return true
           }
         })
       }
@@ -1183,11 +1219,16 @@ async function fetchRandomPost() {
         const lvl = Number(row?.price_level)
         if (Number.isNaN(lvl)) return false
         switch (sym) {
-          case '$': return lvl === 0 || lvl === 1
-          case '$$': return lvl === 2
-          case '$$$': return lvl === 3
-          case '$$$$': return lvl === 4
-          default: return true
+          case '$':
+            return lvl === 0 || lvl === 1
+          case '$$':
+            return lvl === 2
+          case '$$$':
+            return lvl === 3
+          case '$$$$':
+            return lvl === 4
+          default:
+            return true
         }
       })
     }
@@ -1358,6 +1399,13 @@ function rowToPost(row) {
 async function load() {
   applyTheme()
   // Preload full filter option lists
+  const user = authUser.value || (await refreshAuthUser())
+  if (!user?.email) {
+    console.warn('[dashboard] unauthenticated – redirecting to login')
+    router.replace('/login')
+    return
+  }
+  // Preload full filter option lists (so empty inputs show "all")
   Promise.resolve().then(async () => {
     try {
       allCuisines.value = normalizeList(await getAllCuisines(''))
@@ -1370,6 +1418,7 @@ async function load() {
   })
   try {
     await runSearch()
+    await fetchRandomPost()
   } catch (e) {
     console.error('Dashboard load failed:', e)
   }
@@ -1380,9 +1429,7 @@ function handleAdded() {
 }
 function viewOnMap(post) {
   const pid = String(post?.id ?? post?.postid ?? '')
-  const rid = String(
-    post?.restaurant?.id ?? post?.restaurant_id ?? post?.restaurant?.name ?? ''
-  )
+  const rid = String(post?.restaurant?.id ?? post?.restaurant_id ?? post?.restaurant?.name ?? '')
   const scope = friendsOnly.value ? 'friends' : 'public'
   const query = { feed: scope }
   if (pid) query.postId = pid
@@ -1394,6 +1441,15 @@ function viewOnMap(post) {
 onMounted(load)
 onMounted(() => nextTick(() => initTooltips()))
 watch(
+  () => activeEmail.value,
+  (email, prev) => {
+    if (email && email !== prev) {
+      runSearch()
+      fetchRandomPost()
+    }
+  },
+)
+watch(
   () => [
     filters.value.priceSymbol,
     showCuisineList.value,
@@ -1402,7 +1458,7 @@ watch(
     showRCuisineList.value,
     showRAreaList.value,
   ],
-  () => nextTick(() => initTooltips())
+  () => nextTick(() => initTooltips()),
 )
 </script>
 
@@ -1470,14 +1526,20 @@ watch(
         <div class="card mb-3">
           <div class="card-body py-2">
             <div class="d-flex align-items-center justify-content-between mb-2">
-              <button type="button" class="btn btn-sm btn-outline-secondary" @click="fetchRandomPost">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @click="fetchRandomPost"
+              >
                 🎲 Get randomised post
               </button>
             </div>
             <div class="row g-3 align-items-end">
               <!-- Cuisine (Randomiser) -->
               <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rCuisineBox">
-                <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine (Randomiser)</label>
+                <label class="form-label mb-1 small fw-semibold text-secondary"
+                  >Cuisine (Randomiser)</label
+                >
                 <input
                   class="form-control form-control-sm text-start"
                   placeholder="Type to search (e.g. Japanese)"
@@ -1487,22 +1549,44 @@ watch(
                   @blur="() => (showRCuisineList = false)"
                   ref="rCuisineInput"
                 />
-                <ul v-if="showRCuisineList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                <ul
+                  v-if="showRCuisineList"
+                  class="dropdown-menu show w-100 shadow-sm filter-list"
+                  style="z-index: 1200"
+                >
                   <li>
-                    <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRCuisine('')">
+                    <button
+                      type="button"
+                      class="dropdown-item text-muted"
+                      @mousedown.prevent
+                      @click="pickRCuisine('')"
+                    >
                       Show all cuisines
                     </button>
                   </li>
-                  <li v-if="rCuisineQuery && !rCuisineSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                  <li
+                    v-if="rCuisineQuery && !rCuisineSuggestions.length"
+                    class="dropdown-item disabled text-muted"
+                  >
+                    No match
+                  </li>
                   <li v-for="(c, i) in rCuisineSuggestions" :key="'rc-' + i">
-                    <button type="button" class="dropdown-item" @mousedown.prevent="pickRCuisine(c)">{{ c }}</button>
+                    <button
+                      type="button"
+                      class="dropdown-item"
+                      @mousedown.prevent="pickRCuisine(c)"
+                    >
+                      {{ c }}
+                    </button>
                   </li>
                 </ul>
               </div>
 
               <!-- Area (Randomiser) -->
               <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rAreaBox">
-                <label class="form-label mb-1 small fw-semibold text-secondary">Area (Randomiser)</label>
+                <label class="form-label mb-1 small fw-semibold text-secondary"
+                  >Area (Randomiser)</label
+                >
                 <input
                   class="form-control form-control-sm text-start"
                   placeholder="Type to search (e.g. Bugis)"
@@ -1512,22 +1596,40 @@ watch(
                   @blur="() => (showRAreaList = false)"
                   ref="rAreaInput"
                 />
-                <ul v-if="showRAreaList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                <ul
+                  v-if="showRAreaList"
+                  class="dropdown-menu show w-100 shadow-sm filter-list"
+                  style="z-index: 1200"
+                >
                   <li>
-                    <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRArea('')">
+                    <button
+                      type="button"
+                      class="dropdown-item text-muted"
+                      @mousedown.prevent
+                      @click="pickRArea('')"
+                    >
                       Show all areas
                     </button>
                   </li>
-                  <li v-if="rAreaQuery && !rAreaSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                  <li
+                    v-if="rAreaQuery && !rAreaSuggestions.length"
+                    class="dropdown-item disabled text-muted"
+                  >
+                    No match
+                  </li>
                   <li v-for="(a, i) in rAreaSuggestions" :key="'ra-' + i">
-                    <button type="button" class="dropdown-item" @mousedown.prevent="pickRArea(a)">{{ a }}</button>
+                    <button type="button" class="dropdown-item" @mousedown.prevent="pickRArea(a)">
+                      {{ a }}
+                    </button>
                   </li>
                 </ul>
               </div>
 
               <!-- Price chips (Randomiser) -->
               <div class="col-12 col-lg-4">
-                <label class="form-label mb-1 small fw-semibold text-secondary">Price (Randomiser)</label>
+                <label class="form-label mb-1 small fw-semibold text-secondary"
+                  >Price (Randomiser)</label
+                >
                 <div class="d-flex gap-2 flex-wrap">
                   <button
                     type="button"
@@ -1579,7 +1681,13 @@ watch(
                   >
                     All
                   </button>
-                  <button type="button" class="btn btn-sm btn-clear px-3" @click="clearRandomFilters">Clear</button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-clear px-3"
+                    @click="clearRandomFilters"
+                  >
+                    Clear
+                  </button>
                 </div>
               </div>
             </div>
@@ -1598,6 +1706,7 @@ watch(
             :post="randomPost"
             :feed="randomPost.is_public ? 'public' : 'friends'"
             :controls="false"
+            :current-user-email="activeEmail || ''"
             :external-comment-count="
               commentCounts[randomPost?.id] ??
               commentCounts[randomPost?.postid] ??
@@ -1810,6 +1919,7 @@ watch(
                   :post="p"
                   :feed="friendsOnly ? 'friends' : 'public'"
                   :controls="false"
+                  :current-user-email="activeEmail"
                   :external-comment-count="
                     commentCounts[p?.id] ??
                     commentCounts[p?.postid] ??
@@ -1857,6 +1967,7 @@ watch(
           :post="previewPost"
           :feed="previewPost?.is_public ? 'public' : 'friends'"
           :controls="true"
+          :current-user-email="activeEmail"
           :external-comment-count="
             commentCounts[previewPost?.id] ??
             commentCounts[previewPost?.postid] ??
@@ -1889,7 +2000,7 @@ watch(
           <div class="d-flex gap-2">
             <button
               class="btn btn-sm btn-outline-secondary"
-              :disabled="c.commenter_email !== ACTIVE_EMAIL"
+              :disabled="c.commenter_email !== activeEmail"
               @click="
                 () => {
                   newComment = c.comment
@@ -1902,7 +2013,7 @@ watch(
             <button
               class="btn btn-sm btn-outline-danger"
               @click="deleteComment(c)"
-              :disabled="c.commenter_email !== ACTIVE_EMAIL"
+              :disabled="c.commenter_email !== activeEmail"
             >
               Delete
             </button>
@@ -1981,7 +2092,9 @@ watch(
   background: transparent;
   border: none;
   padding: 0;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .fab-img:hover {
