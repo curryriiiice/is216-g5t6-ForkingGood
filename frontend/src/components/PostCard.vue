@@ -2,7 +2,7 @@
 import { ref, computed, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
-const emit = defineEmits(['open-comments', 'like-error'])
+const emit = defineEmits(['open-comments', 'like-error', 'updated', 'post-updated', 'liked', 'unliked'])
 
 
 
@@ -272,12 +272,20 @@ function viewOnMap(p) {
 
 // local like/comment counters (hydrated from backend)
 const liked = ref(false)
-const likeCount = ref(typeof props.post.likes === 'number' ? props.post.likes : 0)
+const likeCount = ref(
+  typeof props.post?.raw?.upvote_count === 'number' && !Number.isNaN(props.post.raw.upvote_count)
+    ? props.post.raw.upvote_count
+    : (typeof props.post?.likes === 'number' && !Number.isNaN(props.post.likes)
+        ? props.post.likes
+        : 0)
+)
 const commentCount = ref(
   typeof props.externalCommentCount === 'number' && !Number.isNaN(props.externalCommentCount)
     ? props.externalCommentCount
     : (typeof props.post.comments === 'number' ? props.post.comments : 0)
 )
+// Prevent rapid double-taps that cause race conditions / count drift
+const isLiking = ref(false)
 
 watch(
   () => props.externalCommentCount,
@@ -333,16 +341,42 @@ async function refreshEngagement() {
 onMounted(refreshEngagement)
 watch(() => props.post?.id || props.post?.postid, () => refreshEngagement())
 
+// Keep local like state in sync when parent patches the post (e.g., from preview/dashboard)
+watch(
+  () => ({
+    flatLikes: props.post?.likes,
+    flatFlag: props.post?.user_has_upvoted,
+    rawLikes: props.post?.raw?.upvote_count,
+    rawFlag: props.post?.raw?.user_has_upvoted,
+  }),
+  (n) => {
+    const nextCount =
+      (typeof n.rawLikes === 'number' && !Number.isNaN(n.rawLikes)) ? n.rawLikes :
+      (typeof n.flatLikes === 'number' && !Number.isNaN(n.flatLikes)) ? n.flatLikes :
+      null
+    if (nextCount !== null && nextCount !== likeCount.value) {
+      likeCount.value = nextCount
+    }
+    if (typeof n.rawFlag === 'boolean') {
+      liked.value = n.rawFlag
+    } else if (typeof n.flatFlag === 'boolean') {
+      liked.value = n.flatFlag
+    }
+  },
+)
+
 // Toggle like button (optimistic update, revert on error)
 async function toggleLike() {
   const postId = props.post?.id || props.post?.postid
   if (!postId) return
+  if (isLiking.value) return
+  isLiking.value = true
 
   // optimistic update
   const prevLiked = liked.value
   const prevCount = likeCount.value
   liked.value = !prevLiked
-  likeCount.value = prevCount + (liked.value ? 1 : -1)
+  likeCount.value = Math.max(0, prevCount + (liked.value ? 1 : -1))
 
   const payload = {
     postid: String(postId),
@@ -371,12 +405,44 @@ async function toggleLike() {
     }
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    // Try to use server canonical values if provided
+    let data = null
+    try {
+      if (typeof res.json === 'function') data = await res.json()
+    } catch {}
+    const serverCount = data?.upvote_count ?? data?.upvotes ?? data?.likes
+    const serverFlag = data?.user_has_upvoted ?? data?.has_upvoted
+    if (Number.isFinite(Number(serverCount))) {
+      likeCount.value = Math.max(0, Number(serverCount))
+    }
+    if (typeof serverFlag === 'boolean') {
+      liked.value = serverFlag
+    }
+    // Notify parent(s) with a compact patch so lists/previews can sync instantly
+    try {
+      const idStr = String(props.post?.id || props.post?.postid)
+      const safeCount = Math.max(0, Number(likeCount.value))
+      const newFlag = Boolean(liked.value)
+      const patch = {
+        id: idStr,
+        postid: idStr,
+        likes: safeCount,
+        user_has_upvoted: newFlag,
+        raw: { upvote_count: safeCount, user_has_upvoted: newFlag },
+      }
+      emit('updated', patch)
+      emit('post-updated', patch)
+      emit(newFlag ? 'liked' : 'unliked', patch)
+    } catch {}
     // Optionally: await refreshLikes() to resync exact count
   } catch (err) {
     // revert on failure
     liked.value = prevLiked
     likeCount.value = prevCount
     emit('like-error', { postId, error: String(err) })
+  }
+  finally {
+    isLiking.value = false
   }
 }
 
@@ -489,7 +555,6 @@ function openComments() {
         </button>
         <span v-else class="map-btn disabled" title="No map data">Map</span>
 
-        <button class="icon-btn" @click.stop="openComments" title="Share" data-stop-preview>⤴︎</button>
         <span v-if="postDateText" class="date-text">Posted on {{ postDateText }}</span>
       </div>
     </div>

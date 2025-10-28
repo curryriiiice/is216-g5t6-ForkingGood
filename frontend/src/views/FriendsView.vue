@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import axios from 'axios'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
@@ -15,17 +15,14 @@ const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@comp
 const router = useRouter()
 
 // UI state
-const loading = ref(true)
-const error = ref('') // Page-level error
-const friends = ref([])
 const query = ref('')
+const searchResults = ref([]) // This will hold all displayed users
+const searchLoading = ref(false)
+const searchError = ref('') // For search-specific errors
+let searchDebounce = null
 
 // State for Modals
-const showAddModal = ref(false)
-const showAdd = ref(false)
-const adding = ref(false)
-const addEmail = ref('')
-const addFriendError = ref('') // Error for the Add Friend modal
+const showAdd = ref(false) // For "Create Post" FAB modal
 
 // --- State for Pending Requests Modal ---
 const showPendingModal = ref(false)
@@ -33,130 +30,73 @@ const pendingRequests = ref([])
 const pendingLoading = ref(false)
 const pendingError = ref('')
 
-// Derived
-const filteredFriends = computed(() => {
-  const q = String(query.value || '').trim().toLowerCase()
-  if (!q) return friends.value
-  return friends.value.filter((f) => {
-    return (
-      String(f.name || f.username || f.email).toLowerCase().includes(q) ||
-      String(f.email || '').toLowerCase().includes(q)
-    )
-  })
-})
+// --- NEW: Search function, calls our new endpoint ---
+const onSearchInput = () => {
+  clearTimeout(searchDebounce)
+  searchLoading.value = true
+  searchError.value = ''
 
-async function loadFriends() {
-  loading.value = true
-  error.value = ''
-  try {
-    const r = await api.post('/friends/getFriends', { user_email: ACTIVE_EMAIL })
-    const emailList = Array.isArray(r.data?.data) ? r.data.data : []
-    friends.value = emailList.map((email) => {
-      const emailString = String(email || '')
-      const inferredName = emailString.split('@')[0] || 'friend'
-      return {
-        id: emailString,
-        email: emailString,
-        username: inferredName,
-        name: inferredName,
-        avatar: '/images/avatar1.png',
-        mutual_count: 0,
-      }
-    })
-  } catch (e) {
-    console.error('[friends] load failed', e)
-    error.value = e.response?.data?.message || e.message || 'Failed to load friends.'
-  } finally {
-    loading.value = false
-  }
+  searchDebounce = setTimeout(async () => {
+    const q = query.value.trim()
+    if (!q) {
+      searchResults.value = []
+      searchLoading.value = false
+      return
+    }
+
+    try {
+      const r = await api.post('/friends/searchAllUsers', {
+        user_email: ACTIVE_EMAIL,
+        query: q,
+      })
+      searchResults.value = Array.isArray(r.data?.data) ? r.data.data : []
+    } catch (e) {
+      console.error('[friends] search failed', e)
+      searchError.value = e.response?.data?.message || 'Failed to search users.'
+    } finally {
+      searchLoading.value = false
+    }
+  }, 300) // 300ms debounce
 }
 
-// --- UPDATED addFriend function with frontend checks ---
-async function addFriend() {
-  adding.value = true
-  addFriendError.value = ''
-  const email = String(addEmail.value || '').trim().toLowerCase()
+// --- UPDATED: sendFriendReq ---
+async function sendFriendReq(user) {
+  // Optimistically update the UI
+  user.isPending = true
 
   try {
-    // 1. Check for empty email
-    if (!email) {
-      addFriendError.value = 'Please enter an email.'
-      adding.value = false
-      return
-    }
-
-    // 2. Check if user is adding themselves
-    if (email === ACTIVE_EMAIL.toLowerCase()) {
-      addFriendError.value = 'You cannot add yourself as a friend.'
-      adding.value = false
-      return
-    }
-
-    // 3. Check local friends list first
-    if (friends.value.some((f) => f.email.toLowerCase() === email)) {
-      addFriendError.value = 'You are already friends with this user.'
-      adding.value = false
-      return
-    }
-
-    // 4. Check database using isFriends endpoint
-    const { data: isFriendsData } = await api.post('/friends/isFriends', {
-      user_email: ACTIVE_EMAIL,
-      friend_email: email,
-    })
-
-    if (isFriendsData.data === true) {
-      addFriendError.value = 'You are already friends with this user.'
-      adding.value = false
-      // Sync local list if it was out of date
-      if (!friends.value.some((f) => f.email.toLowerCase() === email)) {
-        await loadFriends()
-      }
-      return
-    }
-
-    // 5. If all checks pass, send the request
     await api.post('/friends/sendFriendReq', {
       user_email: ACTIVE_EMAIL,
-      friend_email: email,
+      friend_email: user.email,
     })
-
-    addEmail.value = ''
-    showAddModal.value = false
-    alert('Friend request sent!')
+    // Success, UI is already updated
   } catch (e) {
     console.error('[friends] add failed', e)
-    // Check for the 500 error, which now implies a duplicate PENDING request
-    if (e.response && e.response.status === 500) {
-      addFriendError.value = 'A friend request is already pending.'
-    } else {
-      const msg = e.response?.data?.message || e.response?.data?.error || e.message
-      addFriendError.value = msg || 'Failed to send request.'
-    }
-  } finally {
-    adding.value = false
+    user.isPending = false // Rollback on error
+    alert(`Error: ${e.response?.data?.message || 'A request is already pending.'}`)
   }
 }
 
-// --- removeFriend function (using DELETE) ---
-async function removeFriend(f) {
-  const yes = confirm(`Remove ${f.name || f.email} from your friends?`)
+// --- UPDATED: removeFriend (using DELETE) ---
+async function removeFriend(user) {
+  const yes = confirm(`Remove ${user.name || user.email} from your friends?`)
   if (!yes) return
-  const before = friends.value.slice()
-  friends.value = friends.value.filter((x) => x.id !== f.id)
-  error.value = ''
+
+  // Optimistically update the UI
+  user.isFriend = false
+
   try {
-    // Using api.delete to match your router
     await api.delete('/friends/removeFriend', {
       data: {
         user_email: ACTIVE_EMAIL,
-        friend_email: f.email,
+        friend_email: user.email,
       },
     })
+    // Success, UI is already updated
   } catch (e) {
     console.error('[friends] remove failed', e)
-    friends.value = before // rollback
-    error.value = e.response?.data?.message || 'Failed to remove friend.'
+    user.isFriend = true // Rollback on error
+    alert(`Error: ${e.response?.data?.message || 'Could not remove friend'}`)
   }
 }
 
@@ -173,7 +113,7 @@ async function loadPendingRequests() {
     }))
   } catch (e) {
     console.error('[friends] loadPendingRequests failed', e)
-    // Don't show a page-level error, just log it
+    pendingError.value = 'Failed to load pending requests.'
   } finally {
     pendingLoading.value = false
   }
@@ -193,7 +133,12 @@ async function acceptFriendReq(senderEmail) {
     pendingRequests.value = pendingRequests.value.filter(
       (req) => req.sender_email !== senderEmail,
     )
-    await loadFriends()
+    // Refresh search results if the user is currently visible
+    const acceptedUser = searchResults.value.find((u) => u.email === senderEmail)
+    if (acceptedUser) {
+      acceptedUser.isFriend = true
+      acceptedUser.isPending = false
+    }
   } catch (e) {
     console.error('[friends] acceptFriendReq failed', e)
     pendingError.value = 'Failed to accept request.'
@@ -209,6 +154,12 @@ async function rejectFriendReq(senderEmail) {
     pendingRequests.value = pendingRequests.value.filter(
       (req) => req.sender_email !== senderEmail,
     )
+    // Refresh search results if the user is currently visible
+    const rejectedUser = searchResults.value.find((u) => u.email === senderEmail)
+    if (rejectedUser) {
+      rejectedUser.isFriend = false
+      rejectedUser.isPending = false
+    }
   } catch (e) {
     console.error('[friends] rejectFriendReq failed', e)
     pendingError.value = 'Failed to reject request.'
@@ -216,9 +167,8 @@ async function rejectFriendReq(senderEmail) {
 }
 
 function viewProfile(f) {
-  if (f?.id) {
-    router.push({ path: `/profile/${encodeURIComponent(f.id)}` }).catch(() => {})
-  } else {
+  if (f?.email) {
+    // You might want a profile page that can be viewed by email
     router.push({ path: '/profile', query: { email: f.email } }).catch(() => {})
   }
 }
@@ -227,16 +177,9 @@ function handleAdded() {
   showAdd.value = false
 }
 
-function closeAddModal() {
-  showAddModal.value = false
-  addFriendError.value = ''
-  addEmail.value = ''
-}
-
 onMounted(async () => {
-  // Theme logic removed from here
-  await loadFriends()
-  await loadPendingRequests() // Load pending requests on page load for the badge
+  // We only load pending requests for the badge now
+  await loadPendingRequests()
   await nextTick()
 })
 </script>
@@ -245,12 +188,13 @@ onMounted(async () => {
   <div class="page sage-bg">
     <section class="container py-3">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h2 class="section-title">Friends</h2>
+        <h2 class="section-title">Find Users</h2>
         <div class="d-flex gap-2 align-items-center">
           <input
             v-model="query"
+            @input="onSearchInput"
             class="form-control form-control-sm"
-            placeholder="Search friends"
+            placeholder="Search by email or username"
             style="min-width: 220px"
           />
           <button
@@ -267,49 +211,59 @@ onMounted(async () => {
               <span class="visually-hidden">pending requests</span>
             </span>
           </button>
-          <button class="btn btn-sm btn-fit" @click="showAddModal = true">Add</button>
         </div>
       </div>
 
-      <div v-if="loading" class="text-center text-muted py-5">Loading friends…</div>
-      <div v-else-if="error" class="alert alert-danger py-2">{{ error }}</div>
+      <div v-if="searchLoading" class="text-center text-muted py-5">Searching...</div>
+      <div v-else-if="searchError" class="alert alert-danger py-2">{{ searchError }}</div>
+      <div
+        v-else-if="!searchResults.length && query"
+        class="empty text-muted p-4 rounded-3 bg-white shadow-sm"
+      >
+        No users found matching your search.
+      </div>
+      <div
+        v-else-if="!searchResults.length && !query"
+        class="empty text-muted p-4 rounded-3 bg-white shadow-sm"
+      >
+        Search for friends or new users by email or username.
+      </div>
 
-      <div v-else>
-        <div
-          v-if="!filteredFriends.length"
-          class="empty text-muted p-4 rounded-3 bg-white shadow-sm"
-        >
-          <span v-if="!friends.length">No friends yet. Add one!</span>
-          <span v-else>No friends found matching your search.</span>
-        </div>
-
-        <div class="row g-3" v-else>
-          <div
-            v-for="f in filteredFriends"
-            :key="f.id || f.email"
-            class="col-12 col-md-6 col-lg-4"
-          >
-            <div class="card h-100 shadow-sm border-0">
-              <div class="card-body d-flex gap-3 align-items-center">
-                <img
-                  :src="f.avatar"
-                  alt=""
-                  class="rounded-circle"
-                  style="width: 56px; height: 56px; object-fit: cover"
-                />
-                <div class="flex-grow-1">
-                  <div class="fw-bold">{{ f.name }}</div>
-                  <div class="text-muted small">{{ f.email }}</div>
-                  <div class="text-muted small mt-1">Mutual friends: {{ f.mutual_count }}</div>
-                </div>
-                <div class="d-flex flex-column align-items-end gap-2">
-                  <button class="btn btn-sm btn-outline-primary" @click="viewProfile(f)">
+      <div class="row g-3" v-else>
+        <div v-for="user in searchResults" :key="user.email" class="col-12 col-md-6 col-lg-4">
+          <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex gap-3 align-items-center">
+              <img
+                :src="user.avatar"
+                alt=""
+                class="rounded-circle"
+                style="width: 56px; height: 56px; object-fit: cover"
+              />
+              <div class="flex-grow-1">
+                <div class="fw-bold">{{ user.name }}</div>
+                <div class="text-muted small">{{ user.email }}</div>
+              </div>
+              <div class="d-flex flex-column align-items-end gap-2">
+                <template v-if="user.isFriend">
+                  <button class="btn btn-sm btn-outline-primary" @click="viewProfile(user)">
                     View
                   </button>
-                  <button class="btn btn-sm btn-outline-danger" @click="removeFriend(f)">
+                  <button class="btn btn-sm btn-outline-danger" @click="removeFriend(user)">
                     Remove
                   </button>
-                </div>
+                </template>
+                <template v-else-if="user.isPending">
+                  <button class="btn btn-sm btn-outline-primary" @click="viewProfile(user)">
+                    View
+                  </button>
+                  <button class="btn btn-sm btn-outline-secondary" disabled>Pending</button>
+                </template>
+                <template v-else>
+                  <button class="btn btn-sm btn-outline-primary" @click="viewProfile(user)">
+                    View
+                  </button>
+                  <button class="btn btn-sm btn-fit" @click="sendFriendReq(user)">Add</button>
+                </template>
               </div>
             </div>
           </div>
@@ -319,24 +273,6 @@ onMounted(async () => {
 
     <button class="fab fab-terracotta" @click="showAdd = true" title="Create Post">＋</button>
     <div class="fab-label sage-chip">Create Post</div>
-
-    <Modal :show="showAddModal" title="Add Friend" @close="closeAddModal">
-      <div class="mb-3">
-        <label class="form-label">Friend's email or username</label>
-        <input
-          v-model="addEmail"
-          class="form-control"
-          placeholder="e.g. friend@example.com"
-        />
-      </div>
-      <div v-if="addFriendError" class="alert alert-danger py-2 small">{{ addFriendError }}</div>
-      <div class="d-flex justify-content-end gap-2">
-        <button class="btn btn-outline-secondary" @click="closeAddModal">Cancel</button>
-        <button class="btn btn-primary" :disabled="adding || !addEmail" @click="addFriend">
-          {{ adding ? 'Sending…' : 'Send Request' }}
-        </button>
-      </div>
-    </Modal>
 
     <Modal :show="showPendingModal" title="Pending Friend Requests" @close="showPendingModal = false">
       <div v-if="pendingLoading" class="text-center text-muted py-3">Loading requests…</div>
