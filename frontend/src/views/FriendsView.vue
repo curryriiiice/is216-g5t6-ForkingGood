@@ -4,23 +4,24 @@ import axios from 'axios'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import { useRouter } from 'vue-router'
-import { useAuthUser } from '@/lib/useAuthUser'
 
 // API
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
-const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
-const activeEmail = computed(() => authUser.value?.email ?? null)
+// TEMP active user until auth is wired
+const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
 
 const router = useRouter()
 
 // UI state
 const query = ref('')
-const searchResults = ref([]) // This will hold all displayed users
+const searchResults = ref([]) // Filtered results shown to the user
 const searchLoading = ref(false)
-const searchError = ref('') // For search-specific errors
-let searchDebounce = null
+const searchError = ref('')
+
+// Cache for ALL users
+const allUsersCache = ref([]) // Holds the full list fetched on load
 
 // State for Modals
 const showAdd = ref(false) // For "Create Post" FAB modal
@@ -31,104 +32,92 @@ const pendingRequests = ref([])
 const pendingLoading = ref(false)
 const pendingError = ref('')
 
-// --- NEW: Search function, calls our new endpoint ---
-const onSearchInput = () => {
-  clearTimeout(searchDebounce)
+// --- UPDATED: Function to fetch all users ONCE ---
+async function fetchAllUsers() {
   searchLoading.value = true
   searchError.value = ''
+  try {
+    const r = await api.post('/user/getAllUsers', { user_email: ACTIVE_EMAIL })
 
-  searchDebounce = setTimeout(async () => {
-    const q = query.value.trim()
-    if (!q) {
-      searchResults.value = []
-      searchLoading.value = false
-      return
-    }
+    const usersData = Array.isArray(r.data?.data) ? r.data.data : []
 
-    try {
-      let email = activeEmail.value
-      if (!email) {
-        const refreshed = await refreshAuthUser()
-        email = refreshed?.email ?? null
-      }
-      if (!email) {
-        searchError.value = 'Please log in to search for friends.'
-        return
-      }
+    // Map the raw data to the structure needed by the template
+    allUsersCache.value = usersData
+      .filter((u) => u.email && u.email.toLowerCase() !== ACTIVE_EMAIL.toLowerCase()) // Added check for u.email existence
+      .map((u) => ({
+        email: u.email,
+        username: u.username,
+        name: u.username || u.email.split('@')[0],
+        avatar: u.profile_image_url || '/images/avatar1.png', // Uses profile_image_url
+        isFriend: u.friendship_status === 'friend',
+        isPending: u.friendship_status === 'pending',
+      }))
 
-      const r = await api.post('/friends/searchAllUsers', {
-        user_email: email,
-        query: q,
-      })
-      searchResults.value = Array.isArray(r.data?.data) ? r.data.data : []
-    } catch (e) {
-      console.error('[friends] search failed', e)
-      searchError.value = e.response?.data?.message || 'Failed to search users.'
-    } finally {
-      searchLoading.value = false
-    }
-  }, 300) // 300ms debounce
+    searchResults.value = [] // Start with empty results
+  } catch (e) {
+    console.error('[friends] fetchAllUsers failed', e)
+    searchError.value = e.response?.data?.message || 'Failed to load user list.'
+  } finally {
+    searchLoading.value = false
+  }
 }
 
-// --- UPDATED: sendFriendReq ---
+// --- Search function filters the cache ---
+const onSearchInput = () => {
+  searchLoading.value = true
+  searchError.value = ''
+  const q = query.value.trim().toLowerCase()
+
+  if (!q) {
+    searchResults.value = []
+  } else {
+    searchResults.value = allUsersCache.value.filter((user) => {
+      return (
+        user.email.toLowerCase().includes(q) ||
+        (user.username && user.username.toLowerCase().includes(q))
+      )
+    })
+  }
+  searchLoading.value = false
+}
+
+// --- sendFriendReq ---
 async function sendFriendReq(user) {
-  // Optimistically update the UI
   user.isPending = true
+  user.isFriend = false
 
   try {
-    let email = activeEmail.value
-    if (!email) {
-      const refreshed = await refreshAuthUser()
-      email = refreshed?.email ?? null
-    }
-    if (!email) {
-      user.isPending = false
-      alert('Please log in to send friend requests.')
-      return
-    }
-
     await api.post('/friends/sendFriendReq', {
-      user_email: email,
+      user_email: ACTIVE_EMAIL,
       friend_email: user.email,
     })
-    // Success, UI is already updated
+    // Success
   } catch (e) {
     console.error('[friends] add failed', e)
-    user.isPending = false // Rollback on error
+    user.isPending = false // Rollback
     alert(`Error: ${e.response?.data?.message || 'A request is already pending.'}`)
   }
 }
 
-// --- UPDATED: removeFriend (using DELETE) ---
+// --- removeFriend (using DELETE) ---
 async function removeFriend(user) {
   const yes = confirm(`Remove ${user.name || user.email} from your friends?`)
   if (!yes) return
 
-  // Optimistically update the UI
   user.isFriend = false
+  user.isPending = false
 
   try {
-    let email = activeEmail.value
-    if (!email) {
-      const refreshed = await refreshAuthUser()
-      email = refreshed?.email ?? null
-    }
-    if (!email) {
-      user.isFriend = true
-      alert('Please log in to remove friends.')
-      return
-    }
-
     await api.delete('/friends/removeFriend', {
       data: {
-        user_email: email,
+        user_email: ACTIVE_EMAIL,
         friend_email: user.email,
       },
     })
-    // Success, UI is already updated
+    // Success
   } catch (e) {
     console.error('[friends] remove failed', e)
-    user.isFriend = true // Rollback on error
+    user.isFriend = true // Rollback
     alert(`Error: ${e.response?.data?.message || 'Could not remove friend'}`)
   }
 }
@@ -139,17 +128,7 @@ async function loadPendingRequests() {
   pendingError.value = ''
   pendingRequests.value = []
   try {
-    let email = activeEmail.value
-    if (!email) {
-      const refreshed = await refreshAuthUser()
-      email = refreshed?.email ?? null
-    }
-    if (!email) {
-      pendingError.value = 'Please log in to view pending requests.'
-      return
-    }
-
-    const r = await api.post('/friends/getPendingFriendReqs', { user_email: email })
+    const r = await api.post('/friends/getPendingFriendReqs', { user_email: ACTIVE_EMAIL })
     const emailList = Array.isArray(r.data?.data) ? r.data.data : []
     pendingRequests.value = emailList.map((email) => ({
       sender_email: email,
@@ -164,33 +143,28 @@ async function loadPendingRequests() {
 
 async function openPendingModal() {
   showPendingModal.value = true
-  await loadPendingRequests()
+  await loadPendingRequests() // Refresh when opening
 }
 
 async function acceptFriendReq(senderEmail) {
   try {
-    let email = activeEmail.value
-    if (!email) {
-      const refreshed = await refreshAuthUser()
-      email = refreshed?.email ?? null
-    }
-    if (!email) {
-      pendingError.value = 'Please log in to manage friend requests.'
-      return
-    }
-
     await api.post('/friends/acceptFriendReq', {
-      user_email: email,
+      user_email: ACTIVE_EMAIL,
       friend_email: senderEmail,
     })
     pendingRequests.value = pendingRequests.value.filter(
       (req) => req.sender_email !== senderEmail,
     )
-    // Refresh search results if the user is currently visible
-    const acceptedUser = searchResults.value.find((u) => u.email === senderEmail)
-    if (acceptedUser) {
-      acceptedUser.isFriend = true
-      acceptedUser.isPending = false
+    // Update caches
+    const acceptedUserCache = allUsersCache.value.find((u) => u.email === senderEmail)
+    if (acceptedUserCache) {
+      acceptedUserCache.isFriend = true
+      acceptedUserCache.isPending = false
+    }
+    const acceptedUserSearch = searchResults.value.find((u) => u.email === senderEmail)
+    if (acceptedUserSearch) {
+      acceptedUserSearch.isFriend = true
+      acceptedUserSearch.isPending = false
     }
   } catch (e) {
     console.error('[friends] acceptFriendReq failed', e)
@@ -200,28 +174,23 @@ async function acceptFriendReq(senderEmail) {
 
 async function rejectFriendReq(senderEmail) {
   try {
-    let email = activeEmail.value
-    if (!email) {
-      const refreshed = await refreshAuthUser()
-      email = refreshed?.email ?? null
-    }
-    if (!email) {
-      pendingError.value = 'Please log in to manage friend requests.'
-      return
-    }
-
     await api.post('/friends/rejectFriendReq', {
-      user_email: email,
+      user_email: ACTIVE_EMAIL,
       friend_email: senderEmail,
     })
     pendingRequests.value = pendingRequests.value.filter(
       (req) => req.sender_email !== senderEmail,
     )
-    // Refresh search results if the user is currently visible
-    const rejectedUser = searchResults.value.find((u) => u.email === senderEmail)
-    if (rejectedUser) {
-      rejectedUser.isFriend = false
-      rejectedUser.isPending = false
+    // Update caches
+    const rejectedUserCache = allUsersCache.value.find((u) => u.email === senderEmail)
+    if (rejectedUserCache) {
+      rejectedUserCache.isFriend = false
+      rejectedUserCache.isPending = false
+    }
+    const rejectedUserSearch = searchResults.value.find((u) => u.email === senderEmail)
+    if (rejectedUserSearch) {
+      rejectedUserSearch.isFriend = false
+      rejectedUserSearch.isPending = false
     }
   } catch (e) {
     console.error('[friends] rejectFriendReq failed', e)
@@ -231,7 +200,6 @@ async function rejectFriendReq(senderEmail) {
 
 function viewProfile(f) {
   if (f?.email) {
-    // You might want a profile page that can be viewed by email
     router.push({ path: '/profile', query: { email: f.email } }).catch(() => {})
   }
 }
@@ -241,8 +209,8 @@ function handleAdded() {
 }
 
 onMounted(async () => {
-  // We only load pending requests for the badge now
-  await loadPendingRequests()
+  await fetchAllUsers() // Load ALL users first
+  await loadPendingRequests() // Then load pending requests for the badge
   await nextTick()
 })
 </script>
@@ -277,7 +245,9 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div v-if="searchLoading" class="text-center text-muted py-5">Searching...</div>
+      <div v-if="searchLoading && !allUsersCache.length" class="text-center text-muted py-5">
+        Loading user list...
+      </div>
       <div v-else-if="searchError" class="alert alert-danger py-2">{{ searchError }}</div>
       <div
         v-else-if="!searchResults.length && query"
@@ -291,7 +261,6 @@ onMounted(async () => {
       >
         Search for friends or new users by email or username.
       </div>
-
       <div class="row g-3" v-else>
         <div v-for="user in searchResults" :key="user.email" class="col-12 col-md-6 col-lg-4">
           <div class="card h-100 shadow-sm border-0">
