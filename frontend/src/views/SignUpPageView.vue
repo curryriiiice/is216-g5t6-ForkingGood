@@ -1,4 +1,3 @@
-<!-- src/views/SignupPageView.vue -->
 <template>
   <div class="auth-shell">
     <div class="card">
@@ -77,6 +76,12 @@
 
         <p v-if="error" class="alert error">{{ error }}</p>
         <p v-if="success" class="success">{{ success }}</p>
+        <p v-if="success" class="hint">
+          Didn't get it?
+          <button type="button" class="link" :disabled="resendLoading" @click="resendCode">
+            {{ resendLoading ? 'Resending…' : 'Resend confirmation email' }}
+          </button>
+        </p>
 
         <!-- Brand button -->
         <button type="submit" class="submit" :disabled="loading" title="Create your ForkingGood account">
@@ -98,58 +103,19 @@
         <RouterLink class="link" :to="{ name: 'login' }">Log in</RouterLink>
       </p>
     </div>
-
-    <!-- 🔔 Email Verification Modal -->
-    <Modal :show="showVerifyModal" title="Verify your email" @close="closeVerifyModal">
-      <div class="verify-box">
-        <p class="verify-msg">
-          We’ve sent a 6-digit code to <strong>{{ email }}</strong>. Enter it below to verify your account.
-        </p>
-
-        <div class="code-wrap">
-          <input
-            v-model.trim="verifyCode"
-            type="text"
-            class="input code-input"
-            placeholder="Enter verification code"
-            maxlength="8"
-            autocomplete="one-time-code"
-            inputmode="numeric"
-          />
-        </div>
-
-        <p v-if="verifyError" class="alert error">{{ verifyError }}</p>
-        <p v-if="verifySuccess" class="success">{{ verifySuccess }}</p>
-
-        <div class="verify-actions">
-          <button type="button" class="btn ghost" :disabled="resendLoading" @click="resendCode">
-            <span v-if="resendLoading">Sending…</span>
-            <span v-else>Resend code</span>
-          </button>
-
-          <button type="button" class="btn" :disabled="verifyLoading || !verifyCode" @click="verifyEmail">
-            <span v-if="verifyLoading">Verifying…</span>
-            <span v-else>Verify & Continue</span>
-          </button>
-        </div>
-      </div>
-    </Modal>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
-import Modal from '@/components/Modal.vue'
+import { createClient } from '@supabase/supabase-js'
 
 const router = useRouter()
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  withCredentials: true,
-  headers: { 'Content-Type': 'application/json' }
-})
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 const email = ref('')
 const username = ref('')
@@ -162,12 +128,6 @@ const loading = ref(false)
 const error = ref('')
 const success = ref('')
 
-// Verification modal state
-const showVerifyModal = ref(false)
-const verifyCode = ref('')
-const verifyLoading = ref(false)
-const verifyError = ref('')
-const verifySuccess = ref('')
 const resendLoading = ref(false)
 
 function validate() {
@@ -191,97 +151,53 @@ async function onSubmit() {
 
   loading.value = true
   try {
-    const payload = {
+    // Sign up with Supabase; store username in user_metadata (JWT)
+    const { data, error: signErr } = await supabase.auth.signUp({
       email: email.value,
-      username: username.value,
-      password: password.value
-    }
-
-    // Primary endpoint: userSignUp
-    try {
-      await api.post('/auth/userSignUp', payload)
-    } catch (e) {
-      // Fallbacks for older backends
-      if (e?.response?.status === 404) {
-        try {
-          await api.post('/auth/signup', payload)
-        } catch (e2) {
-          if (e2?.response?.status === 404) {
-            await api.post('/auth/register', payload)
-          } else {
-            throw e2
-          }
-        }
-      } else {
-        throw e
+      password: password.value,
+      options: {
+        data: { username: username.value }, // <- goes into user_metadata
+        emailRedirectTo: `${window.location.origin}/auth/callback`
       }
+    })
+
+    if (signErr) {
+      // Handle common cases
+      if (signErr.status === 422 || signErr.status === 400) {
+        error.value = signErr.message || 'Invalid details. Please check and try again.'
+      } else if (signErr.status === 409) {
+        error.value = 'An account with that email/username already exists.'
+      } else {
+        error.value = signErr.message || 'Something went wrong. Please try again.'
+      }
+      return
     }
 
-    // Open verification modal
-    showVerifyModal.value = true
+    // Show success message after signup
+    success.value = 'Almost done! Check your inbox for a confirmation link to activate your account.'
   } catch (e) {
-    const status = e?.response?.status
-    const msg =
-      e?.response?.data?.message ||
-      e?.response?.data?.detail ||
-      e?.message ||
-      'Failed to create account.'
-    if (status === 409) {
-      error.value = 'An account with that email/username already exists.'
-    } else if (status === 400 || status === 422) {
-      error.value = msg || 'Invalid details. Please check and try again.'
-    } else {
-      error.value = 'Something went wrong. Please try again.'
-    }
     console.error('Signup error:', e)
+    error.value = 'Something went wrong. Please try again.'
   } finally {
     loading.value = false
   }
 }
 
-function closeVerifyModal() {
-  showVerifyModal.value = false
-  verifyCode.value = ''
-  verifyError.value = ''
-  verifySuccess.value = ''
-}
-
-async function verifyEmail() {
-  if (!verifyCode.value) return
-  verifyLoading.value = true
-  verifyError.value = ''
-  verifySuccess.value = ''
-
-  const body = { email: email.value, code: verifyCode.value }
-
-  try {
-    await api.post('/auth/verify-email', body)
-    verifySuccess.value = 'Email verified! Redirecting…'
-    setTimeout(() => router.replace('/dashboard'), 700)
-  } catch (e) {
-    verifyError.value =
-      e?.response?.data?.message ||
-      e?.response?.data?.detail ||
-      'Invalid or expired code. Please try again.'
-    console.error('Verify error:', e)
-  } finally {
-    verifyLoading.value = false
-  }
-}
-
 async function resendCode() {
   resendLoading.value = true
-  verifyError.value = ''
-  verifySuccess.value = ''
   try {
-    await api.post('/auth/resend-verification', { email: email.value })
-    verifySuccess.value = 'A new code has been sent to your email.'
+    const { error: rErr } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.value
+    })
+    if (rErr) {
+      error.value = rErr.message || 'Could not resend the confirmation email. Please try again later.'
+    } else {
+      success.value = 'A new confirmation email has been sent to your inbox.'
+    }
   } catch (e) {
-    verifyError.value =
-      e?.response?.data?.message ||
-      e?.response?.data?.detail ||
-      'Could not resend the code. Please try again later.'
     console.error('Resend error:', e)
+    error.value = 'Could not resend the confirmation email. Please try again later.'
   } finally {
     resendLoading.value = false
   }
