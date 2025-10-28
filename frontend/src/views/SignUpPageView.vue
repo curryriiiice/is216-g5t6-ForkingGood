@@ -15,13 +15,19 @@
             v-model.trim="username"
             type="text"
             class="input"
+            :class="{ invalid: usernameError }"
             placeholder="@yourhandle"
             autocomplete="username"
+            autocapitalize="off"
+            spellcheck="false"
+            inputmode="text"
             required
           />
           <small class="hint-small">
-            Please include an <strong>@</strong> in your username (e.g., <em>@forkingfoodie</em>).
+            e.g., <em>@forkingfoodie</em>
           </small>
+          <br>
+          <small v-if="usernameError" class="hint-small error-text" aria-live="polite">{{ usernameError }}</small>
         </div>
 
         <!-- Email -->
@@ -31,10 +37,12 @@
             v-model.trim="email"
             type="email"
             class="input"
+            :class="{ invalid: emailError }"
             placeholder="you@example.com"
             autocomplete="email"
             required
           />
+          <small v-if="emailError" class="hint-small error-text" aria-live="polite">{{ emailError }}</small>
         </div>
 
         <!-- Password -->
@@ -45,6 +53,7 @@
               v-model="password"
               :type="showPass ? 'text' : 'password'"
               class="input pass-input"
+              :class="{ invalid: passwordError }"
               placeholder="••••••••"
               autocomplete="new-password"
               required
@@ -53,6 +62,10 @@
               {{ showPass ? 'Hide' : 'Show' }}
             </button>
           </div>
+          <small class="hint-small">
+            <strong>Requirements:</strong> at least 8 characters, <strong>1 uppercase</strong>, and <strong>1 special character</strong>.
+          </small>
+          <small v-if="passwordError" class="hint-small error-text" aria-live="polite">{{ passwordError }}</small>
         </div>
 
         <!-- Confirm password -->
@@ -62,10 +75,12 @@
             v-model="confirmPassword"
             :type="showPass ? 'text' : 'password'"
             class="input"
+            :class="{ invalid: confirmError }"
             placeholder="••••••••"
             autocomplete="new-password"
             required
           />
+          <small v-if="confirmError" class="hint-small error-text" aria-live="polite">{{ confirmError }}</small>
         </div>
 
         <!-- Terms checkbox -->
@@ -84,7 +99,12 @@
         </p>
 
         <!-- Brand button -->
-        <button type="submit" class="submit" :disabled="loading" title="Create your ForkingGood account">
+        <button
+          type="submit"
+          class="submit"
+          :disabled="loading"
+          title="Create your ForkingGood account"
+        >
           <div class="btn-inner">
             <div v-if="loading" class="btn-loader" aria-hidden="true">
               <span class="dot"></span>
@@ -107,7 +127,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { createClient } from '@supabase/supabase-js'
 
@@ -130,12 +150,51 @@ const success = ref('')
 
 const resendLoading = ref(false)
 
+/** Regex rules */
+const USERNAME_RE = /^@([A-Za-z0-9_]{3,20})$/      // must start with '@'
+const PASSWORD_RE = /^(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{8,}$/ // ≥8, 1 uppercase, 1 special
+
+/** Field-level error helpers for inline messages */
+const usernameError = computed(() => {
+  if (!username.value) return ''
+  if (!USERNAME_RE.test(username.value)) {
+    if (!username.value.startsWith('@')) return 'Username must start with @.'
+    return 'Use 3–20 letters, numbers, or underscores after @.'
+  }
+  return ''
+})
+
+const emailError = computed(() => {
+  if (!email.value) return ''
+  // very light email check; browser will also validate type="email"
+  return ''
+})
+
+const passwordError = computed(() => {
+  if (!password.value) return ''
+  if (password.value.length < 8) return 'Password must be at least 8 characters.'
+  if (!/[A-Z]/.test(password.value)) return 'Include at least 1 uppercase letter.'
+  if (!/[^A-Za-z0-9]/.test(password.value)) return 'Include at least 1 special character.'
+  return ''
+})
+
+const confirmError = computed(() => {
+  if (!confirmPassword.value) return ''
+  if (password.value !== confirmPassword.value) return 'Passwords do not match.'
+  return ''
+})
+
 function validate() {
   if (!username.value) return 'Username is required.'
-  if (!username.value.includes('@')) return 'Username must include @ (e.g., @forkingfoodie).'
+  if (!USERNAME_RE.test(username.value)) {
+    if (!username.value.startsWith('@')) return 'Username must start with @ (e.g., @forkingfoodie).'
+    return 'Username must be @ + 3–20 letters, numbers, or underscores.'
+  }
   if (!email.value) return 'Email is required.'
   if (!password.value) return 'Password is required.'
-  if (password.value.length < 8) return 'Password must be at least 8 characters.'
+  if (!PASSWORD_RE.test(password.value)) {
+    return 'Password needs at least 8 chars, 1 uppercase, and 1 special character.'
+  }
   if (password.value !== confirmPassword.value) return 'Passwords do not match.'
   if (!agree.value) return 'You must agree to the Terms and Privacy Policy.'
   return ''
@@ -151,18 +210,19 @@ async function onSubmit() {
 
   loading.value = true
   try {
-    // Sign up with Supabase; store username in user_metadata (JWT)
+    // also store a 'handle' without the @ if you want it later
+    const handle = username.value.replace(/^@/, '')
+
     const { data, error: signErr } = await supabase.auth.signUp({
       email: email.value,
       password: password.value,
       options: {
-        data: { username: username.value }, // <- goes into user_metadata
+        data: { username: username.value, handle }, // store both
         emailRedirectTo: `${window.location.origin}/auth/callback`
       }
     })
 
     if (signErr) {
-      // Handle common cases
       if (signErr.status === 422 || signErr.status === 400) {
         error.value = signErr.message || 'Invalid details. Please check and try again.'
       } else if (signErr.status === 409) {
@@ -173,7 +233,6 @@ async function onSubmit() {
       return
     }
 
-    // Show success message after signup
     success.value = 'Almost done! Check your inbox for a confirmation link to activate your account.'
   } catch (e) {
     console.error('Signup error:', e)
@@ -275,6 +334,11 @@ async function resendCode() {
   margin-top: 4px;
 }
 
+.hint-small.error-text {
+  color: #dc2626;
+  font-weight: 700;
+}
+
 /* Inputs */
 .input {
   width: 100%;
@@ -289,6 +353,10 @@ async function resendCode() {
 .input:focus {
   border-color: var(--fg-maroon);
   box-shadow: 0 0 0 4px rgba(142,31,47,.12);
+}
+.input.invalid {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 4px rgba(220,38,38,0.10);
 }
 
 /* Password toggle */
@@ -310,13 +378,13 @@ async function resendCode() {
   gap: 8px;
   color: #374151;
   user-select: none;
-  margin-top: 24px; /* ✅ added more breathing space */
+  margin-top: 24px;
 }
 
 .alert.error { color: #dc2626; margin: 10px 0 0; font-weight: 700; }
 .success { color: #16a34a; margin: 10px 0 0; font-weight: 800; }
 
-/* Submit button same as Login */
+/* Submit button */
 .submit {
   margin-top: 20px;
   background: linear-gradient(180deg, var(--fg-maroon) 0%, var(--fg-terracotta) 80%, var(--fg-terracotta-dark) 100%);
@@ -381,7 +449,7 @@ async function resendCode() {
 }
 .link:hover { text-decoration: underline; }
 
-/* Modal */
+/* Modal styles (kept) */
 .verify-box { padding: 4px 0; }
 .verify-msg { color: #374151; margin: 0 0 10px; }
 .code-wrap { margin: 10px 0 8px; }

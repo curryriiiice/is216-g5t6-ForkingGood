@@ -78,7 +78,6 @@ async function submitComment() {
   if (editingComment.value) {
     const item = editingComment.value
     editingComment.value = null
-    const oldText = item.comment
     newComment.value = ''
     return editComment(item, comment)
   }
@@ -325,9 +324,6 @@ function onCardClick(e, post) {
   for (const sel of rootSelectors) {
     const hit = t.closest(sel)
     if (hit && hit !== container) {
-      // If it's within a known slider root, but not directly the container,
-      // only open preview if user clicked on a non-control area (we already filtered controls above)
-      // To be safe, do not open preview here.
       return
     }
   }
@@ -335,22 +331,36 @@ function onCardClick(e, post) {
 }
 
 // ==========================
-// THEME: light + brand-mint/brand-lagoon/brand-plum (no system, no dark)
+// CUISINE THEMES (Japanese / Italian / French / Chinese)
 // ==========================
-const THEME_KEY = 'fg_theme_v2'
-const theme = ref(localStorage.getItem(THEME_KEY) || 'light')
+const THEME_KEY = 'fg_theme_cuisine'
+const CUISINE_THEMES = ['japanese', 'italian', 'french', 'chinese']
+const theme = ref(localStorage.getItem(THEME_KEY) || 'japanese')
 
 function applyTheme() {
-  document.documentElement.setAttribute('data-theme', theme.value)
+  // Persist selection
   localStorage.setItem(THEME_KEY, theme.value)
+
+  // Apply a class like "theme-japanese" to the .page wrapper
+  const shell = document.querySelector('.page')
+  if (shell) {
+    CUISINE_THEMES.forEach(t => shell.classList.remove(`theme-${t}`, 'themed-anim'))
+    shell.classList.add(`theme-${theme.value}`)
+
+    // If you want animated sprites (petals/lanterns/basil/stars), uncomment:
+    // shell.classList.add('themed-anim')
+  }
+
+  // (Optional) keep a data-attr if other CSS uses it
+  document.documentElement.setAttribute('data-theme', theme.value)
 }
 function cycleTheme() {
-  const order = ['light', 'brand-mint', 'brand-lagoon', 'brand-plum']
-  const idx = order.indexOf(theme.value)
-  theme.value = order[(idx + 1) % order.length]
+  const idx = CUISINE_THEMES.indexOf(theme.value)
+  theme.value = CUISINE_THEMES[(idx + 1) % CUISINE_THEMES.length]
   applyTheme()
 }
 function setTheme(val) {
+  if (!CUISINE_THEMES.includes(val)) return
   theme.value = val
   applyTheme()
 }
@@ -405,7 +415,6 @@ let areaTimer = null
 // --- Typeahead helpers ---
 async function getAllCuisines(q) {
   const url = '/map/getAllCuisines'
-  // If no query, try to fetch the full list from backend
   if (!q) {
     const triesAll = [
       () => api.get(url),
@@ -423,7 +432,6 @@ async function getAllCuisines(q) {
     }
     return []
   }
-  // Otherwise, pass the query to backend (fallback to client-side filtering later)
   const tries = [
     () => api.post(url, { query: q }),
     () => api.get(url, { params: { query: q } }),
@@ -479,21 +487,17 @@ function onCuisineInput() {
   const qRaw = cuisineQuery.value
   const q = qRaw == null ? '' : String(qRaw).trim()
   cuisineTimer = setTimeout(async () => {
-    // Ensure we have the full list cached
     if (!allCuisines.value.length) {
       allCuisines.value = normalizeList(await getAllCuisines(''))
     }
     if (!q) {
-      // Empty input → show all
       cuisineSuggestions.value = allCuisines.value.slice(0, 500)
     } else {
-      // Case-insensitive substring match
       const needle = q.toLowerCase()
       const base = allCuisines.value.length
         ? allCuisines.value
         : normalizeList(await getAllCuisines(''))
       cuisineSuggestions.value = base.filter((s) => s.toLowerCase().includes(needle)).slice(0, 500)
-      // If backend supports searching and returns more precise results, merge them in
       try {
         const remote = await getAllCuisines(q)
         const merged = normalizeList([...base, ...remote]).filter((s) =>
@@ -593,16 +597,13 @@ function pickCuisine(v) {
     if (allCuisines.value.length) {
       cuisineSuggestions.value = allCuisines.value.slice(0, 500)
     }
-    // Blur so user exits the control
     requestAnimationFrame(() => cuisineInput.value && cuisineInput.value.blur())
     runSearch()
     return
   }
-  // Otherwise pick value and close
   filters.value.cuisine = v
   cuisineQuery.value = v
   showCuisineList.value = false
-  // Blur so user exits the control
   requestAnimationFrame(() => cuisineInput.value && cuisineInput.value.blur())
   runSearch()
 }
@@ -666,23 +667,20 @@ function normalizePriceIndex(v, scaleMax = 4) {
   if (v == null) return null
   const cap = Math.max(1, Math.min(4, Number(scaleMax))) - 1
   const str = String(v).trim().toLowerCase()
-  // Map descriptive labels to price levels
-  if (['free', 'inexpensive', 'cheap'].includes(str)) return Math.min(0, cap) // $
-  if (['moderate'].includes(str)) return Math.min(1, cap) // $$
-  if (['expensive'].includes(str)) return Math.min(2, cap) // $$$
-  if (['very expensive', 'very_expensive', 'luxury'].includes(str)) return Math.min(3, cap) // $$$$
-  // Symbol '$'..'$$$$' → 0..3
+  if (['free', 'inexpensive', 'cheap'].includes(str)) return Math.min(0, cap)
+  if (['moderate'].includes(str)) return Math.min(1, cap)
+  if (['expensive'].includes(str)) return Math.min(2, cap)
+  if (['very expensive', 'very_expensive', 'luxury'].includes(str)) return Math.min(3, cap)
   if (/^\$+$/.test(str)) {
     const idx = Math.min(str.length - 1, cap)
     return idx >= 0 ? idx : null
   }
   const n = Number(v)
   if (Number.isFinite(n)) {
-    // Map numeric 0: Free, 1: Inexpensive, 2: Moderate, 3: Expensive, 4: Very Expensive
-    if (n === 0 || n === 1) return Math.min(0, cap) // $
-    if (n === 2) return Math.min(1, cap) // $$
-    if (n === 3) return Math.min(2, cap) // $$$
-    if (n === 4) return Math.min(3, cap) // $$$$
+    if (n === 0 || n === 1) return Math.min(0, cap)
+    if (n === 2) return Math.min(1, cap)
+    if (n === 3) return Math.min(2, cap)
+    if (n === 4) return Math.min(3, cap)
     if (n >= 1 && n <= 4) return Math.min(n - 1, cap)
   }
   return null
@@ -873,31 +871,26 @@ function applyVisibilityFromQuery() {
   return false
 }
 async function scrollToPostIfAny() {
-  // Accept multiple casings/keys from router
   const q = route.query || {}
   const postId = q.postId || q.postID || q.postid
   if (!postId) return
   const targetId = String(postId)
 
-  // Helper: is the post already in the current feed?
   const hasPostInFeed = () =>
     Array.isArray(posts.value) && posts.value.some((p) => String(p?.id ?? p?.postid) === targetId)
 
-  // Align visibility with URL and reload if changed
   const prev = friendsOnly.value
   const changed = applyVisibilityFromQuery()
   if (changed && friendsOnly.value !== prev) {
     await runSearch()
   }
 
-  // If the post isn't present yet (first load / race), fetch the feed
   if (!hasPostInFeed()) {
     await runSearch()
   }
 
   await nextTick()
 
-  // Try to find and scroll to the element, with retries in case of async rendering
   const tryScroll = () => {
     const el = document.getElementById(`post-${targetId}`)
     if (!el) return false
@@ -947,11 +940,8 @@ function clearPostQuery() {
     url.searchParams.delete('postId')
     url.searchParams.delete('postID')
     url.searchParams.delete('postid')
-    // Preserve hash and other params, only remove postId-like keys
     window.history.replaceState(window.history.state, '', url.toString())
-  } catch {
-    // Fallback: do nothing if URL parsing fails; better than jumping scroll
-  }
+  } catch {}
 }
 
 // Bootstrap tooltips (optional)
@@ -975,7 +965,6 @@ watch(
   { immediate: true },
 )
 
-// Secondary safeguard: retry scroll when posts list populates (useful on first load)
 watch(
   () => posts.value.length,
   () => {
@@ -1043,13 +1032,11 @@ function rf_to_payload() {
 
   const payload = { user_email: ACTIVE_EMAIL }
 
-  // scope flags (respect current feed scope toggle)
   payload.friends = !!friendsOnly.value
   payload.public = !friendsOnly.value
   payload.show_public = !friendsOnly.value
   payload.is_public = !friendsOnly.value
 
-  // Cuisine aliases
   if (isNonEmpty(cuisine) && !/^any$/i.test(cuisine)) {
     Object.assign(payload, {
       cuisine_type: cuisine,
@@ -1059,7 +1046,6 @@ function rf_to_payload() {
     })
   }
 
-  // Area aliases
   if (isNonEmpty(area) && !/^any$/i.test(area)) {
     Object.assign(payload, {
       area,
@@ -1072,22 +1058,20 @@ function rf_to_payload() {
     })
   }
 
-  // Price mapping (support both 0..3 and 1..4 schemes)
   if (!sym || /^any$/i.test(sym)) {
     payload.price_level = 'any'
   } else {
     payload.price_symbol = sym
-    const pr0 = priceSymbolToIndex(sym) // 0..3
+    const pr0 = priceSymbolToIndex(sym)
     if (pr0 !== null) {
-      payload.price_range = pr0 // 0..3 (some backends)
+      payload.price_range = pr0
       payload.price_range_eq = pr0
-      payload.price_level_eq = pr0 + 1 // 1..4 (others)
+      payload.price_level_eq = pr0 + 1
       payload.price_eq = pr0 + 1
       payload.price_level = pr0 + 1
     }
   }
 
-  // Ensure no conflicting legacy keys
   delete payload.price
   delete payload.priceLevel
 
@@ -1099,33 +1083,25 @@ function rf_to_payload_random() {
   const areaRaw = normStr(randomFilters.value.area ?? '')
   const cuisineRaw = normStr(randomFilters.value.cuisine ?? '')
 
-  // Contract requires exactly these keys
   const payload = {
     user_email: ACTIVE_EMAIL,
     area: areaRaw ? (/^any$/i.test(areaRaw) ? 'any' : areaRaw) : 'any',
     cuisine_type: cuisineRaw ? (/^any$/i.test(cuisineRaw) ? 'any' : cuisineRaw) : 'any',
-    price_level: 'any', // we decide numeric levels in fetch
+    price_level: 'any',
   }
   return payload
 }
 
-// Helper: given a price symbol, return desired backend price_level(s)
 function desiredLevelsForSymbol(sym) {
   switch (sym) {
-    case '$':
-      return [1, 0]
-    case '$$':
-      return [2]
-    case '$$$':
-      return [3]
-    case '$$$$':
-      return [4]
-    default:
-      return [] // Any
+    case '$': return [1, 0]
+    case '$$': return [2]
+    case '$$$': return [3]
+    case '$$$$': return [4]
+    default: return []
   }
 }
 function rowToPostRandom(row) {
-  // Shape per randomiserSearch response
   const lat = Number(row.lat)
   const lng = Number(row.long ?? row.lng)
   return {
@@ -1176,7 +1152,6 @@ async function fetchRandomPost() {
 
     let arr = []
 
-    // Try explicit levels first (e.g., '$' → [1,0])
     if (levels.length) {
       for (const lvl of levels) {
         const payload = { ...basePayload, price_level: lvl }
@@ -1185,47 +1160,34 @@ async function fetchRandomPost() {
       }
     }
 
-    // If still empty (or "Any" selected), try with price_level='any'
     if (!arr || !arr.length) {
       const anyPayload = { ...basePayload, price_level: 'any' }
       arr = await call(anyPayload)
-      // If we actually wanted a price symbol, apply client-side filter
       if (arr && arr.length && levels.length) {
         arr = arr.filter((row) => {
           const lvl = Number(row?.price_level)
           if (Number.isNaN(lvl)) return false
           switch (sym) {
-            case '$':
-              return lvl === 0 || lvl === 1
-            case '$$':
-              return lvl === 2
-            case '$$$':
-              return lvl === 3
-            case '$$$$':
-              return lvl === 4
-            default:
-              return true
+            case '$': return lvl === 0 || lvl === 1
+            case '$$': return lvl === 2
+            case '$$$': return lvl === 3
+            case '$$$$': return lvl === 4
+            default: return true
           }
         })
       }
     }
 
-    // Enforce client-side price filter even if backend ignored our price_level
     if (arr && arr.length && levels.length) {
       arr = arr.filter((row) => {
         const lvl = Number(row?.price_level)
         if (Number.isNaN(lvl)) return false
         switch (sym) {
-          case '$':
-            return lvl === 0 || lvl === 1
-          case '$$':
-            return lvl === 2
-          case '$$$':
-            return lvl === 3
-          case '$$$$':
-            return lvl === 4
-          default:
-            return true
+          case '$': return lvl === 0 || lvl === 1
+          case '$$': return lvl === 2
+          case '$$$': return lvl === 3
+          case '$$$$': return lvl === 4
+          default: return true
         }
       })
     }
@@ -1262,7 +1224,6 @@ function clearFilters() {
   showAreaList.value = false
   cuisineSuggestions.value = []
   areaSuggestions.value = []
-  // Refill caches quietly (do not auto-open dropdowns)
   Promise.resolve().then(async () => {
     try {
       if (!allCuisines.value.length) allCuisines.value = normalizeList(await getAllCuisines(''))
@@ -1347,7 +1308,6 @@ async function getPostById(postId) {
 function rowToPost(row) {
   const lat = Number(row.lat ?? row.latitude)
   const lng = Number(row.long ?? row.lng ?? row.longitude ?? row.longtitude)
-  // Normalize visibility with robust coercion (bool/number/string)
   function coerceBool(x) {
     if (x === null || x === undefined) return null
     if (typeof x === 'boolean') return x
@@ -1397,7 +1357,7 @@ function rowToPost(row) {
 
 async function load() {
   applyTheme()
-  // Preload full filter option lists (so empty inputs show "all")
+  // Preload full filter option lists
   Promise.resolve().then(async () => {
     try {
       allCuisines.value = normalizeList(await getAllCuisines(''))
@@ -1442,35 +1402,60 @@ watch(
     showRCuisineList.value,
     showRAreaList.value,
   ],
-  () => nextTick(() => initTooltips()),
+  () => nextTick(() => initTooltips())
 )
 </script>
 
 <template>
   <div class="page sage-bg">
-    <!-- Top toolbar with Theme Switcher -->
+    <!-- Top toolbar with Cuisine Theme Switcher -->
     <section class="container mb-2">
       <div class="d-flex align-items-center justify-content-end">
-        <div class="theme-switcher btn-group btn-group-sm">
-          <button class="btn btn-outline-secondary" @click="cycleTheme" title="Cycle theme">
-            <span v-if="theme === 'light'">☀️ Light</span>
-            <span v-else-if="theme === 'brand-mint'">🌿 Mint</span>
-            <span v-else-if="theme === 'brand-lagoon'">🌊 Lagoon</span>
-            <span v-else>🍇 Plum</span>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Cuisine theme">
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            :class="{ active: theme === 'japanese' }"
+            @click="setTheme('japanese')"
+            title="Japanese"
+          >
+            🇯🇵 Japanese
           </button>
           <button
-            class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
-            data-bs-toggle="dropdown"
-            aria-expanded="false"
-          />
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li><button class="dropdown-item" @click="setTheme('light')">☀️ Light</button></li>
-            <li><button class="dropdown-item" @click="setTheme('brand-mint')">🌿 Mint</button></li>
-            <li>
-              <button class="dropdown-item" @click="setTheme('brand-lagoon')">🌊 Lagoon</button>
-            </li>
-            <li><button class="dropdown-item" @click="setTheme('brand-plum')">🍇 Plum</button></li>
-          </ul>
+            type="button"
+            class="btn btn-outline-secondary"
+            :class="{ active: theme === 'italian' }"
+            @click="setTheme('italian')"
+            title="Italian"
+          >
+            🇮🇹 Italian
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            :class="{ active: theme === 'french' }"
+            @click="setTheme('french')"
+            title="French"
+          >
+            🇫🇷 French
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            :class="{ active: theme === 'chinese' }"
+            @click="setTheme('chinese')"
+            title="Chinese"
+          >
+            🇨🇳 Chinese
+          </button>
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            @click="cycleTheme"
+            title="Cycle themes"
+          >
+            🔁
+          </button>
         </div>
       </div>
     </section>
@@ -1601,7 +1586,7 @@ watch(
           </div>
         </div>
 
-        <!-- Randomised post result in the same background shell -->
+        <!-- Randomised post result -->
         <div
           v-if="randomPost"
           class="card themed-card position-relative randomised-panel post-clickable"
@@ -1627,6 +1612,7 @@ watch(
         </div>
         <div v-else class="empty">No post found for that filter.</div>
       </div>
+
       <div class="d-flex align-items-center justify-content-between mb-2">
         <h3 class="feed-title mb-0">Posts</h3>
       </div>
@@ -1995,7 +1981,6 @@ watch(
   background: transparent;
   border: none;
   padding: 0;
-  /* border-radius: 50%; */
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -2011,7 +1996,6 @@ watch(
 .fab-icon {
   width: 50px;
   height: 50px;
-  /* border-radius: 50%; */
   object-fit: contain;
 }
 
@@ -2066,9 +2050,8 @@ watch(
   overflow: auto;
 }
 
-/* Limit visible options to ~3 (plus the header row), rest scrollable */
+/* Limit visible options */
 .dropdown-menu.filter-list {
-  /* Each .dropdown-item is roughly ~44px tall with current padding; 4 rows = header + 3 options */
   max-height: calc(44px * 4);
   overflow: auto;
 }
@@ -2146,12 +2129,12 @@ watch(
 }
 
 .sage-tag {
-  background-color: var(--sage-600, #8b9d83); /* everyone */
+  background-color: var(--sage-600, #8b9d83);
   color: #fff;
 }
 
 .terracotta-tag {
-  background-color: var(--terracotta-500, #d4816f); /* friends only */
+  background-color: var(--terracotta-500, #d4816f);
   color: #fff;
 }
 
@@ -2184,7 +2167,6 @@ watch(
   max-width: min(1200px, 96vw);
   margin: 0 auto;
 }
-/* In preview modal, render images at full size (no cropping), allow scroll if taller than viewport */
 :deep(.modal .modal-content) {
   max-height: 96vh;
   overflow: auto;
