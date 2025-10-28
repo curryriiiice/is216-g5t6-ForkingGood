@@ -81,15 +81,23 @@ const deletePost = async (req, res) => {
 }
 // tested, works 
 
-const getAllUsernames = async (req, res) => {
-    const { data, error: getUsernamesError } = await service.getAllUsernames(); 
+const getAllUsers = async (req, res) => {
+    // get current_user_email from FE
+    const { user_email } = req.body;
+    
+    // check if current_user_email is received 
+    if (!user_email) {
+        return res.status(400).json({ error: "Current user email is required" });
+    }
 
-    if (getUsernamesError) {
-        return res.status(500).json({ message: "Error deleting post" });
+    const { data, error: getAllUsersError } = await service.getAllUsers(user_email);
+
+    if (getAllUsersError) {
+        return res.status(500).json({ message: "Error getting all users" });
     }
 
     return res.status(200).json({ data });
-}
+};
 
 const getLikedPosts = async (req, res) => {
     // get user_email from FE
@@ -134,7 +142,7 @@ export{
     getUsernamebyEmail,
     createPost,
     deletePost, 
-    getAllUsernames, 
+    getAllUsers, 
     getLikedPosts,
     getUserPosts,
 

@@ -1,4 +1,3 @@
-<!-- src/views/LoginPageView.vue -->
 <template>
   <div class="auth-shell">
     <div class="card">
@@ -69,15 +68,13 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import axios from 'axios'
+import { createClient } from '@supabase/supabase-js'
 
 const router = useRouter()
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  withCredentials: true,
-  headers: { 'Content-Type': 'application/json' }
-})
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 const identifier = ref('')
 const password = ref('')
@@ -89,16 +86,6 @@ function looksLikeEmail(v) {
   return /.+@.+\..+/.test(v)
 }
 
-async function getAllUserNames() {
-  try {
-    const { data } = await api.get('/auth/getAllUserNames')
-    return Array.isArray(data) ? data : data?.data || []
-  } catch (e) {
-    console.error('Error fetching usernames:', e)
-    throw new Error('Unable to verify user list.')
-  }
-}
-
 async function onSubmit() {
   if (loading.value) return
   error.value = ''
@@ -108,47 +95,60 @@ async function onSubmit() {
 
   loading.value = true
   try {
-    const allUsers = await getAllUserNames()
-    const input = identifier.value.trim().toLowerCase()
+    // Resolve identifier to an email if the user typed @username
+    let emailForLogin = identifier.value.trim()
+    if (!looksLikeEmail(emailForLogin)) {
+      // normalise @username -> lowercase, ensure leading @ in DB
+      const handle = emailForLogin.startsWith('@') ? emailForLogin.toLowerCase() : ('@' + emailForLogin.toLowerCase())
+      const { data: row, error: qErr } = await supabase
+        .from('users')
+        .select('user_email')
+        .eq('username', handle)
+        .maybeSingle()
 
-    const userExists = allUsers.some((u) =>
-      typeof u === 'string'
-        ? u.toLowerCase() === input
-        : u?.username?.toLowerCase() === input || u?.email?.toLowerCase() === input
-    )
+      if (qErr) {
+        console.error('Lookup error:', qErr)
+        throw new Error('Could not verify username. Please try again.')
+      }
 
-    if (!userExists) {
-      error.value = 'No such user found. Please sign up first.'
+      if (!row?.user_email) {
+        error.value = 'No such user found. Please sign up first.'
+        loading.value = false
+        return
+      }
+      emailForLogin = row.user_email
+    }
+
+    // Login with Supabase using email + password
+    const { data, error: signErr } = await supabase.auth.signInWithPassword({
+      email: emailForLogin,
+      password: password.value
+    })
+
+    if (signErr) {
+      // Common auth errors
+      const msg = (signErr?.message || '').toLowerCase()
+      if (msg.includes('invalid login') || msg.includes('invalid')) {
+        error.value = 'Invalid credentials. Please try again.'
+      } else if (msg.includes('email not confirmed') || msg.includes('email not confirmed')) {
+        error.value = 'Please confirm your email before logging in.'
+      } else {
+        error.value = signErr.message || 'Unable to log in. Please try again.'
+      }
       loading.value = false
       return
     }
 
-    const payload = looksLikeEmail(identifier.value)
-      ? { email: identifier.value, password: password.value }
-      : { username: identifier.value, password: password.value }
-
-    const { data } = await api.post('/auth/login', payload)
-    const token =
-      data?.token ||
-      data?.access_token ||
-      data?.accessToken ||
-      data?.data?.token ||
-      null
-
-    if (token) {
-      localStorage.setItem('token', token)
-      sessionStorage.setItem('token', token)
-      router.replace('/dashboard')
-    } else {
-      error.value = 'Login failed. No token returned.'
+    // Optional: expose access token for legacy flows
+    if (data?.session?.access_token) {
+      localStorage.setItem('sb-access-token', data.session.access_token)
+      sessionStorage.setItem('sb-access-token', data.session.access_token)
     }
+
+    router.replace('/dashboard')
   } catch (e) {
-    const status = e?.response?.status
-    const msg = e?.response?.data?.message || e?.response?.data?.detail || e?.message
-    if (status === 400 || status === 401) error.value = 'Invalid credentials. Please try again.'
-    else if (status >= 500) error.value = 'Server error. Please try again later.'
-    else error.value = msg || 'Unable to log in. Please try again.'
     console.error('Login failed:', e)
+    error.value = e?.message || 'Unable to log in. Please try again.'
   } finally {
     loading.value = false
   }
