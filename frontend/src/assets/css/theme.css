@@ -1,248 +1,174 @@
-/* =====================================================================
-   ForkingGood Theme — Light + Brand Variants (no dark mode)
-   ===================================================================== */
+/* ========= Cuisine Theme Backgrounds (Light only) ========= */
+/* Add the theme-* class to your page wrapper (e.g., <div class="page theme-japanese">) */
+/* Add .themed-anim to enable gentle motion (respects prefers-reduced-motion) */
 
-/* ---------- Base (light) palette & tokens ---------- */
-:root {
-  /* Palette */
-  --sage-700: #6f8168;
-  --sage-600: #8B9D83;
-  --sage-500: #A8B9A5;
-  --cream-50:  #FAF9F6;
-  --cream-100: #F5F3EE;
-  --terra-500: #D4816F;
-  --terra-600: #C07261;
-  --charcoal:  #2C3333;     /* primary text */
-  --ink-500:   #475569;     /* muted text */
-  --ink-400:   #6B7280;     /* secondary text */
-  --ink-300:   #9CA3AF;     /* tertiary text */
-  --line-200:  #E8E6E1;     /* borders / separators */
-
-  /* Surfaces */
-  --bg:        linear-gradient(135deg, var(--cream-100) 0%, #E8E6E1 100%);
-  --surface:   rgba(250, 249, 246, 0.95); /* glass blocks, modals, filters */
-  --surface-card: #ffffff;
-
-  /* Effects / shape */
-  --radius-lg: 24px;
-  --radius-md: 16px;
-  --glass-blur: 20px;
-  --shadow-deep: 0 20px 60px rgba(44, 51, 51, 0.12), 0 0 0 1px rgba(139,157,131,0.10);
-  --shadow-card: 0 12px 32px rgba(44, 51, 51, 0.08);
+/* ---------- JAPANESE (Sakura + Torii) ---------- */
+.theme-japanese {
+  --bg1: #FFF1F5; /* sakura blush */
+  --bg2: #FFF7FB; /* light pink */
+  --bg3: #FFF2DB; /* warm peach */
+  background:
+    radial-gradient(1200px 600px at 12% -20%, var(--bg1), transparent 60%),
+    radial-gradient(1000px 540px at 100% 0%, var(--bg2), transparent 50%),
+    radial-gradient(900px 600px at 80% 100%, var(--bg3), transparent 55%),
+    linear-gradient(180deg, #fff9fb, #fff4f7 60%, #fff0f3);
+  position: relative;
+  overflow: hidden;
+}
+.theme-japanese.themed-anim::before {
+  content: "";
+  position: fixed; inset: -6% -6% -6% -6%;
+  z-index: -1; pointer-events: none; opacity: .45;
+  background-repeat: repeat; background-size: 220px 160px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='13' viewBox='0 0 16 13'><path d='M8 1c4 0 7 3 7 6s-2 5-7 5S1 9 1 6 4 1 8 1Z' fill='%23f9a8d4' fill-opacity='.32'/></svg>");
+  animation: petalGlide 26s ease-in-out infinite;
+}
+@keyframes petalGlide {
+  0% { transform: translate3d(-2%, -3%, 0) rotate(0deg); }
+  50%{ transform: translate3d(1%, 3%, 0) rotate(8deg); }
+  100%{ transform: translate3d(4%, 7%, 0) rotate(16deg); }
+}
+.theme-japanese::after {
+  content: "";
+  position: fixed; right: -2vw; bottom: -1vh; width: min(42vw, 520px); aspect-ratio: 13 / 9;
+  z-index: -1; pointer-events: none; opacity: .18;
+  background: no-repeat bottom right / contain
+    url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 130 90'>\
+<rect width='130' height='90' fill='none'/>\
+<path d='M5 12h120v6H5zM20 18h10v62H20zM100 18h10v62h-10zM10 28h110v6H10zM35 34h10v46H35zM85 34h10v46H85z' fill='%238e1f2f' fill-opacity='.85'/>\
+</svg>");
 }
 
-/* ---------- Brand themes (override accents + background) ---------- */
-:root[data-theme="brand-mint"]  {
-  --sage-600:#2fb686; --sage-500:#67c5a5;
-  --terra-500:#009970;
-  --terra-600:#007A59;
-  --terracotta-500:#009970;
-  --terracotta-600:#007A59;
-  --bg:      linear-gradient(135deg, #ECF8F3 0%, #D6F2E8 100%);
-  --surface: rgba(248, 253, 250, 0.92);
-  --line-200:#E2EFE9;
+/* ---------- CHINESE (Red/Gold + Lanterns) ---------- */
+.theme-chinese {
+  --bg1: #FFF1E6; /* warm peach */
+  --bg2: #FFF6EB; /* pale apricot */
+  --bg3: #FFE6E6; /* pinkish red tint */
+  background:
+    radial-gradient(1200px 560px at 14% -20%, var(--bg1), transparent 60%),
+    radial-gradient(1100px 520px at 100% 0%, var(--bg2), transparent 50%),
+    radial-gradient(900px 620px at 80% 100%, var(--bg3), transparent 55%),
+    linear-gradient(180deg, #fff8f2, #fff1ea 60%, #ffebe3);
+  position: relative;
+  overflow: hidden;
 }
-:root[data-theme="brand-lagoon"]{
-  --sage-600:#2a8ecf; --sage-500:#5aa8db;
-  --terra-500:#1E4F91;
-  --terra-600:#163B6B;
-  --terracotta-500:#1E4F91;
-  --terracotta-600:#163B6B;
-  --bg:      linear-gradient(135deg, #EAF4FD 0%, #D9EEFB 100%);
-  --surface: rgba(245, 250, 255, 0.92);
-  --line-200:#DCEAF6;
+.theme-chinese.themed-anim::before {
+  content: ""; position: fixed; inset: -6% -6% -6% -6%;
+  z-index: -1; pointer-events: none; opacity: .35;
+  background-repeat: repeat; background-size: 220px 220px;
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='28' height='40' viewBox='0 0 28 40'>\
+<ellipse cx='14' cy='16' rx='10' ry='12' fill='%23e11d48' fill-opacity='.42'/>\
+<rect x='11' y='2' width='6' height='4' rx='1' fill='%23b91c1c' fill-opacity='.5'/>\
+<rect x='11' y='28' width='6' height='4' rx='1' fill='%23b91c1c' fill-opacity='.5'/>\
+<path d='M14 32v6' stroke='%23b91c1c' stroke-opacity='.6' stroke-width='2'/>\
+</svg>");
+  animation: lanternFloat 24s ease-in-out infinite alternate;
 }
-:root[data-theme="brand-plum"]  {
-  --sage-600:rgb(113, 63, 207); --sage-500:#9872da;
-  --terra-500:#a881d0;
-  --terra-600:#D291BC;
-  --terracotta-500:#a881d0;
-  --terracotta-600:#957DAD;
-  --bg:      linear-gradient(135deg, #F3ECFB 0%, #ECE3FA 100%);
-  --surface: rgba(251, 248, 255, 0.92);
-  --line-200:#E9E1F6;
+@keyframes lanternFloat {
+  0% { transform: translate3d(0%, 2%, 0) }
+  50%{ transform: translate3d(-2%, -2%, 0) }
+  100%{ transform: translate3d(3%, -4%, 0) }
 }
-
-/* Smoothen theme switches a bit */
-html { transition: background-color .2s ease, color .2s ease, border-color .2s ease; }
-
-/* ---------- Utilities & layout ---------- */
-.sage-bg { background: var(--bg) !important; }
-
-.sage-chip {
-  font-size: 13px; color: var(--charcoal); font-weight: 600;
-  background: var(--surface); padding: 6px 14px; border-radius: 10px;
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  border: 1px solid rgba(139, 157, 131, 0.2);
+.theme-chinese::after {
+  content: ""; position: fixed; right: -3vw; bottom: -1vh; width: min(48vw, 560px); aspect-ratio: 16 / 9;
+  z-index: -1; pointer-events: none; opacity: .2;
+  background: no-repeat bottom right / contain
+    url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 90'>\
+<rect width='160' height='90' fill='none'/>\
+<path d='M10 60c20-18 40-18 60 0 30-20 60-20 80 0v10H10z' fill='%23f59e0b' fill-opacity='.6'/>\
+<path d='M5 70h150v6H5z' fill='%23b91c1c' fill-opacity='.75'/>\
+</svg>");
 }
 
-/* Floating Action Button (accent gradient) */
-.fab-terracotta{
-  width:64px;height:64px;border-radius:20px;border:0;
-  background:linear-gradient(135deg,var(--terra-500),var(--terra-600))!important;
-  box-shadow:0 12px 40px color-mix(in srgb, var(--terra-500) 40%, transparent),
-             0 0 0 1px color-mix(in srgb, var(--terra-500) 10%, transparent);
+/* ---------- ITALIAN (Tuscan Greens + Colosseum) ---------- */
+.theme-italian {
+  --bg1: #E9F7EF; /* sage */
+  --bg2: #F4FFF6; /* mint cream */
+  --bg3: #FFF7E0; /* sunlit wheat */
+  background:
+    radial-gradient(1200px 560px at 10% -18%, var(--bg1), transparent 60%),
+    radial-gradient(1100px 520px at 100% -4%, var(--bg2), transparent 50%),
+    radial-gradient(900px 620px at 80% 100%, var(--bg3), transparent 55%),
+    linear-gradient(180deg, #f7fff9, #f2fff6 60%, #fff6e9);
+  position: relative;
+  overflow: hidden;
+}
+.theme-italian.themed-anim::before {
+  content: ""; position: fixed; inset: -5% -5% -5% -5%;
+  z-index: -1; pointer-events: none; opacity: .35;
+  background-repeat: repeat; background-size: 210px 160px;
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='18' height='12' viewBox='0 0 18 12'>\
+<path d='M1 6c5-8 11-6 16 0-5 6-11 8-16 0Z' fill='%230ea5a4' fill-opacity='.30'/>\
+</svg>");
+  animation: basilFloat 22s ease-in-out infinite;
+}
+@keyframes basilFloat {
+  0% { transform: translate3d(-2%, -2%, 0) rotate(0deg); }
+  50%{ transform: translate3d(2%, 1%, 0) rotate(6deg); }
+  100%{ transform: translate3d(4%, 3%, 0) rotate(12deg); }
+}
+.theme-italian::after {
+  content: ""; position: fixed; right: -2vw; bottom: -1vh; width: min(48vw, 560px); aspect-ratio: 16 / 9;
+  z-index: -1; pointer-events: none; opacity: .18;
+  background: no-repeat bottom right / contain
+    url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 160 90'>\
+<rect width='160' height='90' fill='none'/>\
+<path d='M10 70h140V45c-30-10-70-10-140 0v25z' fill='%2393c5aa' fill-opacity='.75'/>\
+<g fill='%235a7f71' fill-opacity='.9'>\
+<rect x='20' y='55' width='12' height='10' rx='2'/>\
+<rect x='40' y='52' width='12' height='13' rx='2'/>\
+<rect x='60' y='50' width='12' height='15' rx='2'/>\
+<rect x='80' y='48' width='12' height='17' rx='2'/>\
+<rect x='100' y='50' width='12' height='15' rx='2'/>\
+<rect x='120' y='52' width='12' height='13' rx='2'/>\
+</g>\
+</svg>");
 }
 
-/* Glass blocks (filter bar, carousel wrapper, etc.) */
-.sage-glass{
-  background:var(--surface)!important;
-  -webkit-backdrop-filter:blur(var(--glass-blur));backdrop-filter:blur(var(--glass-blur));
-  border:1px solid rgba(139,157,131,.2)!important;border-radius:20px!important;
-  box-shadow:var(--shadow-card)!important;
+/* ---------- FRENCH (Pastel Blue/Creme + Eiffel) ---------- */
+.theme-french {
+  --bg1: #EAF2FF; /* pastel blue */
+  --bg2: #FFF4E6; /* creme */
+  --bg3: #FFE6F0; /* pink hint */
+  background:
+    radial-gradient(1200px 560px at 12% -18%, var(--bg1), transparent 60%),
+    radial-gradient(1100px 520px at 100% 0%, var(--bg2), transparent 50%),
+    radial-gradient(900px 600px at 80% 100%, var(--bg3), transparent 55%),
+    linear-gradient(180deg, #f5f9ff, #fff7ef 60%, #fff0f6);
+  position: relative;
+  overflow: hidden;
+}
+.theme-french.themed-anim::before {
+  content: ""; position: fixed; inset: -6% -6% -6% -6%;
+  z-index: -1; pointer-events: none; opacity: .35;
+  background-repeat: repeat; background-size: 200px 160px;
+  background-image: url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14'>\
+<path d='M7 1c2 2 3 2 5 0-2 2-2 3 0 5-2-2-3-2-5 0 2-2 3-2 0-5 0 0 0 0 0 0Z' fill='%236b7280' fill-opacity='.22'/>\
+</svg>");
+  animation: parisTwinkle 24s ease-in-out infinite alternate;
+}
+@keyframes parisTwinkle {
+  0% { transform: translate3d(-2%, 0%, 0) }
+  50%{ transform: translate3d(2%, -2%, 0) }
+  100%{ transform: translate3d(3%, 2%, 0) }
+}
+.theme-french::after {
+  content: ""; position: fixed; right: -2vw; bottom: -1vh; width: min(42vw, 520px); aspect-ratio: 13 / 9;
+  z-index: -1; pointer-events: none; opacity: .2;
+  background: no-repeat bottom right / contain
+    url("data:image/svg+xml;utf8,\
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 130 90'>\
+<rect width='130' height='90' fill='none'/>\
+<path d='M65 10l-8 20h16L65 10zM45 64h40l5 12H40l5-12zM50 44h30l5 12H45l5-12z' fill='%232c3e50' fill-opacity='.85'/>\
+<rect x='30' y='76' width='70' height='6' fill='%232c3e50' fill-opacity='.7'/>\
+</svg>");
 }
 
-/* Map card shell / big tiles */
-.sage-map{ border-radius:var(--radius-lg); box-shadow:var(--shadow-deep); background:var(--surface-card); }
-
-/* Buttons */
-.btn-clear{
-  border:1.5px solid var(--line-200)!important; background:#fff!important;
-  color:var(--ink-500)!important; border-radius:12px!important; font-weight:600;
-}
-.btn-clear:hover{ filter:brightness(.98); }
-
-.btn-fit{
-  border:none!important; background:var(--sage-600)!important; color:#fff!important;
-  border-radius:12px!important; font-weight:700; box-shadow:0 6px 18px rgba(0,0,0,.18);
-}
-.btn-fit:hover{ filter:brightness(1.02); }
-
-/* Drawer / side sheet */
-.side{
-  background:var(--cream-50)!important;
-  box-shadow:-8px 0 40px rgba(44,51,51,.12)!important;
-  padding:28px 24px!important;
-}
-.close{
-  top:20px!important; right:20px!important; width:36px!important; height:36px!important;
-  background:rgba(139,157,131,.10)!important; border-radius:10px!important; color:var(--charcoal)!important;
-}
-
-/* Card hover helper */
-.card-hover{
-  border:1px solid rgba(139,157,131,.15)!important; border-radius:16px!important;
-  transition:transform .12s ease, box-shadow .2s ease, border-color .2s ease!important;
-}
-.card-hover:hover{ border-color:rgba(139,157,131,.30)!important; }
-
-/* Backdrop (generic) */
-.backdrop{ background:rgba(44,51,51,.25)!important; -webkit-backdrop-filter:blur(4px); backdrop-filter:blur(4px); }
-
-/* ---------- Form controls (global) ---------- */
-.form-select.form-select-sm.text-center,
-.form-control, .form-select{
-  padding:10px 14px; border:1.5px solid var(--line-200); border-radius:12px;
-  font-size:14px; font-weight:500; color:#111827; background:#fff; outline:none;
-}
-.form-control:focus, .form-select:focus{
-  border-color:var(--sage-600);
-  box-shadow:0 0 0 3px color-mix(in oklab, var(--sage-600) 35%, transparent);
-}
-
-/* Labels */
-.form-label,
-.form-label.small,
-.form-label.mb-1.small,
-.form-label.mb-1.small.fw-semibold,
-.form-label.mb-1.small.fw-semibold.text-secondary{
-  font-size:12px; font-weight:700; color:var(--charcoal);
-  letter-spacing:.2px; margin-bottom:6px;
-}
-
-/* Placeholders (light) */
-input::placeholder, textarea::placeholder{ color:var(--ink-400); opacity:.9; }
-
-/* ---------- Google Maps InfoWindow ---------- */
-.map-info{ max-width:240px; font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,Arial; color:var(--charcoal); }
-.map-info img{ width:100%; height:140px; object-fit:cover; border-radius:12px; margin-bottom:10px; box-shadow:0 2px 10px rgba(44,51,51,.15); }
-.map-info .title{ font-weight:800; font-size:15px; color:var(--charcoal); margin:4px 0 2px; }
-.map-info .meta{ color:var(--ink-400); font-size:12px; margin-bottom:8px; }
-.map-info .rating{ display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:10px; color:var(--terra-500); font-weight:700; }
-.map-info button{
-  background:var(--sage-600); color:#fff; border:none; border-radius:8px;
-  padding:6px 10px; cursor:pointer; font-weight:600; transition:background .2s;
-}
-.map-info button:hover{ background:var(--sage-500); }
-
-/* ---------- Cards & feed ---------- */
-.themed-card{
-  padding:16px; margin-bottom:12px; border-radius:var(--radius-md);
-  background:var(--surface); box-shadow:var(--shadow-card);
-  border:1px solid rgba(139,157,131,.15);
-  transition:transform .12s ease, box-shadow .2s ease;
-}
-.themed-card:hover{ transform:translateY(-2px); box-shadow:0 12px 32px rgba(44,51,51,.08); }
-.themed-card .title{ margin:0; font-size:18px; font-weight:800; color:var(--charcoal); }
-
-/* Rating pill */
-.rating-pill{
-  display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:10px;
-  background:linear-gradient(135deg,#FEF3C7,#FDE68A); color:#92400E; font-weight:800; font-size:14px; line-height:1;
-}
-
-/* Post chips */
-.post-chip{ padding:4px 10px; border-radius:8px; font-size:12px; font-weight:600; }
-.post-chip--cuisine{ background:rgba(139,157,131,.15); color:var(--sage-600); }
-.post-chip--addr{ background:rgba(212,129,111,.1); color:var(--terra-500); }
-
-/* Active card (from map deep link) */
-.card.active{ background:var(--ink-400); color:#f9fafb; border-color:rgba(255,255,255,.08); }
-.card.active .post-chip, .card.active .post-chip--cuisine, .card.active .post-chip--addr{
-  color:#f9fafb; border-color:rgba(255,255,255,.18); background:rgba(255,255,255,.06);
-}
-.card.active .post-chip--addr{ color:#cbd5e1; }
-
-/* Price chips (filter bar) */
-.price-chip{
-  border:1px solid var(--line-200); border-radius:10px; background:#fff;
-  font-weight:800; padding:6px 12px; color:#111827;
-}
-.price-chip:hover{ background:#F2F5F8; }
-.price-chip.active{
-  background:color-mix(in oklab,var(--sage-600) 12%, white);
-  border-color:var(--sage-600); box-shadow:inset 0 0 0 1px var(--sage-600); color:#111827;
-}
-
-/* Dropdowns */
-.dropdown-menu{ max-height:260px; overflow:auto; }
-
-/* Motion respect */
-@media (prefers-reduced-motion: reduce){
-  .card-hover, .themed-card, .btn-clear, .btn-fit{ transition:none!important; }
-}
-
-/* ====================== Modal polish (light only) ====================== */
-.modal .modal-content{
-  background:var(--surface); color:var(--charcoal);
-  border:1px solid var(--line-200); border-radius:16px; box-shadow:0 24px 64px rgba(0,0,0,.12);
-}
-.modal .form-label, .modal label{ color:var(--charcoal); font-weight:800; letter-spacing:.2px; }
-.modal .text-muted, .modal .form-text{ color:var(--ink-400)!important; }
-
-/* Inputs inside modal */
-.modal .form-control, .modal .form-select{
-  background:#fff; color:#111827; border:1.5px solid var(--line-200); border-radius:12px;
-}
-.modal .form-control:focus, .modal .form-select:focus{
-  border-color:var(--sage-600);
-  box-shadow:0 0 0 3px color-mix(in oklab, var(--sage-600) 35%, transparent);
-}
-
-/* Visibility radios as BIG chips (AddRecommendationForm.vue) */
-.vis-group{ display:flex; gap:10px; flex-wrap:wrap; margin-top:4px; }
-.vis-input{ position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
-.vis-chip{
-  display:inline-flex; align-items:center; gap:6px; padding:10px 14px; font-weight:900; font-size:14px;
-  border-radius:999px; cursor:pointer; user-select:none; background:#fff; color:#111827; border:2px solid var(--line-200);
-  box-shadow:0 2px 0 rgba(0,0,0,.05);
-}
-.vis-chip:hover{ filter:brightness(.98); }
-#vis-friends.vis-input:checked + .vis-chip,
-#vis-everyone.vis-input:checked + .vis-chip{
-  background:var(--sage-600); color:#fff; border-color:var(--sage-600);
-  box-shadow:0 0 0 3px color-mix(in oklab,var(--sage-600) 35%, transparent);
-}
-.vis-input:focus + .vis-chip{
-  outline:3px solid color-mix(in oklab,var(--sage-600) 45%, transparent); outline-offset:2px;
-}
+/* Optional: make sure your main page wrapper can host the background */
+.page { position: relative; min-height: 100vh; }
