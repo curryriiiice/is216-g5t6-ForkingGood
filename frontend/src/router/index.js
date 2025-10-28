@@ -5,18 +5,19 @@ import { createRouter, createWebHistory } from 'vue-router'
 import DashboardView from '@/views/DashboardView.vue'
 import MapView from '@/views/MapView.vue'
 import FriendsView from '@/views/FriendsView.vue'
+import ForkingGoodLanding from '@/views/LandingPage.vue'
 
 // Lazy-loaded views
 const ProfileView = () => import('@/views/ProfileView.vue')
-const LoginPageView = () => import('@/views/LoginPageView.vue')
-const SignupPageView = () => import('@/views/SignupPageView.vue')
+const LoginPageView = () => import('@/views/LogInPageView.vue')
+const SignupPageView = () => import('@/views/SignUpPageView.vue')
 const ReverseImageView = () => import('@/views/ReverseImageView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    // Default redirect
-    { path: '/', redirect: '/dashboard' },
+    // Public landing (use our new Lottie page)
+    { path: '/', name: 'landing', component: ForkingGoodLanding, meta: { public: true, hideNavbar: true } },
 
     // Main app views
     { path: '/dashboard', name: 'dashboard', component: DashboardView },
@@ -32,7 +33,7 @@ const router = createRouter({
     { path: '/signup', name: 'signup', component: SignupPageView, meta: { public: true, hideNavbar: true } },
 
     // Catch-all fallback
-    { path: '/:pathMatch(.*)*', redirect: '/dashboard' }
+    { path: '/:pathMatch(.*)*', redirect: '/' }
   ],
 
   scrollBehavior() {
