@@ -228,14 +228,13 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, reactive } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import axios from 'axios'
+import { createClient } from '@supabase/supabase-js'
 import Modal from '@/components/Modal.vue'
 
-const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  withCredentials: true,
-  headers: { 'Content-Type': 'application/json' },
-})
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 /* ------------------------- Props ------------------------- */
 const props = defineProps({
@@ -457,10 +456,12 @@ async function submitReverseSearch() {
 
     const form = new FormData()
     form.append('photo', fileToSend)
-
-    const { data } = await http.post('/search/reverseSearch', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    const resp = await fetch((import.meta.env.VITE_API_BASE_URL || '') + '/search/reverseSearch', {
+      method: 'POST',
+      body: form, // browser sets multipart boundary automatically
     })
+    if (!resp.ok) throw new Error('Reverse search failed with status ' + resp.status)
+    const data = await resp.json()
 
     const dataUrl = await readAsDataURL(fileToSend)
     sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl], results: data || null }))
@@ -490,11 +491,26 @@ async function submitReverseSearch() {
 /* Avatar menu actions */
 async function goLogoutPage() {
   showAvatarMenu.value = false
-  try { http.post('/auth/logout').catch(() => {}) } catch (_) {}
-  localStorage.removeItem('token')
-  sessionStorage.removeItem('token')
+  try {
+    await supabase.auth.signOut()
+  } catch (e) {
+    console.warn('Supabase signOut failed (continuing):', e)
+  }
+  try {
+    localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
+    localStorage.removeItem('sb-access-token')
+    sessionStorage.removeItem('sb-access-token')
+  } catch (_) {}
   localUser.value = null
-  router.push('/login')
+  try {
+    await router.replace('/')
+  } catch (_) {}
+  setTimeout(() => {
+    if (location.pathname !== '/') {
+     window.location.assign('/')
+   }
+  }, 50)
 }
 
 function closeReversePopup() {
@@ -543,14 +559,68 @@ function handleOutsideClick(ev) {
 onMounted(async () => {
   document.addEventListener('mousedown', handleOutsideClick)
   document.addEventListener('keydown', onEscClose)
-  if (!localUser.value) {
-    try {
-      const { data } = await http.get('/me')
-      localUser.value = data?.user || data || null
-    } catch (e) {
-      console.error('Failed to load navbar user:', e)
+
+  // Load current Supabase user and profile
+  try {
+    const { data } = await supabase.auth.getUser()
+    const user = data?.user || null
+    if (user) {
+      let profile = null
+      try {
+        const { data: row } = await supabase
+          .from('users')
+          .select('username, first_name, last_name, user_email, profile_image_url')
+          .eq('uid', user.id)
+          .maybeSingle()
+        profile = row || null
+      } catch (_) {}
+
+      localUser.value = {
+        username: profile?.username ?? user.user_metadata?.username ?? null,
+        first_name: profile?.first_name ?? user.user_metadata?.first_name ?? null,
+        last_name: profile?.last_name ?? user.user_metadata?.last_name ?? null,
+        email: profile?.user_email ?? user.email ?? null,
+        avatar_url: profile?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
+      }
+    } else if (props.user) {
+      localUser.value = props.user
+    } else {
+      localUser.value = null
     }
+  } catch (e) {
+    console.error('Failed to load navbar user (Supabase):', e)
   }
+
+  // Keep navbar in sync with auth changes
+  supabase.auth.onAuthStateChange(async (_event, session) => {
+    const user = session?.user || null
+    if (!user) {
+      localUser.value = null
+      return
+    }
+    try {
+      const { data: row } = await supabase
+        .from('users')
+        .select('username, first_name, last_name, user_email, profile_image_url')
+        .eq('uid', user.id)
+        .maybeSingle()
+      localUser.value = {
+        username: row?.username ?? user.user_metadata?.username ?? null,
+        first_name: row?.first_name ?? user.user_metadata?.first_name ?? null,
+        last_name: row?.last_name ?? user.user_metadata?.last_name ?? null,
+        email: row?.user_email ?? user.email ?? null,
+        avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
+      }
+    } catch (_) {
+      localUser.value = {
+        username: user.user_metadata?.username ?? null,
+        first_name: user.user_metadata?.first_name ?? null,
+        last_name: user.user_metadata?.last_name ?? null,
+        email: user.email ?? null,
+        avatar_url: user.user_metadata?.avatar_url ?? null,
+      }
+    }
+  })
 })
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleOutsideClick)
