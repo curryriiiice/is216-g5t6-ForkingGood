@@ -233,14 +233,96 @@ async function onSubmit() {
       return
     }
 
+    // Insert profile picture setup and create new user record in public.users
+    if (data.user) {
+      try{
+        // upload default pfp 
+        await setupProfilePicture(data.user);
+        // record everyth in public.users table 
+        await createPublicUserRecord(data.user);
+      }catch (err) {
+        console.warn('Profile setup failed, but auth user was created:', err)
+        // Continue anyway - user can upload profile pic later
+  }
+    }
+
     success.value = 'Almost done! Check your inbox for a confirmation link to activate your account.'
   } catch (e) {
     console.error('Signup error:', e)
-    error.value = 'Something went wrong. Please try again.'
+    error.value = e.message || 'Something went wrong. Please try again.'
   } finally {
     loading.value = false
   }
 }
+
+// insert credentials into public.user bECAUSE ANNOYING SUPABASE DOESNT ALLOW TRIGGERS ON AUTH SCHEMA OMLLLLL
+async function createPublicUserRecord(user) {
+  try {
+    // Get the public URL for the default avatar
+    const { data: urlData } = supabase.storage
+      .from('profile-images')
+      .getPublicUrl(`${user.email}/default-avatar.jpg`)
+    
+    const publicImageUrl = urlData.publicUrl
+
+    const { error: dbError } = await supabase
+      .from('user')
+      .insert([
+        {
+          UID: user.id,
+          user_email: user.email,
+          username: username.value,
+          profile_image_url: publicImageUrl  
+        }
+      ])
+
+    if (dbError && !dbError.message.includes('duplicate key')) {
+      console.warn('Failed to create public user record:', dbError)
+    }
+  } catch (err) {
+    console.warn('Public user creation failed:', err)
+  }
+}
+
+// Inserted setupProfilePicture function
+async function setupProfilePicture(user) {
+  try {
+    const userFolder = `profile-images/${user.email}`
+    
+    // Check if folder exists
+    const { data: folderList, error: listError } = await supabase.storage
+      .from('profile-images')
+      .list(user.email)
+
+    // If folder doesn't exist, create it by uploading default avatar from public folder
+    if (listError || !folderList || folderList.length === 0) {
+      // Get default avatar from public folder
+      const response = await fetch('/default-avatar.jpg')
+      if (!response.ok) {
+        console.warn('Failed to fetch default avatar from public folder')
+        return // Just return instead of throwing
+      }
+      
+      const defaultAvatarBlob = await response.blob()
+      
+      const { error: uploadError } = await supabase.storage
+        .from('profile-images')
+        .upload(`${user.email}/default-avatar.jpg`, defaultAvatarBlob, {
+          contentType: 'image/jpeg',
+          upsert: true
+        })
+
+      if (uploadError && !uploadError.message.includes('already exists')) {
+        console.warn('Could not create default avatar:', uploadError)
+      }
+    }
+  } catch (err) {
+    console.warn('Profile picture setup failed:', err)
+    // Don't throw error - this shouldn't block signup
+  }
+}
+
+
 
 async function resendCode() {
   resendLoading.value = true
