@@ -1852,7 +1852,7 @@ watch(
     <footer class="bottom-bar fixed-bottom d-flex align-items-center px-3">
       <div class="left d-flex align-items-center gap-2">
         <img src="/images/x.png" alt="X" class="icon" />
-        <img src="/images/ig.jpeg" alt="Instagram" class="icon" />
+        <img src="/images/ig.png" alt="Instagram" class="icon" />
         <span class="handle">@forkinggood.sg</span>
       </div>
     </footer>
