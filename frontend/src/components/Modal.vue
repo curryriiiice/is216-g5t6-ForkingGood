@@ -162,3 +162,4 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 </style>
+
