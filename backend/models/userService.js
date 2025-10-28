@@ -133,17 +133,8 @@ const deletePost = async (postid) => {
 }
 // tested, works
 
-const getAllUsernames = async() => {
-    const {data, error} = await supabase.from('user').select('username'); 
-
-    if (error) {
-        return { error };
-    }
-
-    // extract only usernames from objs
-    const usernames = data.map(user => user.username);
-
-    return { data: usernames };
+const getAllUsers = async (current_user_email) => {
+    return await supabase.rpc('get_all_users', {current_user_email: current_user_email});
 }
 
 const getLikedPosts = async (user_email) => {
@@ -159,7 +150,7 @@ export{
     getUsernamebyEmail,
     createPost,
     deletePost, 
-    getAllUsernames, 
+    getAllUsers, 
     getLikedPosts,
     getUserPosts,
     

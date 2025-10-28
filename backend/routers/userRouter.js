@@ -12,10 +12,10 @@ import {
 	getUsernamebyEmail,
 	createPost,
 	deletePost,
-	getAllUsernames, 
+	getAllUsers, 
 	getLikedPosts,
 	getUserPosts,
-
+	
 }from '../controllers/userController.js';
 
 //router.get
@@ -26,7 +26,7 @@ router.post("/getPostbyId", getPostbyId);
 router.post("/getUsernamebyEmail", getUsernamebyEmail);
 router.post("/createPost", upload.array('photos'), createPost);
 router.delete("/deletePost", deletePost); 
-router.get("/getAllUsernames", getAllUsernames); 
+router.post("/getAllUsers", getAllUsers); 
 router.post("/getLikedPosts", getLikedPosts);
 router.post("/getUserPosts", getUserPosts); 
 
