@@ -255,6 +255,17 @@ const editPost = async (req, res) => {
     return res.status(200).json({ data });
 };
 
+const getAllUsernames = async (req, res) => {
+    const { data, error: getAllUsernamesError } = await service.getAllUsernames();
+
+    if (getAllUsernamesError) {
+        return res.status(500).json({ message: "Error getting all usernames" });
+    }
+
+    return res.status(200).json({ data });
+};
+
+
 export{
     getPostbyId,
     getUsernamebyEmail,
@@ -269,6 +280,7 @@ export{
     getProfile,
     deleteUserAccount,
     editPost,
+    getAllUsernames,
 
 
 }
