@@ -21,6 +21,7 @@ import {
 	getProfile,
 	deleteUserAccount,
 	editPost,
+	getAllUsernames,
 
 
 }from '../controllers/userController.js';
@@ -42,6 +43,7 @@ router.delete('/removeProfilePicture', removeProfilePicture);
 router.post('/getProfile', getProfile);
 router.delete('/deleteUserAccount', deleteUserAccount);
 router.put('/editPost', editPost);
+router.get('/getAllUsernames', getAllUsernames);
 
 
 export default router;

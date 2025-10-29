@@ -446,6 +446,22 @@ const editPost = async (postid, user_email, name, address, cuisine_type, rating,
     };
 };
 
+const getAllUsernames = async () => {
+    let final_lst = []; 
+    const {data, error} = await supabase.from('user').select('username'); 
+
+    if(error){
+        return {error}
+    }
+
+    for(let names of data){
+        final_lst.push(names.username); 
+    }
+
+    return {data: final_lst}; 
+}
+// tested, works
+
 export{
     getPostbyId,
     getUsernamebyEmail,
@@ -460,7 +476,8 @@ export{
     getProfile,
     deleteUserAccount,
     editPost,
-    
+    getAllUsernames,
+
 
 }
 
