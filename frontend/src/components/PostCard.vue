@@ -37,7 +37,7 @@ function resolveImageUrl(p) {
   if (!p) return null
   let s = String(p).trim().replace(/^['"]+|['"]+$/g, '')
   if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
-  s = s.replace(/^[.\/]+/, '').replace(/^\/+/, '')
+  s = s.replace(/^[./]+/, '').replace(/^\/+/, '')
   return IMAGE_BASE ? `${IMAGE_BASE}/${s}` : `/${s}`
 }
 

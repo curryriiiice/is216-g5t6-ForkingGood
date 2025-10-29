@@ -22,7 +22,7 @@ function extractEmail(user) {
 function normaliseUser(user) {
   if (!user) return null
   const email = extractEmail(user)
-  const meta = { ...(user.user_metadata || {}) }
+  const meta = { ...user.user_metadata }
   return {
     id: user.id,
     email,
