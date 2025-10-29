@@ -17,7 +17,7 @@
     <div class="links">
       <RouterLink to="/dashboard" class="link">Home</RouterLink>
       <RouterLink to="/map" class="link">Map</RouterLink>
-      <RouterLink to="/myposts" class="link">Activity</RouterLink>
+      <RouterLink to="/activity" class="link">Activity</RouterLink>
       <RouterLink to="/friends" class="link badge-wrap">
         Friends
         <span v-if="pendingRequestsCount > 0" class="badge">

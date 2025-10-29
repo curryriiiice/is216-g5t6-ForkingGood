@@ -1,70 +1,76 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue' // Added watch
 import axios from 'axios'
 import Modal from '@/components/Modal.vue'
-import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import { useRouter } from 'vue-router'
+import { useAuthUser } from '@/lib/useAuthUser' // Ensure this path is correct
 
 // API
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
-// TEMP active user until auth is wired
-const ACTIVE_EMAIL = import.meta.env.VITE_ACTIVE_EMAIL || 'clarice.lim.2024@computing.smu.edu.sg'
+// Auth User
+const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
+const activeEmail = computed(() => authUser.value?.email ?? null)
 
 const router = useRouter()
 
 // UI state
 const query = ref('')
-const searchResults = ref([]) // Filtered results shown to the user
+const searchResults = ref([])
 const searchLoading = ref(false)
 const searchError = ref('')
 
 // Cache for ALL users
-const allUsersCache = ref([]) // Holds the full list fetched on load
+const allUsersCache = ref([])
 
-// State for Modals
-const showAdd = ref(false) // For "Create Post" FAB modal
-
-// --- State for Pending Requests Modal ---
+// --- RE-ADDED: State for Pending Requests Modal ---
 const showPendingModal = ref(false)
-const pendingRequests = ref([])
+const pendingRequests = ref([]) // This was the missing ref causing the error
 const pendingLoading = ref(false)
 const pendingError = ref('')
 
-// --- UPDATED: Function to fetch all users ONCE ---
+// --- Function to fetch all users ONCE ---
 async function fetchAllUsers() {
+  // Ensure user email is available before fetching
+  if (!activeEmail.value) {
+     searchError.value = 'Please log in to search users.'
+     searchLoading.value = false; // Stop loading if no user
+     allUsersCache.value = []; // Clear cache
+     searchResults.value = []; // Clear results
+     return;
+  }
   searchLoading.value = true
   searchError.value = ''
+  console.log('fetchAllUsers: Loading started...') // Keep console log
+
   try {
-    const r = await api.post('/user/getAllUsers', { user_email: ACTIVE_EMAIL })
-
+    const r = await api.post('/user/getAllUsers', { user_email: activeEmail.value })
     const usersData = Array.isArray(r.data?.data) ? r.data.data : []
-
-    // Map the raw data to the structure needed by the template
     allUsersCache.value = usersData
-      .filter((u) => u.email && u.email.toLowerCase() !== ACTIVE_EMAIL.toLowerCase()) // Added check for u.email existence
+      .filter((u) => u.email && u.email.toLowerCase() !== activeEmail.value.toLowerCase())
       .map((u) => ({
         email: u.email,
         username: u.username,
         name: u.username || u.email.split('@')[0],
-        avatar: u.profile_image_url || '/images/avatar1.png', // Uses profile_image_url
+        avatar: u.profile_image_url || '/images/avatar1.png',
         isFriend: u.friendship_status === 'friend',
         isPending: u.friendship_status === 'pending',
       }))
-
-    searchResults.value = [] // Start with empty results
+    searchResults.value = [] // Start empty
+    console.log('fetchAllUsers: API call successful')
   } catch (e) {
     console.error('[friends] fetchAllUsers failed', e)
     searchError.value = e.response?.data?.message || 'Failed to load user list.'
   } finally {
     searchLoading.value = false
+    console.log('fetchAllUsers: Loading finished. searchLoading =', searchLoading.value)
   }
 }
 
 // --- Search function filters the cache ---
 const onSearchInput = () => {
-  searchLoading.value = true
+  // No need for loading indicator here as it's instant filtering
   searchError.value = ''
   const q = query.value.trim().toLowerCase()
 
@@ -78,17 +84,16 @@ const onSearchInput = () => {
       )
     })
   }
-  searchLoading.value = false
 }
 
 // --- sendFriendReq ---
 async function sendFriendReq(user) {
+  if (!activeEmail.value) return; // Guard against action if not logged in
   user.isPending = true
   user.isFriend = false
-
   try {
     await api.post('/friends/sendFriendReq', {
-      user_email: ACTIVE_EMAIL,
+      user_email: activeEmail.value,
       friend_email: user.email,
     })
     // Success
@@ -101,16 +106,15 @@ async function sendFriendReq(user) {
 
 // --- removeFriend (using DELETE) ---
 async function removeFriend(user) {
+  if (!activeEmail.value) return; // Guard
   const yes = confirm(`Remove ${user.name || user.email} from your friends?`)
   if (!yes) return
-
   user.isFriend = false
   user.isPending = false
-
   try {
     await api.delete('/friends/removeFriend', {
       data: {
-        user_email: ACTIVE_EMAIL,
+        user_email: activeEmail.value,
         friend_email: user.email,
       },
     })
@@ -122,20 +126,24 @@ async function removeFriend(user) {
   }
 }
 
-// --- Functions for Pending Requests ---
+// --- RE-ADDED: Functions for Pending Requests ---
 async function loadPendingRequests() {
+  if (!activeEmail.value) { // Guard
+     pendingRequests.value = [] // Clear list if not logged in
+     return;
+  }
   pendingLoading.value = true
   pendingError.value = ''
-  pendingRequests.value = []
+  pendingRequests.value = [] // Initialize before fetch
   try {
-    const r = await api.post('/friends/getPendingFriendReqs', { user_email: ACTIVE_EMAIL })
+    const r = await api.post('/friends/getPendingFriendReqs', { user_email: activeEmail.value })
     const emailList = Array.isArray(r.data?.data) ? r.data.data : []
     pendingRequests.value = emailList.map((email) => ({
       sender_email: email,
     }))
   } catch (e) {
     console.error('[friends] loadPendingRequests failed', e)
-    pendingError.value = 'Failed to load pending requests.'
+    pendingError.value = 'Failed to load pending requests.' // Show error in modal
   } finally {
     pendingLoading.value = false
   }
@@ -147,9 +155,10 @@ async function openPendingModal() {
 }
 
 async function acceptFriendReq(senderEmail) {
+  if (!activeEmail.value) return; // Guard
   try {
     await api.post('/friends/acceptFriendReq', {
-      user_email: ACTIVE_EMAIL,
+      user_email: activeEmail.value,
       friend_email: senderEmail,
     })
     pendingRequests.value = pendingRequests.value.filter(
@@ -168,14 +177,15 @@ async function acceptFriendReq(senderEmail) {
     }
   } catch (e) {
     console.error('[friends] acceptFriendReq failed', e)
-    pendingError.value = 'Failed to accept request.'
+    pendingError.value = 'Failed to accept request.' // Show error in modal
   }
 }
 
 async function rejectFriendReq(senderEmail) {
+  if (!activeEmail.value) return; // Guard
   try {
     await api.post('/friends/rejectFriendReq', {
-      user_email: ACTIVE_EMAIL,
+      user_email: activeEmail.value,
       friend_email: senderEmail,
     })
     pendingRequests.value = pendingRequests.value.filter(
@@ -194,7 +204,7 @@ async function rejectFriendReq(senderEmail) {
     }
   } catch (e) {
     console.error('[friends] rejectFriendReq failed', e)
-    pendingError.value = 'Failed to reject request.'
+    pendingError.value = 'Failed to reject request.' // Show error in modal
   }
 }
 
@@ -204,15 +214,27 @@ function viewProfile(f) {
   }
 }
 
-function handleAdded() {
-  showAdd.value = false
-}
-
 onMounted(async () => {
-  await fetchAllUsers() // Load ALL users first
-  await loadPendingRequests() // Then load pending requests for the badge
+  await refreshAuthUser() // Ensure user is loaded
+  // Fetch data in parallel
+  await Promise.all([
+     fetchAllUsers(),
+     loadPendingRequests() // Call the re-added function
+  ])
   await nextTick()
 })
+
+// Watcher to refetch data if user logs in/out
+watch(activeEmail, async (newEmail, oldEmail) => {
+  if (newEmail !== oldEmail) {
+    // Refetch data in parallel
+    await Promise.all([
+       fetchAllUsers(),
+       loadPendingRequests() // Call the re-added function
+    ])
+  }
+})
+
 </script>
 
 <template>
@@ -245,38 +267,37 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div v-if="searchLoading && !allUsersCache.length" class="text-center text-muted py-5">
+      <div v-if="searchLoading && !allUsersCache.length" class="text-center text-muted py-5 mb-3">
         Loading user list...
       </div>
-      <div v-else-if="searchError" class="alert alert-danger py-2">{{ searchError }}</div>
+      <div v-else-if="searchError" class="alert alert-danger py-2 mb-3">{{ searchError }}</div>
       <div
         v-else-if="!searchResults.length && query"
-        class="empty text-muted p-4 rounded-3 bg-white shadow-sm"
+        class="empty text-muted p-4 rounded-3 bg-white shadow-sm mb-3"
       >
         No users found matching your search.
       </div>
       <div
         v-else-if="!searchResults.length && !query"
-        class="empty text-muted p-4 rounded-3 bg-white shadow-sm"
+        class="empty text-muted p-4 rounded-3 bg-white shadow-sm mb-3"
       >
         Search for friends or new users by email or username.
       </div>
+
       <div class="row g-3" v-else>
         <div v-for="user in searchResults" :key="user.email" class="col-12 col-md-6 col-lg-4">
           <div class="card h-100 shadow-sm border-0">
             <div class="card-body d-flex gap-3 align-items-center">
               <img
                 :src="user.avatar"
-                alt=""
+                alt="Avatar"
                 class="rounded-circle"
-                style="width: 56px; height: 56px; object-fit: cover"
+                style="width: 56px; height: 56px; object-fit: cover; border: 1px solid #eee"
               />
-              <div class="flex-grow-1">
-                <div class="fw-bold">{{ user.name }}</div>
-                <div class="text-muted small">{{ user.email }}</div>
+              <div class="flex-grow-1" style="min-width: 0"> <div class="fw-bold text-truncate">{{ user.name }}</div>
+                <div class="text-muted small text-truncate">{{ user.email }}</div>
               </div>
-              <div class="d-flex flex-column align-items-end gap-2">
-                <template v-if="user.isFriend">
+              <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0"> <template v-if="user.isFriend">
                   <button class="btn btn-sm btn-outline-primary" @click="viewProfile(user)">
                     View
                   </button>
@@ -303,9 +324,6 @@ onMounted(async () => {
       </div>
     </section>
 
-    <button class="fab fab-terracotta" @click="showAdd = true" title="Create Post">＋</button>
-    <div class="fab-label sage-chip">Create Post</div>
-
     <Modal :show="showPendingModal" title="Pending Friend Requests" @close="showPendingModal = false">
       <div v-if="pendingLoading" class="text-center text-muted py-3">Loading requests…</div>
       <div v-else-if="pendingError" class="alert alert-danger py-2">{{ pendingError }}</div>
@@ -322,9 +340,7 @@ onMounted(async () => {
             :key="req.sender_email"
             class="list-group-item d-flex align-items-center justify-content-between"
           >
-            <div class="fw-semibold">{{ req.sender_email }}</div>
-            <div class="d-flex gap-2">
-              <button
+            <div class="fw-semibold text-truncate">{{ req.sender_email }}</div> <div class="d-flex gap-2 flex-shrink-0"> <button
                 class="btn btn-sm btn-primary"
                 @click="acceptFriendReq(req.sender_email)"
               >
@@ -342,47 +358,29 @@ onMounted(async () => {
       </div>
     </Modal>
 
-    <Modal :show="showAdd" title="Add Food Recommendation" @close="showAdd = false">
-      <AddRecommendationForm @added="handleAdded" />
-    </Modal>
-  </div>
+    </div>
 </template>
 
 <style scoped>
+/* Copied from previous Bootstrap versions */
 .page {
-  min-height: calc(100vh - 56px);
-  padding: 18px 0 80px;
+  min-height: calc(100vh - 56px); /* Adjust if you have a navbar */
+  padding: 18px 0 80px; /* Bottom padding for potential fixed elements */
 }
 .section-title {
   font-weight: 800;
-  color: var(--charcoal);
+  color: var(--charcoal); /* Make sure --charcoal is defined */
   margin: 0;
 }
 .empty {
   text-align: center;
-  color: var(--ink-400);
+  color: var(--ink-400); /* Make sure --ink-400 is defined */
   font-weight: 500;
-}
-.fab {
-  position: fixed;
-  right: 28px;
-  bottom: 86px;
-  border: none;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  z-index: 85;
-}
-.fab-label {
-  position: fixed;
-  right: 28px;
-  bottom: 54px;
-  z-index: 85;
 }
 
 /* Style for the .btn-fit class */
 .btn-fit {
-  background: var(--accent, var(--terra-500, #ca6b4f));
+  background: var(--accent, var(--terra-500, #ca6b4f)); /* Define --accent or --terra-500 */
   color: #fff;
   border: 0;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
@@ -391,20 +389,28 @@ onMounted(async () => {
   opacity: 0.6;
 }
 
-/* --- Style for pending modal --- */
+/* --- Style for pending modal list --- */
 .list-group-item {
   background: transparent;
   padding-left: 0;
   padding-right: 0;
+  border: 0;
+}
+.list-group-flush > .list-group-item:last-child {
+    border-bottom-width: 0;
+}
+.list-group-flush > .list-group-item {
+    border-width: 0 0 1px; /* Add bottom border back */
 }
 
-/* === Modal Styling === */
+
+/* === Modal Styling (Copied from DashboardView/MapView for consistency) === */
 :deep(.modal .modal-content) {
-  background: var(--surface);
+  background: var(--surface); /* Define --surface */
   color: var(--charcoal);
-  border: 1px solid var(--line-200);
+  border: 1px solid var(--line-200); /* Define --line-200 */
   border-radius: 16px;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card); /* Define --shadow-card */
 }
 :deep(.modal .form-label),
 :deep(.modal label) {
@@ -432,16 +438,11 @@ onMounted(async () => {
   cursor: pointer;
 }
 :deep(.modal .form-check-input:checked) {
-  background-color: var(--sage-600);
+  background-color: var(--sage-600); /* Define --sage-600 */
   border-color: var(--sage-600);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--sage-600) 35%, transparent);
 }
-:deep(.modal .dropzone),
-:deep(.modal .uploader) {
-  background: color-mix(in oklab, var(--cream-100) 70%, white);
-  border: 1.5px dashed var(--line-200);
-  color: var(--ink-400);
-}
+/* Submit button in modals */
 :deep(.modal .btn-primary),
 :deep(.modal .btn-fit) {
   background: var(--sage-600);
