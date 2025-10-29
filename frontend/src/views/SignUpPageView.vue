@@ -258,11 +258,11 @@ async function onSubmit() {
 // insert credentials into public.user bECAUSE ANNOYING SUPABASE DOESNT ALLOW TRIGGERS ON AUTH SCHEMA OMLLLLL
 async function createPublicUserRecord(user) {
   try {
-    // Get the public URL for the default avatar
+    // Build the public URL for the default avatar we upload under the email folder
     const { data: urlData } = supabase.storage
       .from('profile-images')
       .getPublicUrl(`${user.email}/default-avatar.jpg`)
-    
+
     const publicImageUrl = urlData.publicUrl
 
     const { error: dbError } = await supabase
@@ -272,7 +272,7 @@ async function createPublicUserRecord(user) {
           UID: user.id,
           user_email: user.email,
           username: username.value,
-          profile_image_url: publicImageUrl  
+          profile_image_url: publicImageUrl
         }
       ])
 
@@ -284,32 +284,33 @@ async function createPublicUserRecord(user) {
   }
 }
 
-// Inserted setupProfilePicture function
+
 async function setupProfilePicture(user) {
   try {
-    const userFolder = `profile-images/${user.email}`
-    
-    // Check if folder exists
+    // Use the user's email to avoid special characters from emails in paths
+    const folder = `${user.email}`
+
+    // Check if the email folder already has a default avatar
     const { data: folderList, error: listError } = await supabase.storage
       .from('profile-images')
-      .list(user.email)
+      .list(folder, { limit: 1 })
 
-    // If folder doesn't exist, create it by uploading default avatar from public folder
+    // If folder doesn't exist or is empty, upload a default avatar from /public/images
     if (listError || !folderList || folderList.length === 0) {
-      // Get default avatar from public folder
-      const response = await fetch('/default-avatar.jpg')
+      const response = await fetch('/images/default-avatar.jpg')
       if (!response.ok) {
-        console.warn('Failed to fetch default avatar from public folder')
-        return // Just return instead of throwing
+        console.warn('Failed to fetch default avatar from /public/images/default-avatar.jpg')
+        return
       }
-      
+
       const defaultAvatarBlob = await response.blob()
-      
+
       const { error: uploadError } = await supabase.storage
         .from('profile-images')
-        .upload(`${user.email}/default-avatar.jpg`, defaultAvatarBlob, {
+        .upload(`${folder}/default-avatar.jpg`, defaultAvatarBlob, {
           contentType: 'image/jpeg',
-          upsert: true
+          cacheControl: '3600',
+          upsert: true,
         })
 
       if (uploadError && !uploadError.message.includes('already exists')) {
@@ -318,7 +319,6 @@ async function setupProfilePicture(user) {
     }
   } catch (err) {
     console.warn('Profile picture setup failed:', err)
-    // Don't throw error - this shouldn't block signup
   }
 }
 

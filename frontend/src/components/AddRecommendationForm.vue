@@ -1103,7 +1103,7 @@ onBeforeUnmount(() => {
 
 /* Inputs */
 .form-control {
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 2px solid var(--line-200);
   padding: 10px 12px;
   background: #fff;
@@ -1136,7 +1136,7 @@ onBeforeUnmount(() => {
   height: 28px;
   cursor: pointer;
   outline: none;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   transition: transform 0.06s ease;
 }
 .star-btn:focus-visible {
@@ -1159,7 +1159,7 @@ onBeforeUnmount(() => {
 }
 .rating-input {
   width: 88px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: 2px solid var(--line-200);
   padding: 6px 10px;
   background: #fff;
@@ -1240,7 +1240,7 @@ onBeforeUnmount(() => {
 /* Drop zone */
 .drop-area {
   border: 2px dashed rgba(139, 157, 131, 0.45);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 14px;
   background: rgba(250, 249, 246, 0.6);
   cursor: pointer;
@@ -1281,7 +1281,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow-card);
   background: #fff;
   border: 1px solid #e5e7eb;
@@ -1369,7 +1369,7 @@ onBeforeUnmount(() => {
   color: #fff;
   font-weight: 900;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 12px 16px;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
 }
@@ -1387,7 +1387,7 @@ onBeforeUnmount(() => {
   right: 0;
   background: #fff;
   border: 1px solid var(--line-200);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   margin: 6px 0 0;
   padding: 6px 0;
   max-height: 260px;
@@ -1433,30 +1433,30 @@ onBeforeUnmount(() => {
 
 /* Cropper modal */
 .cropper-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: grid; place-items: center; z-index: 4000; }
-.cropper-panel { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.25); }
+.cropper-panel { background: #fff; border-radius: var(--radius-md); padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.25); }
 :root[data-theme='dark'] .rec-form .cropper-panel { background: #0e141b; }
-.crop-preview { position: relative; overflow: hidden; border-radius: 10px; border: 2px dashed rgba(139,157,131,0.5); background: #faf9f6; user-select: none; transition: border-width 0.12s ease, border-color 0.12s ease; }
+.crop-preview { position: relative; overflow: hidden; border-radius: var(--radius-sm); border: 2px dashed rgba(139,157,131,0.5); background: #faf9f6; user-select: none; transition: border-width 0.12s ease, border-color 0.12s ease; }
 .crop-preview.dragging { border-width: 3px; border-color: rgba(139,157,131,0.85); }
 .crop-preview img { width: auto; height: 100%; display: block; }
 .crop-ctrls { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
 
 /* Carousel */
 .carousel-wrap { margin: 12px auto; max-width: 720px; }
-.carousel-stage { width: 100%; max-width: 720px; aspect-ratio: 3 / 2; border-radius: 12px; overflow: hidden; border: 1px solid var(--line-200); box-shadow: var(--shadow-card); cursor: pointer; }
+.carousel-stage { width: 100%; max-width: 720px; aspect-ratio: 3 / 2; border-radius: var(--radius-md); overflow: hidden; border: 1px solid var(--line-200); box-shadow: var(--shadow-card); cursor: pointer; }
 .carousel-stage { width: 100%; }
 .carousel-stage img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .carousel-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
-.nav-btn { border: 0; background: var(--sage-600); color: #fff; font-weight: 900; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; }
+.nav-btn { border: 0; background: var(--sage-600); color: #fff; font-weight: 900; width: 36px; height: 36px; border-radius: var(--radius-sm); cursor: pointer; }
 .nav-ind { font-weight: 800; color: var(--ink-400); }
 .mini-thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; justify-content: center; align-items: center; }
-.mini { position: relative; padding: 0; border: 2px solid transparent; border-radius: 8px; background: transparent; cursor: pointer; }
+.mini { position: relative; padding: 0; border: 2px solid transparent; border-radius: var(--radius-sm); background: transparent; cursor: pointer; }
 .mini.active { border-color: var(--sage-600); }
-.mini img { width: 84px; height: 56px; object-fit: cover; border-radius: 6px; display: block; }
+.mini img { width: 84px; height: 56px; object-fit: cover; border-radius: var(--radius-xs); display: block; }
 .mini-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: #111827; color: #fff; cursor: pointer; line-height: 1; font-weight: 900; }
 
 /* Zoom controls */
 .zoom-ctrls { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; }
-.zoom-btn { width: 36px; height: 36px; border-radius: 8px; border: 2px solid var(--line-200); background: #fff; font-weight: 900; font-size: 18px; cursor: pointer; }
+.zoom-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); border: 2px solid var(--line-200); background: #fff; font-weight: 900; font-size: 18px; cursor: pointer; }
 .zoom-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 :root[data-theme='dark'] .rec-form .zoom-btn { background: #0e141b; color: #e9eef6; border-color: #2a3a52; }
 .zoom-readout { min-width: 52px; text-align: center; font-weight: 800; color: var(--ink-400); }

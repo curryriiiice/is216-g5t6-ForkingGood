@@ -52,7 +52,11 @@ async function loadComments(postId) {
     })
     const data = await res.json()
     comments.value = Array.isArray(data?.data) ? data.data : []
-    commentCounts.value[String(postId)] = comments.value.length
+    // Replace the whole map entry to guarantee reactivity
+    const key = String(postId)
+    const nextMap = { ...(commentCounts.value || {}) }
+    nextMap[key] = comments.value.length
+    commentCounts.value = nextMap
   } catch {
     comments.value = []
   }
@@ -158,6 +162,11 @@ const posts = ref([])
 const showAdd = ref(false)
 const highlightedPostId = ref(null)
 const randomPost = ref(null)
+const showRandomiseAnim = ref(false)
+const hasRandomised = ref(false)
+const RANDOMISE_LOTTIE_SRC =
+  'https://lottie.host/f11c47cc-d1ca-463f-9c91-40c8fb0103d2/eyb3qWbh7d.json'
+const RANDOMISE_ANIM_MS = 1600
 // Randomiser-specific filters (independent from main feed filters)
 const randomFilters = ref({
   area: 'Any',
@@ -217,11 +226,6 @@ async function closePreview() {
   await runSearch()
   if (latestPatch) applyPostPatch(latestPatch)
   previewPost.value = null
-  if (!email) {
-    posts.value = []
-    randomPost.value = null
-    return []
-  }
 }
 
 function applyPostPatch(patch) {
@@ -354,21 +358,21 @@ const CUISINE_THEMES = ['Plum', 'Mint', 'Light', 'Lagoon']
 const BRAND_TO_CUISINE = {
   'brand-plum': 'Plum',
   'brand-mint': 'Mint',
-  'light': 'Light',
+  light: 'Light',
   'brand-lagoon': 'Lagoon',
 }
 const CUISINE_TO_BRAND = {
-  'Plum': 'brand-plum',
-  'Mint': 'brand-mint',
-  'Light': 'light',
-  'Lagoon': 'brand-lagoon',
+  Plum: 'brand-plum',
+  Mint: 'brand-mint',
+  Light: 'light',
+  Lagoon: 'brand-lagoon',
 }
 // Legacy cuisine values used previously in this view
 const LEGACY_TO_CUISINE = {
-  'japanese': 'Plum',
-  'italian': 'Mint',
-  'french': 'Light',
-  'chinese': 'Lagoon',
+  japanese: 'Plum',
+  italian: 'Mint',
+  french: 'Light',
+  chinese: 'Lagoon',
 }
 
 function resolveInitialCuisine() {
@@ -391,21 +395,27 @@ const theme = ref(resolveInitialCuisine())
 
 function applyTheme() {
   // Persist selection in both new and legacy keys
-  try { localStorage.setItem(THEME_KEY_CUISINE, theme.value) } catch {}
+  try {
+    localStorage.setItem(THEME_KEY_CUISINE, theme.value)
+  } catch {}
   const brand = CUISINE_TO_BRAND[theme.value] || 'light'
-  try { localStorage.setItem(THEME_KEY_BRAND, brand) } catch {}
+  try {
+    localStorage.setItem(THEME_KEY_BRAND, brand)
+  } catch {}
   // Optional: also persist legacy value that best matches
   const legacyVal = Object.entries(LEGACY_TO_CUISINE).find(([, c]) => c === theme.value)?.[0]
   if (legacyVal) {
-    try { localStorage.setItem(LEGACY_THEME_KEY, legacyVal) } catch {}
+    try {
+      localStorage.setItem(LEGACY_THEME_KEY, legacyVal)
+    } catch {}
   }
 
   // Apply a class like "theme-Plum" to the .page wrapper (for any local CSS hooks)
   const shell = document.querySelector('.page')
   if (shell) {
     // Remove both new and legacy class patterns
-    CUISINE_THEMES.forEach(t => shell.classList.remove(`theme-${t}`, 'themed-anim'))
-    Object.keys(LEGACY_TO_CUISINE).forEach(t => shell.classList.remove(`theme-${t}`))
+    CUISINE_THEMES.forEach((t) => shell.classList.remove(`theme-${t}`, 'themed-anim'))
+    Object.keys(LEGACY_TO_CUISINE).forEach((t) => shell.classList.remove(`theme-${t}`))
     shell.classList.add(`theme-${theme.value}`)
     // shell.classList.add('themed-anim') // enable if needed
   }
@@ -899,6 +909,56 @@ async function runSearch() {
     feed = feed.map((p) => byId.get(p.id) || p)
   }
 
+  // --- Preserve fresher engagement from UI state (likes & like flag) ---
+  const known = new Map()
+  // from current list
+  if (Array.isArray(posts.value)) {
+    for (const x of posts.value) {
+      if (!x) continue
+      const k = String(x?.id ?? x?.postid ?? '')
+      if (!k) continue
+      known.set(k, {
+        likes: Number(x?.likes ?? x?.raw?.upvote_count),
+        user_has_upvoted: Boolean(x?.user_has_upvoted),
+      })
+    }
+  }
+  // from preview
+  if (previewPost.value) {
+    const k = String(previewPost.value?.id ?? previewPost.value?.postid ?? '')
+    if (k)
+      known.set(k, {
+        likes: Number(previewPost.value?.likes ?? previewPost.value?.raw?.upvote_count),
+        user_has_upvoted: Boolean(previewPost.value?.user_has_upvoted),
+      })
+  }
+  // from randomiser card
+  if (randomPost.value) {
+    const k = String(randomPost.value?.id ?? randomPost.value?.postid ?? '')
+    if (k)
+      known.set(k, {
+        likes: Number(randomPost.value?.likes ?? randomPost.value?.raw?.upvote_count),
+        user_has_upvoted: Boolean(randomPost.value?.user_has_upvoted),
+      })
+  }
+
+  feed = feed.map((p) => {
+    const key = String(p?.id ?? p?.postid ?? '')
+    if (!key) return p
+    const seen = known.get(key)
+    if (!seen) return p
+    const serverLikes = Number(p?.likes ?? p?.raw?.upvote_count ?? 0)
+    const bestLikes = Number.isFinite(seen.likes) ? Math.max(seen.likes, serverLikes) : serverLikes
+    const liked = Boolean(seen.user_has_upvoted) || Boolean(p?.user_has_upvoted)
+    const next = {
+      ...p,
+      likes: bestLikes,
+      user_has_upvoted: liked,
+      raw: { ...(p.raw || {}), upvote_count: bestLikes, user_has_upvoted: liked },
+    }
+    return next
+  })
+
   feed.sort((a, b) => new Date(b.raw.created_at || 0) - new Date(a.raw.created_at || 0))
   if (!Array.isArray(posts.value)) posts.value = []
   posts.value.splice(0, posts.value.length, ...feed)
@@ -911,6 +971,13 @@ async function runSearch() {
       : (p?.raw?.comments_count ?? 0)
     const key = String(p?.id ?? p?.postid)
     if (key) nextCounts[key] = Number(n) || 0
+  }
+  // Preserve fresher counts gathered while a modal was open
+  const existing = commentCounts.value || {}
+  for (const [k, v] of Object.entries(existing)) {
+    if (nextCounts[k] == null || Number(v) > Number(nextCounts[k])) {
+      nextCounts[k] = Number(v)
+    }
   }
   commentCounts.value = nextCounts
 }
@@ -1217,12 +1284,22 @@ function rowToPostRandom(row) {
 
 // Randomise Post (uses dedicated endpoint + its own filters)
 async function fetchRandomPost() {
+  hasRandomised.value = true
+  showRandomiseAnim.value = true
+  const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
+
   try {
     const basePayload = rf_to_payload_random()
     if (!basePayload) {
+      // Nothing to fetch; just end the animation gracefully
+      const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0
+      const remaining = Math.max(0, RANDOMISE_ANIM_MS - elapsed)
+      await new Promise((r) => setTimeout(r, remaining))
+      showRandomiseAnim.value = false
       randomPost.value = null
       return
     }
+
     const sym = normStr(randomFilters.value.priceSymbol)
     const levels = desiredLevelsForSymbol(sym)
 
@@ -1232,7 +1309,6 @@ async function fetchRandomPost() {
     }
 
     let arr = []
-
     if (levels.length) {
       for (const lvl of levels) {
         const payload = { ...basePayload, price_level: lvl }
@@ -1240,7 +1316,6 @@ async function fetchRandomPost() {
         if (arr && arr.length) break
       }
     }
-
     if (!arr || !arr.length) {
       const anyPayload = { ...basePayload, price_level: 'any' }
       arr = await call(anyPayload)
@@ -1263,7 +1338,6 @@ async function fetchRandomPost() {
         })
       }
     }
-
     if (arr && arr.length && levels.length) {
       arr = arr.filter((row) => {
         const lvl = Number(row?.price_level)
@@ -1283,17 +1357,26 @@ async function fetchRandomPost() {
       })
     }
 
-    if (!arr || !arr.length) {
-      randomPost.value = null
-      return
-    }
+    // Pick post (or null if none)
+    const pickRaw = arr && arr.length ? arr[Math.floor(Math.random() * arr.length)] : null
+    const candidate = pickRaw ? rowToPostRandom(pickRaw) : null
 
-    const pickRaw = arr[Math.floor(Math.random() * arr.length)]
-    randomPost.value = rowToPostRandom(pickRaw)
-    await nextTick()
+    // Wait out the remaining animation time before revealing result
+    const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0
+    const remaining = Math.max(0, RANDOMISE_ANIM_MS - elapsed)
+    await new Promise((r) => setTimeout(r, remaining))
+
+    // Reveal result and end animation
+    randomPost.value = candidate
+    showRandomiseAnim.value = false
   } catch (e) {
     console.error('[Dashboard] randomiserSearch failed:', e.response?.data || e.message)
+    // Ensure animation hides after a short delay even on error
+    const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0
+    const remaining = Math.max(300, RANDOMISE_ANIM_MS - elapsed)
+    await new Promise((r) => setTimeout(r, remaining))
     randomPost.value = null
+    showRandomiseAnim.value = false
   }
 }
 
@@ -1468,7 +1551,7 @@ async function load() {
   })
   try {
     await runSearch()
-    await fetchRandomPost()
+    // await fetchRandomPost()  // Do not pre-render randomised card on initial load
   } catch (e) {
     console.error('Dashboard load failed:', e)
   }
@@ -1495,7 +1578,6 @@ watch(
   (email, prev) => {
     if (email && email !== prev) {
       runSearch()
-      fetchRandomPost()
     }
   },
 )
@@ -1522,7 +1604,7 @@ watch(
       <div class="d-flex align-items-center justify-content-between mb-2">
         <h3 class="feed-title mb-0">Randomise Post</h3>
       </div>
-      <div class="feed-shell sage-glass p-3 mb-3">
+      <div class="feed-shell sage-glass p-3 mb-3 position-relative">
         <div class="card mb-3">
           <div class="card-body py-2">
             <div class="d-flex align-items-center justify-content-between mb-2">
@@ -1533,8 +1615,20 @@ watch(
               >
                 🎲 🎲 Get randomised post
               </button>
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#randomFiltersCollapse"
+                aria-expanded="false"
+                aria-controls="randomFiltersCollapse"
+                title="Show/Hide Randomiser Filters"
+              >
+                Filters
+              </button>
             </div>
-            <div class="row g-3 align-items-end">
+            <div id="randomFiltersCollapse" class="collapse">
+              <div class="row g-3 align-items-end">
               <!-- Cuisine (Randomiser) -->
               <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rCuisineBox">
                 <label class="form-label mb-1 small fw-semibold text-secondary"
@@ -1690,13 +1784,24 @@ watch(
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
-        </div>
+              </div> <!-- /row -->
+            </div> <!-- /collapse -->
+          </div>   <!-- /card-body -->
+        </div>     <!-- /card -->
 
+        <div v-if="showRandomiseAnim" class="randomise-anim-overlay fullscreen-center">
+          <lottie-player
+            :src="RANDOMISE_LOTTIE_SRC"
+            background="transparent"
+            speed="1"
+            autoplay
+            loop
+            style="width: 240px; height: 240px"
+          ></lottie-player>
+        </div>
         <!-- Randomised post result -->
         <div
-          v-if="randomPost"
+          v-if="randomPost && !showRandomiseAnim"
           class="card themed-card position-relative randomised-panel post-clickable"
           @click="onCardClick($event, randomPost)"
           role="button"
@@ -1719,6 +1824,11 @@ watch(
             @unliked="applyPostPatch"
           />
         </div>
+        <!-- While animating: show nothing (overlay handles the UX) -->
+        <div v-else-if="showRandomiseAnim"></div>
+        <!-- Before first click: invite user to randomise -->
+        <div v-else-if="!hasRandomised" class="empty">Click “Get randomised post”</div>
+        <!-- After a click but no results: show empty state -->
         <div v-else class="empty">No post found for that filter.</div>
       </div>
 
@@ -1730,6 +1840,21 @@ watch(
         <!-- Filter Bar -->
         <div class="card mb-3">
           <div class="card-body py-3 px-3 px-md-4">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+              <div class="fw-semibold text-secondary">Filters</div>
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                type="button"
+                data-bs-toggle="collapse"
+                data-bs-target="#feedFiltersCollapse"
+                aria-expanded="false"
+                aria-controls="feedFiltersCollapse"
+                title="Show/Hide Filters"
+              >
+                Toggle
+              </button>
+            </div>
+            <div id="feedFiltersCollapse" class="collapse">
             <!-- Row 1: Typeaheads + Price chips -->
             <div class="row g-3 align-items-end">
               <!-- Cuisine -->
@@ -1902,8 +2027,8 @@ watch(
               </div>
             </div>
           </div>
-        </div>
-
+        </div> <!-- /collapse -->
+      </div>
         <template v-if="posts.length">
           <div class="row g-3 g-md-4">
             <div v-for="p in posts" :key="String(p.id ?? p.postid)" class="col-12 col-lg-6">
@@ -2310,5 +2435,16 @@ watch(
 .card .form-control-sm {
   padding-top: 0.3rem;
   padding-bottom: 0.3rem;
+}
+
+.randomise-anim-overlay {
+  /* position: fixed; */
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  z-index: 9999;
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(4px);
 }
 </style>

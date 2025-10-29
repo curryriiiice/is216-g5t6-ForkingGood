@@ -1,6 +1,6 @@
 // src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient'
 
 // Eager-loaded views
 import DashboardView from '@/views/DashboardView.vue'
@@ -15,10 +15,6 @@ const LoginPageView = () => import('@/views/LogInPageView.vue')
 const SignupPageView = () => import('@/views/SignUpPageView.vue')
 const ReverseImageView = () => import('@/views/ReverseImageView.vue')
 const AuthCallbackView = () => import('@/views/AuthCallbackView.vue')
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY,
-)
 const router = createRouter({
   history: createWebHistory(),
   routes: [
