@@ -13,6 +13,7 @@ const ProfileView = () => import('@/views/ProfileView.vue')
 const LoginPageView = () => import('@/views/LogInPageView.vue')
 const SignupPageView = () => import('@/views/SignUpPageView.vue')
 const ReverseImageView = () => import('@/views/ReverseImageView.vue')
+const AuthCallbackView = () => import('@/views/AuthCallbackView.vue')
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -48,6 +49,12 @@ const router = createRouter({
       path: '/signup',
       name: 'signup',
       component: SignupPageView,
+      meta: { public: true, hideNavbar: true },
+    },
+    {
+      path: '/auth/callback',
+      name: 'auth-callback',
+      component: AuthCallbackView,
       meta: { public: true, hideNavbar: true },
     },
 

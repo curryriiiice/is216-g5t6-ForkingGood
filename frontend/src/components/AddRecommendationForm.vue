@@ -23,8 +23,16 @@ const lng = ref(null)
 const placeId = ref('')
 const photoUrl = ref('') // dataURL for submit
 const photos = ref([]) // array of dataURLs (we keep your original)
+const originalPhotos = ref([]) // raw originals (as selected)
+const initialCrops = ref([])   // first auto-cropped 3:2 versions to allow revert
+const cropStates = ref([]) // per-index { zoom, x, y } for restoring edits
 // --- Cropper state ---
-const CROP_SIZE = 800; // exported width/height (px). Change if you need larger.
+// Target fixed output size (3:2 landscape)
+const CROP_W = 1200; // px
+const CROP_H = 800;  // px
+// Preview box dimensions used by the in-app cropper (3:2)
+const PREV_W = 540;
+const PREV_H = 360;
 const cropOpen = ref(false);
 const cropIndex = ref(-1);
 const cropSrc = ref('');
@@ -35,28 +43,86 @@ const cropDragging = ref(false);
 const dragStart = ref({ x: 0, y: 0 });
 const imgNatural = ref({ w: 0, h: 0 });
 
+// Zoom controls
+const ZOOM_MIN = 1
+const ZOOM_MAX = 5
+const ZOOM_STEP = 0.15
+function zoomBy(delta) {
+  const next = +(cropZoom.value + delta).toFixed(2)
+  cropZoom.value = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next))
+}
+function zoomIn() { zoomBy(ZOOM_STEP) }
+function zoomOut() { zoomBy(-ZOOM_STEP) }
+
+// Live preview sizing to match confirmCrop math (contain into PREV_W x PREV_H, then apply zoom + offsets)
+const baseScale = computed(() => {
+  const w = imgNatural.value.w || 1
+  const h = imgNatural.value.h || 1
+  return Math.max(PREV_W / w, PREV_H / h)
+})
+const displayW = computed(() => (imgNatural.value.w || 0) * baseScale.value * cropZoom.value)
+const displayH = computed(() => (imgNatural.value.h || 0) * baseScale.value * cropZoom.value)
+// Base size before zoom (fit/contain to preview); scale is applied via CSS transform
+const baseW = computed(() => (imgNatural.value.w || 0) * baseScale.value)
+const baseH = computed(() => (imgNatural.value.h || 0) * baseScale.value)
+const imgStyle = computed(() => ({
+  position: 'absolute',
+  left: '50%',
+  top: '50%',
+  width: baseW.value + 'px',
+  height: baseH.value + 'px',
+  transform: `translate(calc(-50% + ${cropX.value}px), calc(-50% + ${cropY.value}px)) scale(${cropZoom.value})`,
+  transformOrigin: 'center center',
+  userSelect: 'none',
+  pointerEvents: 'none',
+}))
+
+function resetCrop() {
+  cropZoom.value = 1
+  cropX.value = 0
+  cropY.value = 0
+}
+
 function openCropper(i) {
-  const src = photos.value?.[i];
-  if (!src) return;
-  cropIndex.value = i;
-  cropSrc.value = src;
-  cropZoom.value = 1;
-  cropX.value = 0;
-  cropY.value = 0;
-  cropOpen.value = true;
+  // Always use the original so you can zoom back out beyond prior crop
+  const src = originalPhotos.value?.[i] || photos.value?.[i]
+  if (!src) return
+  cropIndex.value = i
+  cropSrc.value = src
+  const st = cropStates.value?.[i] || { zoom: 1, x: 0, y: 0 }
+  cropZoom.value = st.zoom ?? 1
+  cropX.value = st.x ?? 0
+  cropY.value = st.y ?? 0
+  cropOpen.value = true
+}
+function revertPhotoAt(i) {
+  const init = initialCrops.value?.[i]
+  if (!init) return
+  const arr = [...photos.value]
+  arr[i] = init
+  photos.value = arr
+  if (i === 0) photoUrl.value = init
+  try {
+    const cs = Array.isArray(cropStates.value) ? [...cropStates.value] : []
+    cs[i] = { zoom: 1, x: 0, y: 0 }
+    cropStates.value = cs
+  } catch {}
+}
+function revertCurrentSlide() {
+  revertPhotoAt(currentSlide.value)
 }
 function onCropImgLoad(e) {
-  const img = e.target;
-  imgNatural.value = { w: img.naturalWidth, h: img.naturalHeight };
-  cropX.value = 0;
-  cropY.value = 0;
+  const img = e.target
+  imgNatural.value = { w: img.naturalWidth, h: img.naturalHeight }
+  // Do NOT reset cropX/cropY here; we restore from saved cropStates in openCropper()
 }
 function onCropWheel(e) {
-  e.preventDefault();
-  const delta = Math.sign(e.deltaY) * -0.1; // wheel up => zoom in
-  cropZoom.value = Math.min(5, Math.max(1, +(cropZoom.value + delta).toFixed(2)));
+  e.preventDefault()
+  const direction = e.deltaY > 0 ? -1 : 1 // wheel up => zoom in
+  zoomBy(direction * ZOOM_STEP)
 }
 function startDrag(e) {
+  if (cropZoom.value <= 1) return // only drag when zoomed-in
   cropDragging.value = true;
   const p = ('touches' in e) ? e.touches[0] : e;
   dragStart.value = { x: p.clientX - cropX.value, y: p.clientY - cropY.value };
@@ -74,44 +140,63 @@ function cancelCrop() {
   cropSrc.value = '';
 }
 function confirmCrop() {
-  const canvas = document.createElement('canvas');
-  canvas.width = CROP_SIZE;
-  canvas.height = CROP_SIZE;
-  const ctx = canvas.getContext('2d');
+  const canvas = document.createElement('canvas')
+  canvas.width = CROP_W
+  canvas.height = CROP_H
+  const ctx = canvas.getContext('2d')
 
-  const img = new Image();
+  const img = new Image()
   img.onload = () => {
-    // Preview box is 360x360 in CSS
-    const PREV = 360;
-    const scaleBase = Math.max(PREV / img.width, PREV / img.height); // contain
-    const displayW = img.width * scaleBase * cropZoom.value;
-    const displayH = img.height * scaleBase * cropZoom.value;
+    const scaleBase = Math.max(PREV_W / img.width, PREV_H / img.height)
+    const displayW = img.width * scaleBase * cropZoom.value
+    const displayH = img.height * scaleBase * cropZoom.value
 
-    // Map preview space -> canvas space
-    const scaleToCanvas = CROP_SIZE / PREV;
-    const drawX = (PREV / 2 - displayW / 2 + cropX.value) * scaleToCanvas;
-    const drawY = (PREV / 2 - displayH / 2 + cropY.value) * scaleToCanvas;
+    const scaleToCanvasX = CROP_W / PREV_W
+    const scaleToCanvasY = CROP_H / PREV_H
 
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, CROP_SIZE, CROP_SIZE);
-    ctx.drawImage(img, drawX, drawY, displayW * scaleToCanvas, displayH * scaleToCanvas);
+    const drawX = (PREV_W / 2 - displayW / 2 + cropX.value) * scaleToCanvasX
+    const drawY = (PREV_H / 2 - displayH / 2 + cropY.value) * scaleToCanvasY
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, CROP_W, CROP_H)
+    ctx.drawImage(img, drawX, drawY, displayW * scaleToCanvasX, displayH * scaleToCanvasY)
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
     if (cropIndex.value >= 0) {
-      const arr = [...photos.value];
-      arr[cropIndex.value] = dataUrl;
-      photos.value = arr;
-      if (cropIndex.value === 0) photoUrl.value = dataUrl; // keep main photo synced
+      const arr = [...photos.value]
+      arr[cropIndex.value] = dataUrl
+      photos.value = arr
+      if (cropIndex.value === 0) photoUrl.value = dataUrl
     }
-    cancelCrop();
-  };
-  img.crossOrigin = 'anonymous';
-  img.src = cropSrc.value;
+    // Persist crop params on Apply
+    if (cropIndex.value >= 0) {
+      const cs = Array.isArray(cropStates.value) ? [...cropStates.value] : []
+      cs[cropIndex.value] = { zoom: cropZoom.value, x: cropX.value, y: cropY.value }
+      cropStates.value = cs
+    }
+    cancelCrop()
+  }
+  img.crossOrigin = 'anonymous'
+  img.src = cropSrc.value
 }
 const priceRange = ref(null) // '$' | '$$' | '$$$' | '$$$$'
 const visibility = ref('friends')
 const isDragging = ref(false)
 const MAX_PHOTOS = 6
+// --- Simple carousel state ---
+const currentSlide = ref(0)
+const totalSlides = computed(() => (Array.isArray(photos.value) ? photos.value.length : 0))
+function nextSlide() {
+  if (!totalSlides.value) return
+  currentSlide.value = (currentSlide.value + 1) % totalSlides.value
+}
+function prevSlide() {
+  if (!totalSlides.value) return
+  currentSlide.value = (currentSlide.value - 1 + totalSlides.value) % totalSlides.value
+}
+watch(photos, () => {
+  if (currentSlide.value >= (photos.value?.length || 0)) currentSlide.value = 0
+})
 
 /** Autocomplete DOM refs */
 const nameInputEl = ref(null)
@@ -463,6 +548,30 @@ function clampRating(num) {
   return Math.min(5, Math.max(1, Math.round(num * 2) / 2))
 }
 
+// Auto-crop any image to 3:2 (center-cover) and export at CROP_W x CROP_H
+function cropToAspect(dataURL, W = CROP_W, H = CROP_H) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = W
+      canvas.height = H
+      const ctx = canvas.getContext('2d')
+      const scale = Math.max(W / img.width, H / img.height)
+      const drawW = img.width * scale
+      const drawH = img.height * scale
+      const dx = (W - drawW) / 2
+      const dy = (H - drawH) / 2
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, W, H)
+      ctx.drawImage(img, dx, dy, drawW, drawH)
+      resolve(canvas.toDataURL('image/jpeg', 0.92))
+    }
+    img.crossOrigin = 'anonymous'
+    img.src = dataURL
+  })
+}
+
 /** ---------- File / Preview helpers ---------- */
 function openFilePicker() {
   fileInputEl.value?.click()
@@ -479,10 +588,14 @@ function handleChosenFiles(fileList) {
   // Read each file as DataURL and append to photos
   toAdd.forEach((file, idx) => {
     const reader = new FileReader()
-    reader.onload = () => {
-      const data = String(reader.result || '')
-      if (idx === 0) photoUrl.value = data // keep the first as the main photo
-      photos.value = [...photos.value, data]
+    reader.onload = async () => {
+      const raw = String(reader.result || '')
+      const cropped = await cropToAspect(raw)
+      if (idx === 0 && photos.value.length === 0) photoUrl.value = cropped
+      originalPhotos.value = [...originalPhotos.value, raw]
+      initialCrops.value = [...initialCrops.value, cropped]
+      photos.value = [...photos.value, cropped]
+      cropStates.value = [...cropStates.value, { zoom: 1, x: 0, y: 0 }]
     }
     reader.readAsDataURL(file)
   })
@@ -522,6 +635,19 @@ function removePhotoAt(idx) {
     // Keep the first image as the main data url fallback
     photoUrl.value = arr[0] || ''
     if (!arr.length && fileInputEl.value) fileInputEl.value.value = ''
+    try {
+      const o = Array.isArray(originalPhotos.value) ? [...originalPhotos.value] : []
+      const ic = Array.isArray(initialCrops.value) ? [...initialCrops.value] : []
+      o.splice(idx, 1)
+      ic.splice(idx, 1)
+      originalPhotos.value = o
+      initialCrops.value = ic
+    } catch {}
+    try {
+      const cs = Array.isArray(cropStates.value) ? [...cropStates.value] : []
+      cs.splice(idx, 1)
+      cropStates.value = cs
+    } catch {}
   } catch {}
 }
 
@@ -537,6 +663,13 @@ function dataURLtoFile(dataURL, filename) {
   } catch {
     return null
   }
+}
+
+// Normalize cuisine to start with a capital letter
+function capitalizeFirst(str = '') {
+  const t = String(str || '').trim()
+  if (!t) return ''
+  return t.charAt(0).toUpperCase() + t.slice(1)
 }
 
 /** ---------- Submit ---------- */
@@ -561,12 +694,15 @@ async function submit() {
       return
     }
 
+    const normalizedCuisine = capitalizeFirst(cuisine.value)
+    cuisine.value = normalizedCuisine
+
     // Build FormData matching backend (multer upload.array("photos"))
     const fd = new FormData()
     fd.append('user_email', String(userEmail))
     fd.append('name', placeName.value.trim())
     fd.append('address', address.value.trim())
-    fd.append('cuisine_type', cuisine.value.trim())
+    fd.append('cuisine_type', (cuisine.value || '').trim())
     fd.append('rating', String(Number(rating.value)))
     fd.append('review', comment.value.trim())
     fd.append('is_public', String(visibility.value === 'everyone'))
@@ -851,20 +987,71 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <!-- Thumbnails with per-item remove -->
-      <div class="thumbs" v-if="photos.length">
-        <div v-for="(src, i) in photos" :key="i" class="thumb">
-          <img :src="src" alt="" />
+      <!-- Fixed-size carousel (3:2) with auto-cropped slides -->
+      <div v-if="photos.length" class="carousel-wrap">
+        <div class="carousel-stage" @click="openCropper(currentSlide)">
+          <img :src="photos[currentSlide]" alt="Selected" />
+        </div>
+        <div class="carousel-nav">
+          <button type="button" class="nav-btn" @click.stop="prevSlide">‹</button>
+          <span class="nav-ind">{{ currentSlide + 1 }} / {{ photos.length }}</span>
+          <button type="button" class="nav-btn" @click.stop="nextSlide">›</button>
+        </div>
+        <div class="carousel-actions">
+          <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="!initialCrops[currentSlide]" @click.stop="revertCurrentSlide">
+            Revert to Original
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="photos.length === 0" @click.stop="openCropper(currentSlide)">
+            Edit Crop
+          </button>
+        </div>
+        <div class="mini-thumbs">
           <button
+            v-for="(src, i) in photos"
+            :key="'mini-' + i"
             type="button"
-            class="thumb-del"
-            aria-label="Remove photo"
-            @click.stop="removePhotoAt(i)"
+            class="mini"
+            :class="{ active: i === currentSlide }"
+            @click.stop="currentSlide = i"
+            :aria-label="'Show photo ' + (i+1)"
           >
-            ×
+            <img :src="src" alt="" />
+            <span class="mini-del" @click.stop="removePhotoAt(i)">×</span>
           </button>
         </div>
       </div>
+    <!-- Inline Cropper Modal -->
+    <div v-if="cropOpen" class="cropper-modal" @mousedown.self="cancelCrop">
+      <div class="cropper-panel">
+        <div
+          class="crop-preview"
+          :class="{ dragging: cropDragging }"
+          :style="{ width: PREV_W + 'px', height: PREV_H + 'px' }"
+          @wheel.prevent="onCropWheel"
+          @mousedown="startDrag"
+          @mousemove="onDrag"
+          @mouseup="endDrag"
+          @mouseleave="endDrag"
+          @touchstart.passive="startDrag"
+          @touchmove.passive="onDrag"
+          @touchend="endDrag"
+        >
+          <img :src="cropSrc" @load="onCropImgLoad" alt="Crop" :style="imgStyle" draggable="false" />
+        </div>
+        <div class="crop-ctrls">
+          <div class="zoom-ctrls" role="group" aria-label="Zoom controls">
+            <button type="button" class="zoom-btn" :disabled="cropZoom <= ZOOM_MIN" @click="zoomOut" aria-label="Zoom out">−</button>
+            <span class="zoom-readout" aria-live="polite">{{ Math.round(cropZoom * 100) }}%</span>
+            <button type="button" class="zoom-btn" :disabled="cropZoom >= ZOOM_MAX" @click="zoomIn" aria-label="Zoom in">+</button>
+            <button type="button" class="zoom-btn reset" @click="resetCrop" aria-label="Reset crop">⟲</button>
+          </div>
+          <div class="act-ctrls">
+            <button type="button" class="btn btn-light" @click="cancelCrop">Cancel</button>
+            <button type="button" class="btn btn-primary" @click="confirmCrop">Apply Crop</button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
 
     <!-- Visibility -->
@@ -1243,4 +1430,41 @@ onBeforeUnmount(() => {
 :root[data-theme='dark'] .rec-form .ac-hint {
   color: #9fb0c6;
 }
+
+/* Cropper modal */
+.cropper-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: grid; place-items: center; z-index: 4000; }
+.cropper-panel { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.25); }
+:root[data-theme='dark'] .rec-form .cropper-panel { background: #0e141b; }
+.crop-preview { position: relative; overflow: hidden; border-radius: 10px; border: 2px dashed rgba(139,157,131,0.5); background: #faf9f6; user-select: none; transition: border-width 0.12s ease, border-color 0.12s ease; }
+.crop-preview.dragging { border-width: 3px; border-color: rgba(139,157,131,0.85); }
+.crop-preview img { width: auto; height: 100%; display: block; }
+.crop-ctrls { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+
+/* Carousel */
+.carousel-wrap { margin: 12px auto; max-width: 720px; }
+.carousel-stage { width: 100%; max-width: 720px; aspect-ratio: 3 / 2; border-radius: 12px; overflow: hidden; border: 1px solid var(--line-200); box-shadow: var(--shadow-card); cursor: pointer; }
+.carousel-stage { width: 100%; }
+.carousel-stage img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.carousel-nav { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 8px; }
+.nav-btn { border: 0; background: var(--sage-600); color: #fff; font-weight: 900; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; }
+.nav-ind { font-weight: 800; color: var(--ink-400); }
+.mini-thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; justify-content: center; align-items: center; }
+.mini { position: relative; padding: 0; border: 2px solid transparent; border-radius: 8px; background: transparent; cursor: pointer; }
+.mini.active { border-color: var(--sage-600); }
+.mini img { width: 84px; height: 56px; object-fit: cover; border-radius: 6px; display: block; }
+.mini-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: #111827; color: #fff; cursor: pointer; line-height: 1; font-weight: 900; }
+
+/* Zoom controls */
+.zoom-ctrls { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; }
+.zoom-btn { width: 36px; height: 36px; border-radius: 8px; border: 2px solid var(--line-200); background: #fff; font-weight: 900; font-size: 18px; cursor: pointer; }
+.zoom-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+:root[data-theme='dark'] .rec-form .zoom-btn { background: #0e141b; color: #e9eef6; border-color: #2a3a52; }
+.zoom-readout { min-width: 52px; text-align: center; font-weight: 800; color: var(--ink-400); }
+.act-ctrls { display: inline-flex; gap: 10px; }
+
+/* Ensure crop-preview positions absolutely placed image */
+.crop-preview { position: relative; }
+.zoom-btn.reset { font-size: 16px; }
+
+.carousel-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
 </style>
