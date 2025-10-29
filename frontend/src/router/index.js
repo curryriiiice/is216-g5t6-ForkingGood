@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 // Eager-loaded views
 import DashboardView from '@/views/DashboardView.vue'
 import MapView from '@/views/MapView.vue'
+import ActivityView from '@/views/ActivityView.vue'
 import FriendsView from '@/views/FriendsView.vue'
 import ForkingGoodLanding from '@/views/LandingPage.vue'
 
@@ -32,6 +33,7 @@ const router = createRouter({
     // Main app views
     { path: '/dashboard', name: 'dashboard', component: DashboardView },
     { path: '/map', name: 'map', component: MapView },
+    { path: '/activity', name: 'activity', component: ActivityView },
     { path: '/friends', name: 'friends', component: FriendsView },
     { path: '/profile', name: 'profile', component: ProfileView },
 
