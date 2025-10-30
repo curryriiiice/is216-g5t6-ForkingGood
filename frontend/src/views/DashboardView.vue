@@ -2092,6 +2092,7 @@ watch(
           :post="previewPost"
           :feed="previewPost?.is_public ? 'public' : 'friends'"
           :controls="true"
+          :caption-max-lines="0"
           :current-user-email="activeEmail"
           :external-comment-count="
             commentCounts[previewPost?.id] ??
@@ -2409,7 +2410,7 @@ watch(
   max-height: 96vh;
   overflow: auto;
 }
-:deep(.modal) .preview-card img,
+:deep(.modal) .preview-card img:not(.avatar),
 :deep(.modal) .preview-card .post-image,
 :deep(.modal) .preview-card .media img {
   max-width: 100%;

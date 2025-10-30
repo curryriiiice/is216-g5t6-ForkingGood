@@ -44,7 +44,7 @@
           :aria-expanded="showAvatarMenu ? 'true' : 'false'"
         >
           <div class="avatar-img">
-            <img :src="currentAvatarUrl" alt="avatar" />
+            <img :src="avatarSrc" alt="avatar" @error="onAvatarError" />
           </div>
         </button>
 
@@ -234,6 +234,8 @@ import api from '@/lib/api'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const API_BASE = (import.meta.env.VITE_IMAGE_BASE_URL || import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+const DEFAULT_NAV_AVATAR = '/images/default-avatar.jpg'
 
 /* ------------------------- Props ------------------------- */
 const props = defineProps({
@@ -244,6 +246,7 @@ const props = defineProps({
 /* ------------------------- State ------------------------- */
 const router = useRouter()
 const localUser = ref(props.user)
+const avatarErrored = ref(false)
 
 /* Avatar menu */
 const avatarMenuRef = ref(null)
@@ -548,6 +551,36 @@ function closeReversePopup() {
 
 /* Keep user in sync with prop */
 watch(() => props.user, (u) => { if (u) localUser.value = u }, { immediate: true })
+watch(
+  () => localUser.value?.avatar_url,
+  () => { avatarErrored.value = false },
+)
+
+function resolveAvatarUrl(raw) {
+  if (!raw || avatarErrored.value) return null
+  let s = String(raw).trim()
+  if (!s) return null
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
+  s = s.replace(/^supabase:\/\//, '')
+  if (s.startsWith('/')) {
+    if (API_BASE) return `${API_BASE}${s}`
+    return s
+  }
+  if (API_BASE) return `${API_BASE}/${s.replace(/^\/+/, '')}`
+  return `/${s.replace(/^\/+/, '')}`
+}
+
+const resolvedAvatarUrl = computed(() => resolveAvatarUrl(localUser.value?.avatar_url))
+const avatarSrc = computed(() => {
+  if (avatarErrored.value) return DEFAULT_NAV_AVATAR
+  return resolvedAvatarUrl.value || DEFAULT_NAV_AVATAR
+})
+
+function onAvatarError() {
+  if (!avatarErrored.value) {
+    avatarErrored.value = true
+  }
+}
 
 /* Initials */
 const initials = computed(() => {

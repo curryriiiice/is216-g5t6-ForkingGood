@@ -13,6 +13,7 @@ const props = defineProps({
   // Optional: parent-provided live comment count
   externalCommentCount: { type: Number, default: undefined },
   currentUserEmail: { type: String, default: null },
+  captionMaxLines: { type: Number, default: 4 },
 })
 
 // --- Image URL resolver (keeps layout, only fixes src values) ---
@@ -31,6 +32,7 @@ const ENDPOINTS = {
   comment: `${API_BASE}/friends/commentPost`,
   deleteComment: `${API_BASE}/friends/deleteComment`,
   editComment: `${API_BASE}/friends/editComment`,
+  getPfpByEmail: `${API_BASE}/user/getPfpByEmail`,
 }
 
 function resolveImageUrl(p) {
@@ -72,9 +74,15 @@ function onImgError(e, original) {
   e.target.src = PLACEHOLDER_URL
 }
 
+function onAvatarError(e) {
+  e.target.onerror = null
+  e.target.src = DEFAULT_AVATAR
+}
+
 
 // ---- Image handling (relative GET, no credentials) ----
 const blobCache = reactive(new Map())
+const pfpCache = reactive(new Map())
 
 function needsPostFetch(pathLike) {
   // We avoid POST entirely in dev to bypass CORS; treat everything as GET-able
@@ -166,6 +174,56 @@ watch([currentResolved, currentRaw], async ([resolved, raw]) => {
 }, { immediate: true })
 
 onBeforeUnmount(revokeAllBlobs)
+
+// --- Author profile picture (via getPfpByEmail) ---
+const DEFAULT_AVATAR = '/images/default-avatar.jpg'
+
+const authorEmail = computed(() => {
+  const p = props.post || {}
+  // Try common fields for email on post/user
+  return (
+    p.user?.email ||
+    p.poster_email ||
+    p.user_email ||
+    p.owner_email ||
+    p.email ||
+    null
+  )
+})
+
+const authorPfpUrl = ref(null)
+
+async function fetchPfpByEmail(email) {
+  if (!email) return null
+  if (pfpCache.has(email)) return pfpCache.get(email)
+  try {
+    const res = await fetch(ENDPOINTS.getPfpByEmail, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ email })
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = await res.json()
+    const rawUrl = json?.data || null
+    const url = rawUrl ? resolveImageUrl(rawUrl) : null
+    if (url) pfpCache.set(email, url)
+    return url
+  } catch (e) {
+    return null
+  }
+}
+
+async function loadAuthorPfp() {
+  const email = authorEmail.value
+  if (!email) {
+    authorPfpUrl.value = null
+    return
+  }
+  const url = await fetchPfpByEmail(email)
+  authorPfpUrl.value = url
+}
+
+watch(authorEmail, () => { loadAuthorPfp() }, { immediate: true })
 
 const tagText = computed(() => {
   const p = props.post || {}
@@ -464,6 +522,31 @@ function openComments() {
   if (!postId) return
   emit('open-comments', { postId })
 }
+
+const resolvedCaptionLines = computed(() => {
+  const raw = props.captionMaxLines
+  if (raw == null) return 0
+  const num = typeof raw === 'string' ? Number(raw) : raw
+  if (!Number.isFinite(num)) return 0
+  if (num <= 0) return 0
+  return Math.max(1, Math.floor(num))
+})
+
+const isCaptionClamped = computed(() => resolvedCaptionLines.value > 0)
+
+const captionClampInlineStyle = computed(() => {
+  const lines = resolvedCaptionLines.value
+  if (!lines) return {}
+  return {
+    display: '-webkit-box',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    wordBreak: 'break-word',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: String(lines),
+    '--caption-line-count': lines,
+  }
+})
 </script>
 
 <template>
@@ -539,7 +622,14 @@ function openComments() {
       </div>
 
       <!-- Description text -->
-      <p v-if="post.text" class="desc">{{ post.text }}</p>
+      <p
+        v-if="post.text"
+        class="desc"
+        :class="{ clamped: isCaptionClamped }"
+        :style="captionClampInlineStyle"
+      >
+        {{ post.text }}
+      </p>
 
       <!-- Meta/footer -->
       <div class="meta">
@@ -555,9 +645,13 @@ function openComments() {
 
         <div class="author" v-if="post.user">
           <img
-            :src="resolveImageUrl(post.user?.avatar) || '/images/avatar1.png'"
+            :src="authorPfpUrl || resolveImageUrl(post.user?.avatar) || DEFAULT_AVATAR"
             class="avatar"
             alt="User avatar"
+            width="24"
+            height="24"
+            crossorigin="anonymous"
+            @error="onAvatarError"
           />
           <span class="name">{{ post.user?.name }}</span>
         </div>
@@ -652,6 +746,13 @@ function openComments() {
   margin: 10px 0 12px;
   color: #374151;
   font-size: 14px;
+  line-height: 1.4;
+}
+.desc.clamped {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  min-height: calc(var(--caption-line-count, 4) * 1.4em);
 }
 
 .meta {
@@ -678,10 +779,13 @@ function openComments() {
   gap: 8px;
 }
 .avatar {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   object-fit: cover;
+  max-width: 24px;
+  max-height: 24px;
+  flex: 0 0 24px;
 }
 .name {
   font-size: 13px;
@@ -845,8 +949,8 @@ function openComments() {
 
 /* Ensure avatar doesn't distort on small screens */
 .avatar {
-  min-width: 22px;
-  min-height: 22px;
+  min-width: 24px;
+  min-height: 24px;
 }
 
 .stat.as-button {
