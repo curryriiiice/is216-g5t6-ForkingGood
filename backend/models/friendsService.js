@@ -40,22 +40,29 @@ const sendFriendReq = async (user_email, friend_email) => {
     const email1 = user_email < friend_email ? user_email : friend_email;
     const email2 = user_email < friend_email ? friend_email : user_email;
 
-    return await supabase.from('friend').insert({email1: email1,email2: email2})
+    return await supabase.from('friend').insert({email1: email1,email2: email2, sent_by:user_email})
 }
 // tested, works
 
 const getPendingFriendReqs = async (user_email) => {
-    const {data, error: getPendingFriendError} = await supabase.from('friend').select('*').is('request_accepted', null).or(`email1.eq.${user_email},email2.eq.${user_email}`);
-    if(getPendingFriendError){
-        return getPendingFriendError
+    const { data, error: getPendingFriendError } = await supabase
+        .from('friend')
+        .select('*')
+        .is('request_accepted', null)
+        .neq('sent_by', user_email) // exclude requests sent by the user
+        .or(`email1.eq.${user_email},email2.eq.${user_email}`);
+    
+    if (getPendingFriendError) {
+        return { error: getPendingFriendError };
     }
+
     // extract only the other party's emails
     const otherEmails = data.map(friend => 
         friend.email1 === user_email ? friend.email2 : friend.email1
     );
 
     return { data: otherEmails };
-}
+};
 
 const commentPost = async (postid, commenter_email, comment) => {
     return await supabase.from('comments').insert({postid: postid, commenter_email: commenter_email, comment: comment}); 
