@@ -603,7 +603,10 @@ function closeMobileMenu() {
   toggleBodyScroll(false)
 }
 function onEscClose(ev) {
-  if (ev.key === 'Escape' && showMobileMenu.value) closeMobileMenu()
+  if (ev.key === 'Escape') {
+    if (showMobileMenu.value) closeMobileMenu()
+    if (showAvatarMenu.value) showAvatarMenu.value = false
+  }
 }
 function toggleBodyScroll(lock) {
   try { document.documentElement.style.overflow = lock ? 'hidden' : '' } catch {}
@@ -616,10 +619,86 @@ function handleOutsideClick(ev) {
   }
 }
 
-/* Lifecycle */
-onMounted(async () => {
+function handleResize() {
+  if (window.innerWidth >= 768) {
+    closeMobileMenu()
+  }
+}
+
+const listenersBound = ref(false)
+
+function bindInteractionListeners() {
+  if (listenersBound.value) return
   document.addEventListener('mousedown', handleOutsideClick)
   document.addEventListener('keydown', onEscClose)
+  window.addEventListener('resize', handleResize)
+  listenersBound.value = true
+  handleResize()
+}
+
+function unbindInteractionListeners() {
+  if (!listenersBound.value) return
+  document.removeEventListener('mousedown', handleOutsideClick)
+  document.removeEventListener('keydown', onEscClose)
+  window.removeEventListener('resize', handleResize)
+  listenersBound.value = false
+  toggleBodyScroll(false)
+}
+
+function ensureFreshListeners() {
+  unbindInteractionListeners()
+  bindInteractionListeners()
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    ensureFreshListeners()
+    closeMobileMenu()
+    showAvatarMenu.value = false
+  } else {
+    unbindInteractionListeners()
+    closeMobileMenu()
+    showAvatarMenu.value = false
+  }
+}
+
+function handleWindowFocus() {
+  ensureFreshListeners()
+  closeMobileMenu()
+  showAvatarMenu.value = false
+}
+
+function handleWindowBlur() {
+  unbindInteractionListeners()
+}
+
+function handlePageShow() {
+  ensureFreshListeners()
+}
+
+function handlePageHide() {
+  unbindInteractionListeners()
+  closeMobileMenu()
+  showAvatarMenu.value = false
+}
+
+watch(
+  () => router.currentRoute.value.fullPath,
+  () => {
+    closeMobileMenu()
+    showAvatarMenu.value = false
+    ensureFreshListeners()
+  },
+)
+
+/* Lifecycle */
+onMounted(async () => {
+  bindInteractionListeners()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('focus', handleWindowFocus)
+  window.addEventListener('blur', handleWindowBlur)
+  window.addEventListener('pageshow', handlePageShow)
+  window.addEventListener('pagehide', handlePageHide)
 
   // Load current Supabase user and profile
   try {
@@ -706,8 +785,12 @@ onMounted(async () => {
   })
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', handleOutsideClick)
-  document.removeEventListener('keydown', onEscClose)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('focus', handleWindowFocus)
+  window.removeEventListener('blur', handleWindowBlur)
+  window.removeEventListener('pageshow', handlePageShow)
+  window.removeEventListener('pagehide', handlePageHide)
+  unbindInteractionListeners()
   toggleBodyScroll(false)
 })
 </script>
@@ -913,27 +996,3 @@ onBeforeUnmount(() => {
 .rev-btn.with-icon { display: inline-flex; align-items: center; gap: 0.4rem; }
 .rev-btn .btn-icon { width: 18px; height: 18px; display: block; }
 </style>
-
-<!-- Make teleported modal overlay sit above all content -->
-<style>
-.modal-overlay {
-  position: fixed !important;
-  inset: 0 !important;
-  z-index: 9999 !important;
-}
-
-
-.rev-btn.with-icon {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.rev-btn .btn-icon {
-  width: 18px;
-  height: 18px;
-  display: block;
-}
-</style>
-const DEFAULT_AVATAR = '/images/default-avatar.jpg'
-const currentAvatarUrl = computed(() => (localUser.value?.avatar_url ? String(localUser.value.avatar_url) : DEFAULT_AVATAR))

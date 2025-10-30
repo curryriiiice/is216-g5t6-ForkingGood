@@ -75,7 +75,7 @@ const areas = ref(['All'])
 const selectedCuisine = ref('All')
 const selectedArea = ref('All')
 const selectedPrice = ref('All') // 'All' | '$' | '$$' | '$$$' | '$$$$'
-const feedScope = ref('friends') // 'friends' | 'public'
+const feedScope = ref('public') // 'friends' | 'public'
 
 // Lock UI when a drawer is open
 const uiLocked = computed(() => !!(selected.value || showAdd.value))
@@ -451,6 +451,9 @@ const taArea = ref({
   noMatch: false,
   suppressOpen: false,
 })
+
+// Track filter panel open/closed state
+const filtersOpen = ref(false)
 
 // Caches of all options for "show all when empty"
 const allCuisineList = ref([])
@@ -834,7 +837,7 @@ async function init() {
     selectedCuisine.value = 'All'
     selectedArea.value = 'All'
     selectedPrice.value = 'All'
-    feedScope.value = 'friends'
+    feedScope.value = 'public'
 
     // prime inputs
     taCuisine.value.q = ''
@@ -1025,12 +1028,6 @@ function renderInfoWindow(pin) {
 
 function goToPost(postId) {
   if (!postId) return
-  // quick visual feedback by briefly dimming the drawer
-  const drawer = document.querySelector('aside.side')
-  if (drawer) {
-    drawer.classList.add('clicking')
-    setTimeout(() => drawer.classList.remove('clicking'), 180)
-  }
   // Navigate to Dashboard with a query param the home page can use to highlight/scroll
   router.push({ path: '/dashboard', query: { postId: String(postId) } })
 }
@@ -1126,7 +1123,7 @@ function clearFilters() {
   selectedCuisine.value = 'All'
   selectedArea.value = 'All'
   selectedPrice.value = 'All'
-  feedScope.value = 'friends'
+  feedScope.value = 'public'
 
   // reset typeahead inputs and close lists WITHOUT re-opening via watchers
   taCuisine.value.suppressOpen = true
@@ -1144,20 +1141,55 @@ function clearFilters() {
 <template>
   <div class="page sage-bg">
     <!-- Filter Bar (static, above map) -->
-    <div class="filter-bar w-100 d-flex justify-content-center">
-      <div
-        :class="[
-          'card',
-          { 'pe-none': uiLocked, 'opacity-75': uiLocked },
-        ]"
-        style="width: 100%; max-width: 1000px"
-      >
+    <div class="filter-bar w-100 d-flex flex-column align-items-center">
+      <!-- Top scope + Filter pill toolbar -->
+      <div class="d-flex align-items-center justify-content-between mb-2 filter-toolbar toolbar-container">
+        <div class="segmented bg-white shadow-sm tool-left" role="tablist" aria-label="Feed scope">
+          <button
+            type="button"
+            class="seg-btn"
+            :class="{ active: feedScope === 'friends' }"
+            @click="feedScope = 'friends'"
+            aria-pressed="feedScope === 'friends' ? 'true' : 'false'"
+            title="Friends only">
+            <span class="seg-ico" aria-hidden="true">👥</span>
+            <span class="seg-label">Friends</span>
+          </button>
+          <button
+            type="button"
+            class="seg-btn"
+            :class="{ active: feedScope === 'public' }"
+            @click="feedScope = 'public'"
+            aria-pressed="feedScope === 'public' ? 'true' : 'false'"
+            title="Public">
+            <span class="seg-ico" aria-hidden="true">🌐</span>
+            <span class="seg-label">Public</span>
+          </button>
+        </div>
+
+        <button
+          class="filter-pill tool-right"
+          type="button"
+          @click="filtersOpen = !filtersOpen"
+          :aria-expanded="filtersOpen ? 'true' : 'false'"
+          aria-controls="mapFiltersCollapse"
+          title="Show/Hide Filters">
+          Filter
+        </button>
+      </div>
+      <div id="mapFiltersCollapse" :class="['collapse', { show: filtersOpen }]" style="width: 100%; max-width: 1400px;">
+        <div
+          :class="[
+            'card',
+            { 'pe-none': uiLocked, 'opacity-75': uiLocked },
+          ]"
+          style="width: 100%; max-width: 1400px"
+        >
         <div class="card-body py-3 px-3 px-md-4">
-          <!-- Row 1: Typeaheads -->
-          <!-- (keep existing inner content unchanged) -->
-          <div class="row g-3 align-items-end">
+          <!-- Filters Grid: Cuisine | Area | Price -->
+          <div class="filters-grid">
             <!-- Cuisine typeahead -->
-            <div class="col-12 col-md-6 col-lg-4 position-relative" ref="cuisineBox">
+            <div class="f-item" ref="cuisineBox">
               <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
               <input
                 class="form-control form-control-sm text-start"
@@ -1200,7 +1232,7 @@ function clearFilters() {
             </div>
 
             <!-- Area typeahead -->
-            <div class="col-12 col-md-6 col-lg-4 position-relative" ref="areaBox">
+            <div class="f-item" ref="areaBox">
               <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
               <input
                 class="form-control form-control-sm text-start"
@@ -1238,9 +1270,9 @@ function clearFilters() {
             </div>
 
             <!-- Price chips -->
-            <div class="col-12 col-lg-4">
+            <div class="f-item">
               <label class="form-label mb-1 small fw-semibold text-secondary">Price Range</label>
-              <div class="d-flex gap-2 flex-wrap">
+              <div class="chips-wrap">
                 <button
                   type="button"
                   class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
@@ -1294,32 +1326,10 @@ function clearFilters() {
               </div>
             </div>
           </div>
-
-          <!-- Row 2: Scope + Actions -->
+</div>
+          <!-- Row 2: Actions -->
           <div class="row g-3 align-items-center mt-2">
-            <div class="col-12 col-md-6">
-              <div class="btn-group" role="group" aria-label="Scope toggle">
-                <button
-                  type="button"
-                  class="btn btn-outline-secondary"
-                  :class="{ active: feedScope === 'friends' }"
-                  @click="feedScope = 'friends'"
-                  :disabled="uiLocked"
-                >
-                  Friends Only
-                </button>
-                <button
-                  type="button"
-                  class="btn btn-outline-secondary"
-                  :class="{ active: feedScope === 'public' }"
-                  @click="feedScope = 'public'"
-                  :disabled="uiLocked"
-                >
-                  Everyone
-                </button>
-              </div>
-            </div>
-            <div class="col-12 col-md-6 text-md-end">
+            <div class="col-12 text-md-end">
               <div class="d-inline-flex gap-2">
                 <button
                   type="button"
@@ -1346,10 +1356,10 @@ function clearFilters() {
 
         </div>
       </div>
-    </div>
+    </div> <!-- /#mapFiltersCollapse -->
 
     <!-- Map -->
-    <div ref="mapEl" class="map sage-map"></div>
+    <div ref="mapEl" class="map sage-map" :class="{ 'map-compact': !filtersOpen }"></div>
 
     <!-- Overlays -->
     <div v-if="loading" class="overlay">Loading map…</div>
@@ -1498,24 +1508,29 @@ function clearFilters() {
 <style scoped>
 .page {
   position: relative;
-  height: 100vh; /* exactly viewport height */
+  min-height: 100vh; /* allow for content to grow */
   background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
-  overflow: hidden; /* prevent page scroll */
+  overflow: visible; /* allow page scroll */
 }
 
 .map {
-  flex: 1; /* fills all remaining space below filter bar */
   width: 100%;
-  max-width: 1400px;
+  max-width: 1400px; /* align with toolbar */
+  height: calc(100vh - 160px); /* fill screen dynamically minus toolbar/navbar */
+  margin: 0 auto; /* center horizontally */
+  transition: height 0.3s ease;
+}
+
+.map-compact {
+  height: calc(100vh - 220px); /* slightly smaller when filters are closed */
 }
 
 @media (max-width: 768px) {
-  .map {
-    flex: 1;
-  }
+  .map { height: calc(100vh - 200px); }
+  .map-compact { height: calc(100vh - 260px); }
 }
 .overlay {
   position: absolute;
@@ -1809,6 +1824,125 @@ aside.side.clicking {
 .vis-friends {
   background-color: var(--vis-friends-bg, var(--terracotta-500, #D4816F));
   color: var(--vis-friends-fg, #fff);
+}
+
+/* --- Per-card hover and click feedback (not whole drawer) --- */
+.card-hover {
+  transition: transform 0.06s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+}
+.card-hover:hover {
+  box-shadow: 0 8px 20px rgba(17, 24, 39, 0.12);
+  background-color: var(--cream-100, #faf7f2);
+  border-color: var(--line-200, #e5e7eb) !important;
+}
+.card-clickable {
+  cursor: pointer;
+}
+.card-clickable:active {
+  transform: translateY(1px) scale(0.998);
+  background-color: var(--cream-100, #faf7f2);
+}
+.card-clickable:focus-visible {
+  outline: 2px solid var(--sage-600, #8B9D83);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* --- Filter toolbar (Friends/Public segmented + Filter pill) --- */
+.filter-toolbar { padding: 4px 2px; }
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid var(--line-200);
+  background: #fff;
+}
+.segmented .seg-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  color: var(--charcoal);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+  cursor: pointer;
+}
+.segmented .seg-btn:hover { background: #f4f6f8; }
+.segmented .seg-btn.active {
+  background: var(--charcoal);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.15) inset;
+}
+.segmented .seg-ico { display: inline-block; width: 18px; text-align: center; }
+.filter-pill {
+  border: 1px solid var(--line-300, #d1d5db);
+  background: #fff;
+  color: var(--charcoal);
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 8px 18px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+}
+.filter-pill:hover { background: #f9fafb; }
+.filter-pill:active { transform: translateY(1px); }
+
+/* Toolbar container widths + wrapping */
+.toolbar-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;            /* center within page */
+  padding: 0 8px;            /* small side breathing room */
+  gap: 8px;                  /* space between left/right */
+  flex-wrap: wrap;           /* wrap on small screens */
+}
+.tool-left { flex: 0 1 auto; }
+.tool-right { margin-left: auto; }
+
+/* When wrapped on narrow screens, center segmented and move Filter below to the right */
+@media (max-width: 576px) {
+  .toolbar-container { justify-content: center; }
+  .tool-left { width: 100%; display: flex; justify-content: center; }
+  .tool-right { margin-left: 0; margin-top: 6px; }
+}
+
+/* Slight size tuning so the segmented looks balanced */
+.segmented .seg-btn { padding: 8px 14px; }
+.filter-pill { padding: 10px 18px; }
+
+/* --- Filters grid layout --- */
+.filters-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 12px; /* space between controls */
+}
+.filters-grid .f-item {
+  grid-column: span 12;
+}
+@media (min-width: 768px) {
+  .filters-grid .f-item { grid-column: span 6; }
+}
+@media (min-width: 1200px) {
+  .filters-grid .f-item { grid-column: span 4; }
+}
+
+/* Keep inputs and chips aligned visually */
+.filters-grid .form-label { margin-bottom: 6px; }
+.chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Ensure dropdown menus never overflow the card */
+.filters-grid .dropdown-menu.filter-list {
+  max-height: 220px;
+  overflow: auto;
 }
 
 
