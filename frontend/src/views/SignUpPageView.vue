@@ -130,6 +130,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { createClient } from '@supabase/supabase-js'
+import api from '@/lib/api'
 
 const router = useRouter()
 
@@ -210,6 +211,20 @@ async function onSubmit() {
 
   loading.value = true
   try {
+    // Pre-check: ensure username does not already exist in backend
+    try {
+      const resp = await api.get('/user/getAllUsernames')
+      const list = Array.isArray(resp?.data?.data) ? resp.data.data : []
+      const taken = list.some(u => String(u || '').toLowerCase() === String(username.value).toLowerCase())
+      if (taken) {
+        error.value = 'Username already exists. Please choose another.'
+        return
+      }
+    } catch (e) {
+      // If the check fails, do not block signup; backend will still enforce uniqueness
+      console.warn('Username availability check failed; continuing signup', e)
+    }
+
     // also store a 'handle' without the @ if you want it later
     const handle = username.value.replace(/^@/, '')
 
