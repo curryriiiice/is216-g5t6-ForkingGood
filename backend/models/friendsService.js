@@ -45,23 +45,7 @@ const sendFriendReq = async (user_email, friend_email) => {
 // tested, works
 
 const getPendingFriendReqs = async (user_email) => {
-    const { data, error: getPendingFriendError } = await supabase
-        .from('friend')
-        .select('*')
-        .is('request_accepted', null)
-        .neq('sent_by', user_email) // exclude requests sent by the user
-        .or(`email1.eq.${user_email},email2.eq.${user_email}`);
-    
-    if (getPendingFriendError) {
-        return { error: getPendingFriendError };
-    }
-
-    // extract only the other party's emails
-    const otherEmails = data.map(friend => 
-        friend.email1 === user_email ? friend.email2 : friend.email1
-    );
-
-    return { data: otherEmails };
+    return await supabase.rpc('get_pending_friend_requests', {input_user_email: user_email});
 };
 
 const commentPost = async (postid, commenter_email, comment) => {
