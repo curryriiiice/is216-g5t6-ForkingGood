@@ -570,6 +570,31 @@ function resolveAvatarUrl(raw) {
   return `/${s.replace(/^\/+/, '')}`
 }
 
+function cacheBust(url) {
+  if (!url) return url
+  try {
+    const u = new URL(url, window.location.origin)
+    u.searchParams.set('t', Date.now().toString())
+    return u.toString()
+  } catch {
+    return url + (String(url).includes('?') ? '&' : '?') + 't=' + Date.now()
+  }
+}
+
+function onProfileUpdated(ev) {
+  const detail = ev?.detail || {}
+  if (!detail?.email) return
+  if (localUser.value?.email && localUser.value.email !== detail.email) return
+  if (detail.avatar_url) {
+    avatarErrored.value = false
+    localUser.value = {
+      ...(localUser.value || {}),
+      avatar_url: cacheBust(detail.avatar_url),
+      email: detail.email || localUser.value?.email || null,
+    }
+  }
+}
+
 const resolvedAvatarUrl = computed(() => resolveAvatarUrl(localUser.value?.avatar_url))
 const avatarSrc = computed(() => {
   if (avatarErrored.value) return DEFAULT_NAV_AVATAR
@@ -620,6 +645,7 @@ function handleOutsideClick(ev) {
 onMounted(async () => {
   document.addEventListener('mousedown', handleOutsideClick)
   document.addEventListener('keydown', onEscClose)
+  try { window.addEventListener('fg:profile-updated', onProfileUpdated) } catch {}
 
   // Load current Supabase user and profile
   try {
@@ -709,6 +735,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', handleOutsideClick)
   document.removeEventListener('keydown', onEscClose)
   toggleBodyScroll(false)
+  try { window.removeEventListener('fg:profile-updated', onProfileUpdated) } catch {}
 })
 </script>
 

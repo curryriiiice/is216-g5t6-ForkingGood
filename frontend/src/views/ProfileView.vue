@@ -6,9 +6,9 @@
       <div class="row g-4">
         <!-- LEFT: Current profile -->
         <div class="col-12 col-lg-5">
-          <div class="card theme-card p-4 text-center sticky-lg-top" style="top:1rem">
+          <div class="card theme-card p-4 text-center d-none d-lg-block" style="top:1rem">
             <div class="avatar-ring mb-3 mx-auto">
-              <img :src="currentAvatar" class="avatar-display" alt="Avatar" />
+              <img :src="currentAvatar" :key="currentAvatar" class="avatar-display" alt="Avatar" />
             </div>
             <h5 class="fw-semibold">{{ meOriginal.username || 'username' }}</h5>
             <div class="text-muted small mb-3">{{ meOriginal.email || 'email' }}</div>
@@ -31,7 +31,7 @@
               <input class="form-control" v-model="form.email" disabled />
             </div>
 
-            <!-- Username (read-only) -->
+            <!-- Username -->
             <div class="mb-3">
               <label class="form-label small fw-semibold text-muted">Username</label>
               <div class="position-relative">
@@ -40,11 +40,16 @@
                   v-model="form.username"
                   placeholder="e.g. foodhunter99"
                   autocomplete="off"
-                  disabled
+                  @input="() => {}"
                 />
                 
               </div>
-              <div class="form-text">Username cannot be changed.</div>
+              <div class="form-text" :class="usernameStatusClass" v-if="usernameMsg">
+                {{ usernameMsg }}
+              </div>
+              <div class="form-text text-muted" v-else>
+                Must start with @ and be 3-20 letters, numbers, or underscores.
+              </div>
             </div>
 
             <!-- Bio -->
@@ -62,7 +67,7 @@
             <div class="mb-4">
               <label class="form-label small fw-semibold text-muted">Profile Photo</label>
               <div class="d-flex align-items-center gap-3 flex-wrap">
-                <img :src="currentAvatar" class="avatar-edit" alt="Avatar preview" />
+                <img :src="currentAvatar" :key="currentAvatar" class="avatar-edit" alt="Avatar preview" />
                 <label class="btn btn-ghost mb-0">
                   Choose Image
                   <input
@@ -149,7 +154,7 @@
           <input
             class="form-range"
             type="range"
-            min="1"
+            :min="minZoom"
             max="3"
             step="0.01"
             :value="cropScale"
@@ -163,6 +168,32 @@
         </div>
       </div>
     </div>
+
+    <!-- Danger Zone: Delete Account -->
+    <div class="container pb-5">
+      <div class="card theme-card p-4 mt-3 border-danger-soft">
+        <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-2">
+          <div>
+            <div class="fw-semibold" style="color: var(--ink-700)">Delete Account</div>
+            <div class="small text-muted">This will permanently remove your profile, posts, and data.</div>
+          </div>
+          <button type="button" class="btn btn-ghost-danger" @click="showDelete = true" :disabled="deleting">Delete my account</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm Delete Modal -->
+    <Modal :show="showDelete" title="Delete Account" @close="() => { if (!deleting) showDelete = false }">
+      <div class="p-2">
+        <p class="mb-2">This action is permanent and cannot be undone.</p>
+        <p class="mb-0">Type DELETE to confirm.</p>
+        <input class="form-control mt-2" placeholder="DELETE" v-model="deleteConfirmText" />
+        <div class="d-flex justify-content-end gap-2 mt-3">
+          <button class="btn btn-ghost" :disabled="deleting" @click="showDelete = false">Cancel</button>
+          <button class="btn btn-ghost-danger" :disabled="deleting || deleteConfirmText !== 'DELETE'" @click="deleteAccount">{{ deleting ? 'Deleting…' : 'Yes, delete' }}</button>
+        </div>
+      </div>
+    </Modal>
   </div>
 </template>
 
@@ -170,6 +201,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
 import api from "@/lib/api";
 import { createClient } from '@supabase/supabase-js'
+import Modal from '@/components/Modal.vue'
 
 // Use shared API client (baseURL from env in lib/api.js)
 
@@ -196,6 +228,9 @@ const DEFAULT_AVATAR =
 /* ---- State ---- */
 const loading = ref(false);
 const saving = ref(false);
+const deleting = ref(false);
+const showDelete = ref(false);
+const deleteConfirmText = ref("");
 
 const meOriginal = reactive({
   email: "",
@@ -220,9 +255,20 @@ let usernameDebounce = null;
 // Require leading @ followed by 3–20 letters/numbers/underscores
 const usernamePattern = /^@([A-Za-z0-9_]{3,20})$/;
 const usernameDirty = computed(() => form.username.trim() !== meOriginal.username.trim());
+const isUsernameValid = computed(() => {
+  if (!usernameDirty.value) return true;
+  return usernameStatus.value === 'ok';
+});
+const usernameStatusClass = computed(() => {
+  return {
+    'text-success': usernameStatus.value === 'ok',
+    'text-danger': usernameStatus.value === 'taken' || usernameStatus.value === 'invalid',
+    'text-muted': usernameStatus.value === 'checking'
+  };
+});
 
 /* Avatar pipeline */
-let avatarBlob = null;           // cropped blob to upload
+const avatarBlob = ref(null);    // cropped blob to upload
 const clearAvatar = ref(false);  // user wants to reset to default
 
 /* File input ref (for re-uploading same file) */
@@ -231,7 +277,9 @@ const fileInput = ref(null);
 /* Cropper state */
 const cropOpen = ref(false);
 const cropSrc = ref("");        // objectURL of chosen file
-const cropScale = ref(1.2);
+const cropScale = ref(1);
+const fitScale = ref(1);
+const minZoom = computed(() => fitScale.value);
 const C = 320;                  // container px
 const D = 280;                  // circular mask diameter
 const OUT = 512;                // export size
@@ -248,12 +296,13 @@ const currentAvatar = computed(() => {
 });
 
 const hasChanges = computed(() =>
+  usernameDirty.value ||
   form.bio.trim() !== meOriginal.bio.trim() ||
-  !!avatarBlob || clearAvatar.value
+  !!avatarBlob.value || clearAvatar.value
 );
 
 const canSave = computed(() => {
-  return !loading.value && !saving.value && hasChanges.value;
+  return !loading.value && !saving.value && hasChanges.value && isUsernameValid.value;
 });
 
 /* Load profile: fetch current auth user email, then profile from backend */
@@ -277,15 +326,27 @@ async function loadMe() {
     const usernameFromMeta = user?.user_metadata?.username || ''
     const avatarFromMeta = user?.user_metadata?.avatar_url || ''
 
+    // helper to bust cache on static profile URLs
+    const cacheBust = (url) => {
+      if (!url) return url
+      try {
+        const u = new URL(url, window.location.origin)
+        u.searchParams.set('t', Date.now().toString())
+        return u.toString()
+      } catch {
+        return url + (url.includes('?') ? '&' : '?') + 't=' + Date.now()
+      }
+    }
+
     Object.assign(meOriginal, {
       email: email,
       username: profile.username || usernameFromMeta || "",
       bio: profile.bio || "",
-      avatar_url: profile.profile_image_url || avatarFromMeta || "",
+      avatar_url: cacheBust(profile.profile_image_url || avatarFromMeta || ""),
     })
     Object.assign(form, meOriginal)
     preview.value = "" // let computed decide
-    avatarBlob = null
+  avatarBlob.value = null
     clearAvatar.value = false
     usernameStatus.value = ""
     usernameMsg.value = ""
@@ -352,7 +413,8 @@ function onPickFile(e) {
 
   // Reset flags
   clearAvatar.value = false;
-  avatarBlob = null;
+  // Mark change immediately so Save enables even before cropping
+  avatarBlob.value = f;
   preview.value = "";
   imgMeta.ready = false;
   cropScale.value = 1.2;
@@ -368,6 +430,9 @@ function onImgLoad(e) {
   imgMeta.naturalW = img.naturalWidth;
   imgMeta.naturalH = img.naturalHeight;
   imgMeta.ready = true;
+  // Match reverse-image: start at fit-to-mask scale
+  fitScale.value = Math.min(D / imgMeta.naturalW, D / imgMeta.naturalH);
+  cropScale.value = fitScale.value;
   nextTick(centerImage);
 }
 
@@ -409,17 +474,22 @@ function constrainPosition() {
   pos.left = Math.min(Math.max(pos.left, minLeft), maxLeft);
   pos.top  = Math.min(Math.max(pos.top,  minTop),  maxTop);
 }
-function onZoomChange(val) {
+// Anchored zoom (same as reverse image uploader)
+function setZoom(nextScale, anchorX, anchorY) {
+  nextScale = Math.max(minZoom.value, Math.min(3, Number(nextScale)));
   const old = cropScale.value;
-  const next = Number(val);
-  if (!imgMeta.ready) { cropScale.value = next; return; }
-  const cx = C/2, cy = C/2;
-  const relX = cx - pos.left, relY = cy - pos.top;
-  const ratio = next / old;
-  pos.left = cx - relX * ratio;
-  pos.top  = cy - relY * ratio;
-  cropScale.value = next;
+  if (!imgMeta.ready || nextScale === old) return;
+  const u = (anchorX - pos.left) / old;
+  const v = (anchorY - pos.top) / old;
+  cropScale.value = nextScale;
+  pos.left = anchorX - u * nextScale;
+  pos.top  = anchorY - v * nextScale;
   constrainPosition();
+}
+function onZoomChange(val) {
+  if (!imgMeta.ready) return;
+  const cx = C / 2, cy = C / 2;
+  setZoom(val, cx, cy);
 }
 
 async function applyCrop() {
@@ -442,7 +512,7 @@ async function applyCrop() {
 
   const dataURL = canvas.toDataURL("image/png");
   preview.value = dataURL;
-  avatarBlob = await (await fetch(dataURL)).blob();
+  avatarBlob.value = await (await fetch(dataURL)).blob();
   clearAvatar.value = false;
 
   if (cropSrc.value) { URL.revokeObjectURL(cropSrc.value); cropSrc.value = ""; }
@@ -459,7 +529,7 @@ function cancelCrop() {
 /* Remove to default (no image) */
 function removePhotoToDefault() {
   preview.value = "";       // computed will show DEFAULT
-  avatarBlob = null;
+  avatarBlob.value = null;
   clearAvatar.value = true;
   if (fileInput.value) fileInput.value.value = "";
   if (cropSrc.value) { URL.revokeObjectURL(cropSrc.value); cropSrc.value = ""; }
@@ -467,9 +537,9 @@ function removePhotoToDefault() {
 
 /* Upload cropped blob (if any) */
 async function uploadAvatarIfAny() {
-  if (!avatarBlob) return null;
+  if (!avatarBlob.value) return null;
   const fd = new FormData();
-  fd.append("file", new File([avatarBlob], "avatar.png", { type: "image/png" }));
+  fd.append("file", new File([avatarBlob.value], "avatar.png", { type: "image/png" }));
   const r = await api.post("/user/uploadAvatar", fd, {
     headers: { "Content-Type": "multipart/form-data" }
   });
@@ -492,11 +562,20 @@ async function save() {
     // Normalize username to include leading @ for DB consistency
     fd.append('username', form.username.trim());
     fd.append('bio', form.bio.trim());
-    if (avatarBlob && !clearAvatar.value) {
-      fd.append('profile_photo', new File([avatarBlob], 'avatar.png', { type: 'image/png' }));
+    if (avatarBlob.value && !clearAvatar.value) {
+      const b = avatarBlob.value;
+      const fileToSend = (b instanceof File)
+        ? b
+        : new File([b], 'avatar.png', { type: 'image/png' });
+      fd.append('profile_photo', fileToSend);
     }
     await api.put('/user/editProfile', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
     await loadMe();
+    try {
+      window.dispatchEvent(new CustomEvent('fg:profile-updated', {
+        detail: { email: meOriginal.email, avatar_url: meOriginal.avatar_url }
+      }))
+    } catch {}
     alert('Profile updated!');
   } catch (e) {
     console.error(e);
@@ -508,6 +587,29 @@ async function save() {
 }
 
 onMounted(loadMe);
+
+/* =======================
+   Delete account flow
+======================= */
+async function deleteAccount() {
+  if (deleting.value) return;
+  deleting.value = true;
+  try {
+    const email = meOriginal.email?.trim();
+    if (!email) throw new Error('Missing user email.');
+    await api.delete('/user/deleteUserAccount', { data: { user_email: email } });
+    try { await supabase.auth.signOut(); } catch {}
+    alert('Your account has been deleted. Goodbye!');
+    window.location.assign('/signup');
+  } catch (e) {
+    const msg = e?.response?.data?.message || e?.message || 'Failed to delete account.';
+    alert(msg);
+  } finally {
+    deleting.value = false;
+    showDelete.value = false;
+    deleteConfirmText.value = '';
+  }
+}
 </script>
 
 <style scoped>
@@ -620,4 +722,7 @@ onMounted(loadMe);
 
 /* Inputs */
 .form-range { accent-color: var(--accent, #ca6b4f); }
+
+/* Danger zone tweaks */
+.border-danger-soft { border: 1px solid rgba(185, 28, 28, 0.18); }
 </style>
