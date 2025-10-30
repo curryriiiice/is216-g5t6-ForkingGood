@@ -52,11 +52,7 @@ async function loadComments(postId) {
     })
     const data = await res.json()
     comments.value = Array.isArray(data?.data) ? data.data : []
-    // Replace the whole map entry to guarantee reactivity
-    const key = String(postId)
-    const nextMap = { ...(commentCounts.value || {}) }
-    nextMap[key] = comments.value.length
-    commentCounts.value = nextMap
+    setCommentCountForPost(postId, comments.value.length)
   } catch {
     comments.value = []
   }
@@ -158,6 +154,21 @@ async function editComment(item, newText) {
   }
 }
 
+function setCommentCountForPost(postId, count) {
+  const key = String(postId ?? '')
+  if (!key) return
+  const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0
+  const prevMap = commentCounts.value || {}
+  if (prevMap[key] !== safeCount) {
+    commentCounts.value = { ...prevMap, [key]: safeCount }
+  }
+  applyPostPatch({
+    id: key,
+    postid: key,
+    raw: { comments_count: safeCount },
+  })
+}
+
 const posts = ref([])
 const showAdd = ref(false)
 const highlightedPostId = ref(null)
@@ -228,59 +239,100 @@ async function closePreview() {
   previewPost.value = null
 }
 
+function extractCommentCount(patch) {
+  if (!patch) return null
+  const maybe = [
+    patch.comment_count,
+    patch.comments_count,
+    patch?.raw?.comment_count,
+    patch?.raw?.comments_count,
+    patch?.raw?.commentsCount,
+    patch?.raw?.comments_total,
+  ]
+  for (const val of maybe) {
+    if (val == null) continue
+    const num = Number(val)
+    if (!Number.isNaN(num)) return Math.max(0, num)
+  }
+  if (Array.isArray(patch?.raw?.comments)) {
+    return patch.raw.comments.length
+  }
+  if (Array.isArray(patch?.comments)) {
+    return patch.comments.length
+  }
+  return null
+}
+
+function mergePatchIntoPost(target, patch) {
+  if (!target) return null
+  const merged = {
+    ...target,
+    ...patch,
+    raw: { ...(target?.raw || {}), ...(patch?.raw || {}) },
+  }
+  const likeCount = patch?.likes ?? patch?.raw?.upvote_count
+  if (typeof likeCount === 'number' && !Number.isNaN(likeCount)) {
+    merged.likes = likeCount
+    merged.raw = { ...merged.raw, upvote_count: likeCount }
+  } else if (
+    typeof patch?.raw?.upvotes === 'number' &&
+    !Number.isNaN(patch.raw.upvotes)
+  ) {
+    merged.likes = patch.raw.upvotes
+    merged.raw = { ...merged.raw, upvote_count: patch.raw.upvotes }
+  }
+  const likedFlag =
+    typeof patch?.user_has_upvoted === 'boolean'
+      ? patch.user_has_upvoted
+      : typeof patch?.raw?.user_has_upvoted === 'boolean'
+        ? patch.raw.user_has_upvoted
+        : typeof patch?.raw?.has_upvoted === 'boolean'
+          ? patch.raw.has_upvoted
+          : null
+  if (likedFlag !== null) {
+    merged.user_has_upvoted = likedFlag
+    merged.raw = { ...merged.raw, user_has_upvoted: likedFlag }
+  }
+  const commentCount = extractCommentCount(patch)
+  if (commentCount !== null) {
+    merged.comments = commentCount
+    merged.raw = { ...merged.raw, comments_count: commentCount }
+  }
+  return merged
+}
+
 function applyPostPatch(patch) {
   if (!patch || (!patch.id && !patch.postid)) return
   const pid = String(patch.id ?? patch.postid)
+  const commentCount = extractCommentCount(patch)
+  if (commentCount !== null) {
+    const prevMap = commentCounts.value || {}
+    if (prevMap[pid] !== commentCount) {
+      commentCounts.value = { ...prevMap, [pid]: commentCount }
+    }
+  }
+
   // Update list item by id/postid
   const i = Array.isArray(posts.value)
     ? posts.value.findIndex((p) => String(p?.id ?? p?.postid ?? '') === pid)
     : -1
   if (i >= 0) {
     const cur = posts.value[i]
-    const next = {
-      ...cur,
-      ...patch,
-      raw: { ...(cur?.raw || {}), ...(patch?.raw || {}) },
-    }
-    // Mirror raw fields to flat props that cards read from
-    const rawCount = patch?.raw?.upvote_count
-    if (typeof rawCount === 'number' && !Number.isNaN(rawCount)) next.likes = rawCount
-    const rawFlag = patch?.raw?.user_has_upvoted
-    if (typeof rawFlag === 'boolean') next.user_has_upvoted = rawFlag
+    const next = mergePatchIntoPost(cur, patch)
     posts.value.splice(i, 1, next)
   }
   // Also sync the preview object if it's the same post
   if (previewPost.value) {
     const curId = String(previewPost.value.id ?? previewPost.value.postid ?? '')
     if (curId === pid) {
-      const cur = previewPost.value
-      const next = {
-        ...cur,
-        ...patch,
-        raw: { ...(cur?.raw || {}), ...(patch?.raw || {}) },
-      }
-      const rawCount = patch?.raw?.upvote_count
-      if (typeof rawCount === 'number' && !Number.isNaN(rawCount)) next.likes = rawCount
-      const rawFlag = patch?.raw?.user_has_upvoted
-      if (typeof rawFlag === 'boolean') next.user_has_upvoted = rawFlag
-      previewPost.value = next
+      previewPost.value = mergePatchIntoPost(previewPost.value, patch)
     }
   }
   // Also sync the randomiser card if it's the same post
   if (randomPost.value) {
     const rndId = String(randomPost.value.id ?? randomPost.value.postid ?? '')
     if (rndId === pid) {
-      const cur = randomPost.value
-      const next = {
-        ...cur,
-        ...patch,
-        raw: { ...(cur?.raw || {}), ...(patch?.raw || {}) },
-      }
-      const rawCount2 = patch?.raw?.upvote_count
-      if (typeof rawCount2 === 'number' && !Number.isNaN(rawCount2)) next.likes = rawCount2
-      const rawFlag2 = patch?.raw?.user_has_upvoted
-      if (typeof rawFlag2 === 'boolean') next.user_has_upvoted = rawFlag2
-      randomPost.value = next
+      randomPost.value = mergePatchIntoPost(randomPost.value, patch)
     }
   }
 }
@@ -435,7 +487,7 @@ function setTheme(val) {
 }
 
 // === Filter bar state and helpers ===
-const friendsOnly = ref(true)
+const friendsOnly = ref(false)
 const filters = ref({ cuisine: '', area: '', priceSymbol: '' })
 
 const cuisineQuery = ref('')
@@ -1605,189 +1657,94 @@ watch(
         <h3 class="feed-title mb-0">Randomise Post</h3>
       </div>
       <div class="feed-shell sage-glass p-3 mb-3 position-relative">
-        <div class="card mb-3">
-          <div class="card-body py-2">
-            <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="d-flex align-items-center justify-content-between mb-2">
               <button
                 type="button"
-                class="btn btn-sm btn-outline-secondary"
+                class="randomise-pill"
                 @click="fetchRandomPost"
+                title="Get a random post"
               >
-                🎲 🎲 Get randomised post
+                <span aria-hidden="true">🎲</span>
+                <span class="ms-1 fw-bold">Randomise</span>
               </button>
               <button
-                class="btn btn-sm btn-outline-secondary"
+                class="filter-pill"
                 type="button"
                 data-bs-toggle="collapse"
                 data-bs-target="#randomFiltersCollapse"
                 aria-expanded="false"
                 aria-controls="randomFiltersCollapse"
-                title="Show/Hide Randomiser Filters"
+                title="Show/Hide Filters"
               >
-                Filters
+                Filter
               </button>
             </div>
-            <div id="randomFiltersCollapse" class="collapse">
+        <div id="randomFiltersCollapse" class="collapse">
+          <div class="card mb-3">
+            <div class="card-body py-3 px-3 px-md-4">
               <div class="row g-3 align-items-end">
-              <!-- Cuisine (Randomiser) -->
-              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rCuisineBox">
-                <label class="form-label mb-1 small fw-semibold text-secondary"
-                  >Cuisine (Randomiser)</label
-                >
-                <input
-                  class="form-control form-control-sm text-start"
-                  placeholder="Type to search (e.g. Japanese)"
-                  v-model="rCuisineQuery"
-                  @focus="r_onCuisineInput"
-                  @input="r_onCuisineInput"
-                  @blur="() => (showRCuisineList = false)"
-                  ref="rCuisineInput"
-                />
-                <ul
-                  v-if="showRCuisineList"
-                  class="dropdown-menu show w-100 shadow-sm filter-list"
-                  style="z-index: 1200"
-                >
-                  <li>
-                    <button
-                      type="button"
-                      class="dropdown-item text-muted"
-                      @mousedown.prevent
-                      @click="pickRCuisine('')"
-                    >
-                      Show all cuisines
-                    </button>
-                  </li>
-                  <li
-                    v-if="rCuisineQuery && !rCuisineSuggestions.length"
-                    class="dropdown-item disabled text-muted"
-                  >
-                    No match
-                  </li>
-                  <li v-for="(c, i) in rCuisineSuggestions" :key="'rc-' + i">
-                    <button
-                      type="button"
-                      class="dropdown-item"
-                      @mousedown.prevent="pickRCuisine(c)"
-                    >
-                      {{ c }}
-                    </button>
-                  </li>
-                </ul>
-              </div>
-
-              <!-- Area (Randomiser) -->
-              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rAreaBox">
-                <label class="form-label mb-1 small fw-semibold text-secondary"
-                  >Area (Randomiser)</label
-                >
-                <input
-                  class="form-control form-control-sm text-start"
-                  placeholder="Type to search (e.g. Bugis)"
-                  v-model="rAreaQuery"
-                  @focus="r_onAreaInput"
-                  @input="r_onAreaInput"
-                  @blur="() => (showRAreaList = false)"
-                  ref="rAreaInput"
-                />
-                <ul
-                  v-if="showRAreaList"
-                  class="dropdown-menu show w-100 shadow-sm filter-list"
-                  style="z-index: 1200"
-                >
-                  <li>
-                    <button
-                      type="button"
-                      class="dropdown-item text-muted"
-                      @mousedown.prevent
-                      @click="pickRArea('')"
-                    >
-                      Show all areas
-                    </button>
-                  </li>
-                  <li
-                    v-if="rAreaQuery && !rAreaSuggestions.length"
-                    class="dropdown-item disabled text-muted"
-                  >
-                    No match
-                  </li>
-                  <li v-for="(a, i) in rAreaSuggestions" :key="'ra-' + i">
-                    <button type="button" class="dropdown-item" @mousedown.prevent="pickRArea(a)">
-                      {{ a }}
-                    </button>
-                  </li>
-                </ul>
-              </div>
-
-              <!-- Price chips (Randomiser) -->
-              <div class="col-12 col-lg-4">
-                <label class="form-label mb-1 small fw-semibold text-secondary"
-                  >Price (Randomiser)</label
-                >
-                <div class="d-flex gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: randomFilters.priceSymbol === '$' }"
-                    @click="setRandomPrice('$')"
-                    data-bs-toggle="tooltip"
-                    title="Inexpensive"
-                  >
-                    $
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: randomFilters.priceSymbol === '$$' }"
-                    @click="setRandomPrice('$$')"
-                    data-bs-toggle="tooltip"
-                    title="Moderate"
-                  >
-                    $$
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: randomFilters.priceSymbol === '$$$' }"
-                    @click="setRandomPrice('$$$')"
-                    data-bs-toggle="tooltip"
-                    title="Expensive"
-                  >
-                    $$$
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: randomFilters.priceSymbol === '$$$$' }"
-                    @click="setRandomPrice('$$$$')"
-                    data-bs-toggle="tooltip"
-                    title="Very Expensive"
-                  >
-                    $$$$
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: randomFilters.priceSymbol === 'Any' }"
-                    @click="setRandomPrice('Any')"
-                    data-bs-toggle="tooltip"
-                    title="All prices"
-                  >
-                    All
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-clear px-3"
-                    @click="clearRandomFilters"
-                  >
-                    Clear
-                  </button>
+                <!-- Cuisine (Randomiser) -->
+                <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rCuisineBox">
+                  <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine (Randomiser)</label>
+                  <input
+                    class="form-control form-control-sm text-start"
+                    placeholder="Type to search (e.g. Japanese)"
+                    v-model="rCuisineQuery"
+                    @focus="r_onCuisineInput"
+                    @input="r_onCuisineInput"
+                    @blur="() => (showRCuisineList = false)"
+                    ref="rCuisineInput"
+                  />
+                  <ul v-if="showRCuisineList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                    <li>
+                      <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRCuisine('')">Show all cuisines</button>
+                    </li>
+                    <li v-if="rCuisineQuery && !rCuisineSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                    <li v-for="(c, i) in rCuisineSuggestions" :key="'rc-' + i">
+                      <button type="button" class="dropdown-item" @mousedown.prevent="pickRCuisine(c)">{{ c }}</button>
+                    </li>
+                  </ul>
                 </div>
-              </div>
+
+                <!-- Area (Randomiser) -->
+                <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rAreaBox">
+                  <label class="form-label mb-1 small fw-semibold text-secondary">Area (Randomiser)</label>
+                  <input
+                    class="form-control form-control-sm text-start"
+                    placeholder="Type to search (e.g. Bugis)"
+                    v-model="rAreaQuery"
+                    @focus="r_onAreaInput"
+                    @input="r_onAreaInput"
+                    @blur="() => (showRAreaList = false)"
+                    ref="rAreaInput"
+                  />
+                  <ul v-if="showRAreaList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                    <li>
+                      <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRArea('')">Show all areas</button>
+                    </li>
+                    <li v-if="rAreaQuery && !rAreaSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                    <li v-for="(a, i) in rAreaSuggestions" :key="'ra-' + i">
+                      <button type="button" class="dropdown-item" @mousedown.prevent="pickRArea(a)">{{ a }}</button>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Price chips (Randomiser) -->
+                <div class="col-12 col-lg-4">
+                  <label class="form-label mb-1 small fw-semibold text-secondary">Price (Randomiser)</label>
+                  <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$' }" @click="setRandomPrice('$')" data-bs-toggle="tooltip" title="Inexpensive">$</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$$' }" @click="setRandomPrice('$$')" data-bs-toggle="tooltip" title="Moderate">$$</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$$$' }" @click="setRandomPrice('$$$')" data-bs-toggle="tooltip" title="Expensive">$$$</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$$$$' }" @click="setRandomPrice('$$$$')" data-bs-toggle="tooltip" title="Very Expensive">$$$$</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === 'Any' }" @click="setRandomPrice('Any')" data-bs-toggle="tooltip" title="All prices">All</button>
+                    <button type="button" class="btn btn-sm btn-clear px-3" @click="clearRandomFilters">Clear</button>
+                  </div>
+                </div>
               </div> <!-- /row -->
-            </div> <!-- /collapse -->
-          </div>   <!-- /card-body -->
-        </div>     <!-- /card -->
+            </div> <!-- /card-body -->
+          </div> <!-- /card -->
+        </div> <!-- /collapse -->
 
         <div v-if="showRandomiseAnim" class="randomise-anim-overlay fullscreen-center">
           <lottie-player
@@ -1837,24 +1794,50 @@ watch(
       </div>
 
       <div class="feed-shell sage-glass p-3">
+        <!-- Top scope + Filter pill toolbar -->
+        <div class="d-flex align-items-center justify-content-between mb-2 filter-toolbar">
+          <div class="segmented bg-white shadow-sm" role="tablist" aria-label="Feed scope">
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ active: friendsOnly }"
+              @click="setFriends"
+              aria-pressed="friendsOnly ? 'true' : 'false'"
+              title="Friends only"
+            >
+              <span class="seg-ico" aria-hidden="true">👥</span>
+              <span class="seg-label">Friends</span>
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ active: !friendsOnly }"
+              @click="setPublic"
+              aria-pressed="!friendsOnly ? 'true' : 'false'"
+              title="Public"
+            >
+              <span class="seg-ico" aria-hidden="true">🌐</span>
+              <span class="seg-label">Public</span>
+            </button>
+          </div>
+
+          <button
+            class="filter-pill"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#feedFiltersCollapse"
+            aria-expanded="false"
+            aria-controls="feedFiltersCollapse"
+            title="Show/Hide Filters"
+          >
+            Filter
+          </button>
+        </div>
+
         <!-- Filter Bar -->
-        <div class="card mb-3">
-          <div class="card-body py-3 px-3 px-md-4">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-              <div class="fw-semibold text-secondary">Filters</div>
-              <button
-                class="btn btn-sm btn-outline-secondary"
-                type="button"
-                data-bs-toggle="collapse"
-                data-bs-target="#feedFiltersCollapse"
-                aria-expanded="false"
-                aria-controls="feedFiltersCollapse"
-                title="Show/Hide Filters"
-              >
-                Toggle
-              </button>
-            </div>
-            <div id="feedFiltersCollapse" class="collapse">
+        <div id="feedFiltersCollapse" class="collapse">
+          <div class="card mb-3">
+            <div class="card-body py-3 px-3 px-md-4">
             <!-- Row 1: Typeaheads + Price chips -->
             <div class="row g-3 align-items-end">
               <!-- Cuisine -->
@@ -1999,19 +1982,17 @@ watch(
             <!-- Row 2: Scope + Actions -->
             <div class="row g-3 align-items-center mt-2">
               <div class="col-12 col-md-6">
-                <div class="btn-group" role="group" aria-label="Scope toggle">
+                <div class="scope-toggle" role="group" aria-label="Scope toggle">
                   <button
                     type="button"
-                    class="btn btn-outline-secondary"
-                    :class="{ active: friendsOnly }"
+                    :class="['scope-btn', { active: friendsOnly }]"
                     @click="setFriends"
                   >
                     Friends Only
                   </button>
                   <button
                     type="button"
-                    class="btn btn-outline-secondary"
-                    :class="{ active: !friendsOnly }"
+                    :class="['scope-btn', { active: !friendsOnly }]"
                     @click="setPublic"
                   >
                     Everyone
@@ -2448,4 +2429,104 @@ watch(
   background: rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(4px);
 }
+
+/* --- Filter toolbar (Friends/Public segmented + Filter pill) --- */
+.filter-toolbar {
+  padding: 4px 2px;
+}
+.scope-toggle {
+  display: inline-flex;
+  gap: 10px;
+  background: #fff;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--line-200, #d1d5db);
+  align-items: center;
+}
+.scope-btn {
+  border: 1px solid var(--line-200, #d1d5db);
+  background: #fff;
+  color: #1f2937;
+  font-weight: 700;
+  padding: 8px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.scope-btn:hover {
+  border-color: var(--terra-400, #e3a697);
+  color: #111827;
+}
+.scope-btn.active {
+  background: var(--terra-500, #d4816f);
+  border-color: var(--terra-500, #d4816f);
+  color: #fff;
+  box-shadow: 0 6px 12px rgba(212, 129, 111, 0.25);
+}
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 16px;
+  border: 1px solid var(--line-200);
+  background: #fff;
+}
+/* Segmented control for Friends/Public feed toggle */
+.segmented .seg-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  color: var(--charcoal);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.segmented .seg-btn.active {
+  background: var(--sage-600);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) inset;
+}
+.segmented .seg-btn:not(.active):hover {
+  background: var(--sage-100);
+  color: var(--charcoal);
+}
+.segmented .seg-ico {
+  display: inline-block;
+  width: 18px;
+  text-align: center;
+}
+.filter-pill {
+  border: 1px solid var(--line-300, #d1d5db);
+  background: #fff;
+  color: var(--charcoal);
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 8px 18px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+}
+.filter-pill:hover { background: #f9fafb; }
+.filter-pill:active { transform: translateY(1px); }
+
+/* Randomise CTA pill (pairs with .filter-pill) */
+.randomise-pill {
+  border: none;
+  background: var(--terracotta-500, #d4816f);
+  color: #fff;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 10px 20px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.10);
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+.randomise-pill:hover { filter: brightness(0.96); }
+.randomise-pill:active { transform: translateY(1px); }
 </style>
