@@ -90,14 +90,6 @@ async function fetchImageBlobUrl(pathLike) {
   const url = `/${clean}`
   // In most cases we can return the URL directly for <img>
   return url
-  // If you need a Blob URL instead, uncomment below (GET without credentials):
-  // if (blobCache.has(clean)) return blobCache.get(clean)
-  // const res = await fetch(url, { method: 'GET', credentials: 'omit' })
-  // if (!res.ok) throw new Error(`GET ${url} failed: ${res.status}`)
-  // const blob = await res.blob()
-  // const blobUrl = URL.createObjectURL(blob)
-  // blobCache.set(clean, blobUrl)
-  // return blobUrl
 }
 
 function revokeAllBlobs() {
@@ -468,7 +460,6 @@ function openComments() {
 
 <template>
   <article :class="['card', { active: isActive }]">
-    <!-- Top image / hero -->
     <div class="hero">
       <img :src="heroDisplaySrc" alt="Post photo" crossorigin="anonymous" @error="(ev) => onImgError(ev, heroDisplaySrc)" />
       <div class="vis-badge" v-if="isPublicBool !== null">
@@ -482,7 +473,6 @@ function openComments() {
       </div>
       <div v-if="tagLine" class="chip">{{ tagLine }}</div>
 
-      <!-- Carousel controls -->
       <button
         v-if="controls && photoCount > 1"
         class="nav prev"
@@ -504,7 +494,6 @@ function openComments() {
         ›
       </button>
 
-      <!-- Dots -->
       <div v-if="controls && photoCount > 1" class="dots" role="tablist" aria-label="Photos" data-stop-preview>
         <button
           v-for="(_, i) in photoCount"
@@ -519,9 +508,7 @@ function openComments() {
       </div>
     </div>
 
-    <!-- Content body -->
     <div class="body">
-      <!-- Title row with rating on the right -->
       <div class="title-row">
         <h3 class="title">
           {{ post.restaurant?.name || post.raw?.restaurant?.name || post.title || 'Untitled' }}
@@ -533,15 +520,12 @@ function openComments() {
         </div>
       </div>
 
-      <!-- Subtitle (dish / category) -->
       <div v-if="post.restaurant?.address || post.raw?.restaurant?.address" class="address">
         {{ post.restaurant?.address || post.raw?.restaurant?.address }}
       </div>
 
-      <!-- Description text -->
       <p v-if="post.text" class="desc">{{ post.text }}</p>
 
-      <!-- Meta/footer -->
       <div class="meta">
         <div class="stats">
           <button class="stat as-button" @click.stop="toggleLike" :aria-pressed="liked" data-stop-preview>
@@ -555,7 +539,7 @@ function openComments() {
 
         <div class="author" v-if="post.user">
           <img
-            :src="resolveImageUrl(post.user?.avatar) || '/images/avatar1.png'"
+            :src="resolveImageUrl(post.user?.avatar) || 'images/default-avatar.jpg'"
             class="avatar"
             alt="User avatar"
           />
