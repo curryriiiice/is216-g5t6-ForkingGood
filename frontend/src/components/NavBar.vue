@@ -30,6 +30,10 @@
     <div class="right">
       <img src="/images/Bell.png" alt="Notifications" width="28" height="28" class="bell" />
 
+      <span v-if="localUser" class="welcome">
+        Welcome, {{ localUser.username || localUser.first_name }}!
+      </span>
+
       <!-- Avatar + menu -->
       <div class="avatar-menu-wrap" ref="avatarMenuRef">
         <button
@@ -39,10 +43,9 @@
           aria-haspopup="menu"
           :aria-expanded="showAvatarMenu ? 'true' : 'false'"
         >
-          <div v-if="localUser?.avatar_url" class="avatar-img">
-            <img :src="localUser.avatar_url" alt="avatar" />
+          <div class="avatar-img">
+            <img :src="currentAvatarUrl" alt="avatar" />
           </div>
-          <div v-else class="avatar-fallback">{{ initials }}</div>
         </button>
 
         <!-- Small popup menu -->
@@ -66,9 +69,7 @@
         </div>
       </div>
 
-      <span v-if="localUser" class="welcome">
-        Welcome, {{ localUser.username || localUser.first_name }}!
-      </span>
+      
 
       <!-- 🔥 Hamburger (mobile only) -->
       <button
@@ -227,6 +228,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, reactive } 
 import { RouterLink, useRouter } from 'vue-router'
 import { createClient } from '@supabase/supabase-js'
 import Modal from '@/components/Modal.vue'
+import api from '@/lib/api'
 
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
@@ -608,6 +610,14 @@ onMounted(async () => {
         email: profile?.user_email ?? user.email ?? null,
         avatar_url: profile?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
       }
+      // Ensure avatar from backend if missing
+      try {
+        if (!localUser.value?.avatar_url && localUser.value?.email) {
+          const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
+          const url = r?.data?.data
+          if (url) localUser.value.avatar_url = url
+        }
+      } catch {}
     } else if (props.user) {
       localUser.value = props.user
     } else {
@@ -637,6 +647,13 @@ onMounted(async () => {
         email: row?.user_email ?? user.email ?? null,
         avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
       }
+      try {
+        if (!localUser.value?.avatar_url && localUser.value?.email) {
+          const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
+          const url = r?.data?.data
+          if (url) localUser.value.avatar_url = url
+        }
+      } catch {}
     } catch (_) {
       localUser.value = {
         username: user.user_metadata?.username ?? null,
@@ -645,6 +662,13 @@ onMounted(async () => {
         email: user.email ?? null,
         avatar_url: user.user_metadata?.avatar_url ?? null,
       }
+      try {
+        if (!localUser.value?.avatar_url && localUser.value?.email) {
+          const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
+          const url = r?.data?.data
+          if (url) localUser.value.avatar_url = url
+        }
+      } catch {}
     }
   })
 })
@@ -878,3 +902,5 @@ onBeforeUnmount(() => {
   display: block;
 }
 </style>
+const DEFAULT_AVATAR = '/images/default-avatar.jpg'
+const currentAvatarUrl = computed(() => (localUser.value?.avatar_url ? String(localUser.value.avatar_url) : DEFAULT_AVATAR))

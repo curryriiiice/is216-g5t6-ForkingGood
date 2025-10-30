@@ -39,6 +39,8 @@ router.post("/getLikedPosts", getLikedPosts);
 router.post("/getUserPosts", getUserPosts); 
 router.post("/getPfpByEmail", getPfpByEmail);
 router.put('/editProfile', upload.single('profile_photo'), editProfile);
+// Accept POST as well for clients/environments that cannot send PUT with multipart easily
+router.post('/editProfile', upload.single('profile_photo'), editProfile);
 router.delete('/removeProfilePicture', removeProfilePicture); 
 router.post('/getProfile', getProfile);
 router.delete('/deleteUserAccount', deleteUserAccount);

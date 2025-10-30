@@ -10,7 +10,7 @@
             <div class="avatar-ring mb-3 mx-auto">
               <img :src="currentAvatar" class="avatar-display" alt="Avatar" />
             </div>
-            <h5 class="fw-semibold">@{{ meOriginal.username || 'username' }}</h5>
+            <h5 class="fw-semibold">{{ meOriginal.username || 'username' }}</h5>
             <div class="text-muted small mb-3">{{ meOriginal.email || 'email' }}</div>
             <hr class="soft" />
             <div class="bio text-start">
@@ -31,32 +31,20 @@
               <input class="form-control" v-model="form.email" disabled />
             </div>
 
-            <!-- Username -->
+            <!-- Username (read-only) -->
             <div class="mb-3">
               <label class="form-label small fw-semibold text-muted">Username</label>
               <div class="position-relative">
                 <input
                   class="form-control"
-                  :class="{
-                    'is-valid': usernameStatus === 'ok' && usernameDirty,
-                    'is-invalid': usernameStatus === 'taken' || usernameStatus === 'invalid'
-                  }"
                   v-model="form.username"
                   placeholder="e.g. foodhunter99"
                   autocomplete="off"
+                  disabled
                 />
-                <div
-                  v-if="usernameStatus === 'checking'"
-                  class="position-absolute top-50 end-0 translate-middle-y pe-3 small text-muted"
-                >
-                  Checking…
-                </div>
+                
               </div>
-              <div v-if="usernameStatus === 'ok' && usernameDirty" class="valid-feedback">{{ usernameMsg }}</div>
-              <div v-if="usernameStatus === 'taken' || usernameStatus === 'invalid'" class="invalid-feedback">
-                {{ usernameMsg }}
-              </div>
-              <div class="form-text">Use 3–20 characters (letters, numbers, underscores). Must be unique.</div>
+              <div class="form-text">Username cannot be changed.</div>
             </div>
 
             <!-- Bio -->
@@ -95,7 +83,7 @@
 
             <div class="d-flex gap-2 justify-content-end">
               <router-link to="/dashboard" class="btn btn-ghost">Cancel</router-link>
-              <button class="btn btn-fit" :disabled="!canSave" @click="save">
+              <button type="button" class="btn btn-fit" :disabled="!canSave" @click="save">
                 {{ saving ? "Saving…" : "Save Changes" }}
               </button>
             </div>
@@ -180,10 +168,14 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
-import axios from "axios";
+import api from "@/lib/api";
+import { createClient } from '@supabase/supabase-js'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-const api = axios.create({ baseURL: API_BASE });
+// Use shared API client (baseURL from env in lib/api.js)
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 /* ===== Default avatar SVG (Instagram-like silhouette) ===== */
 const DEFAULT_AVATAR =
@@ -225,7 +217,8 @@ const preview = ref("");
 const usernameStatus = ref(""); // "", "checking", "ok", "taken", "invalid"
 const usernameMsg = ref("");
 let usernameDebounce = null;
-const usernamePattern = /^[a-zA-Z0-9_]{3,20}$/;
+// Require leading @ followed by 3–20 letters/numbers/underscores
+const usernamePattern = /^@([A-Za-z0-9_]{3,20})$/;
 const usernameDirty = computed(() => form.username.trim() !== meOriginal.username.trim());
 
 /* Avatar pipeline */
@@ -255,42 +248,53 @@ const currentAvatar = computed(() => {
 });
 
 const hasChanges = computed(() =>
-  form.username.trim() !== meOriginal.username.trim() ||
   form.bio.trim() !== meOriginal.bio.trim() ||
   !!avatarBlob || clearAvatar.value
 );
 
 const canSave = computed(() => {
-  const usernameBlocked =
-    (usernameDirty.value && (usernameStatus.value === "taken" || usernameStatus.value === "invalid")) ||
-    usernameStatus.value === "checking";
-  return !loading.value && !saving.value && !usernameBlocked && hasChanges.value;
+  return !loading.value && !saving.value && hasChanges.value;
 });
 
-/* Load profile */
+/* Load profile: fetch current auth user email, then profile from backend */
 async function loadMe() {
   loading.value = true;
   try {
-    const r = await api.get("/user/me");
-    const u = r.data?.data || r.data || {};
+    const { data: authData } = await supabase.auth.getUser()
+    const user = authData?.user || null
+    const email = user?.email || ""
+
+    let profile = {}
+    if (email) {
+      try {
+        const r = await api.post('/user/getProfile', { user_email: email })
+        profile = r?.data?.data || {}
+      } catch (e) {
+        console.warn('getProfile failed; falling back to auth metadata', e)
+      }
+    }
+
+    const usernameFromMeta = user?.user_metadata?.username || ''
+    const avatarFromMeta = user?.user_metadata?.avatar_url || ''
+
     Object.assign(meOriginal, {
-      email: u.email || "",
-      username: u.username || "",
-      bio: u.bio || "",
-      avatar_url: u.avatar_url || u.avatar || ""
-    });
-    Object.assign(form, meOriginal);
-    preview.value = "";       // let computed decide
-    avatarBlob = null;
-    clearAvatar.value = false;
-    usernameStatus.value = "";
-    usernameMsg.value = "";
-    if (fileInput.value) fileInput.value.value = "";
+      email: email,
+      username: profile.username || usernameFromMeta || "",
+      bio: profile.bio || "",
+      avatar_url: profile.profile_image_url || avatarFromMeta || "",
+    })
+    Object.assign(form, meOriginal)
+    preview.value = "" // let computed decide
+    avatarBlob = null
+    clearAvatar.value = false
+    usernameStatus.value = ""
+    usernameMsg.value = ""
+    if (fileInput.value) fileInput.value.value = ""
   } catch (e) {
-    console.error(e);
-    alert("Failed to load profile.");
+    console.error(e)
+    alert("Failed to load profile.")
   } finally {
-    loading.value = false;
+    loading.value = false
   }
 }
 
@@ -303,20 +307,21 @@ async function checkUsernameUnique(name) {
   }
   if (!usernamePattern.test(name.trim())) {
     usernameStatus.value = "invalid";
-    usernameMsg.value = "3–20 chars, letters/numbers/underscores only.";
+    usernameMsg.value = "Must start with @ and use 3–20 letters, numbers, or underscores.";
     return;
   }
   usernameStatus.value = "checking";
   usernameMsg.value = "Checking availability…";
   try {
-    const r = await api.get("/user/check-username", { params: { username: name.trim() } });
-    const payload = r.data?.data ?? r.data ?? {};
-    const available = payload.available ?? payload.ok ?? payload.is_available ?? false;
-    usernameStatus.value = available ? "ok" : "taken";
-    usernameMsg.value = available ? "Username is available." : "Username already taken.";
+    const r = await api.get('/user/getAllUsernames')
+    const list = Array.isArray(r?.data?.data) ? r.data.data : []
+    const candidate = name.trim()
+    const available = !list.some(u => String(u || '').toLowerCase() === candidate.toLowerCase())
+    usernameStatus.value = available ? 'ok' : 'taken'
+    usernameMsg.value = available ? 'Username is available.' : 'Username already exists.'
   } catch (e) {
-    usernameStatus.value = "ok";
-    usernameMsg.value = "Could not verify; server will validate on save.";
+    usernameStatus.value = 'ok'
+    usernameMsg.value = 'Could not verify; server will validate on save.'
   }
 }
 
@@ -476,22 +481,26 @@ async function save() {
   if (!canSave.value) return;
   saving.value = true;
   try {
-    const payload = {
-      username: form.username.trim(),
-      bio: form.bio.trim()
-    };
+    const user_email = meOriginal.email;
+    // If user chose to clear avatar, call dedicated endpoint
     if (clearAvatar.value) {
-      payload.avatar_url = null;
-    } else {
-      const avatarUrl = await uploadAvatarIfAny();
-      if (avatarUrl) payload.avatar_url = avatarUrl;
+      try { await api.delete('/user/removeProfilePicture', { data: { user_email } }) } catch {}
     }
-    await api.patch("/user/update", payload);
+
+    const fd = new FormData();
+    fd.append('user_email', user_email);
+    // Normalize username to include leading @ for DB consistency
+    fd.append('username', form.username.trim());
+    fd.append('bio', form.bio.trim());
+    if (avatarBlob && !clearAvatar.value) {
+      fd.append('profile_photo', new File([avatarBlob], 'avatar.png', { type: 'image/png' }));
+    }
+    await api.put('/user/editProfile', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
     await loadMe();
-    alert("Profile updated!");
+    alert('Profile updated!');
   } catch (e) {
     console.error(e);
-    const msg = e?.response?.data?.message || e?.message || "Failed to save profile.";
+    const msg = e?.response?.data?.message || e?.message || 'Failed to save profile.';
     alert(msg);
   } finally {
     saving.value = false;
