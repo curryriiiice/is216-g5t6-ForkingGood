@@ -258,7 +258,7 @@ async function deleteComment(item) {
         postid: String(postid),
         commenter_email: item.commenter_email,
         comment: item.comment,
-      }
+      } 
     })
     await loadComments(postid)
   } catch {
