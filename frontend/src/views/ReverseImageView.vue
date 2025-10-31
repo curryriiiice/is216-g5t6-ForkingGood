@@ -158,6 +158,9 @@ import axios from 'axios'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import Modal from '@/components/Modal.vue'
 
+// import api
+import api from '@/lib/api.js'
+
 const previewImage = ref('')
 const items = ref([])
 const noFoodMessage = ref('')
@@ -165,10 +168,6 @@ const error = ref('')
 const loading = ref(false)
 const fallbackPhoto = '/images/placeholder-restaurant.jpg'
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000',
-  withCredentials: false,
-})
 
 let pollId = null
 const lastPayloadStr = ref('')
