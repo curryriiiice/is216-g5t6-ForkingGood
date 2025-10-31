@@ -68,7 +68,6 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { createClient } from '@supabase/supabase-js'
 
 const router = useRouter()
 
