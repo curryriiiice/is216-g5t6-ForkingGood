@@ -2,9 +2,14 @@
 import { ref, computed, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
-const emit = defineEmits(['open-comments', 'like-error', 'updated', 'post-updated', 'liked', 'unliked'])
-
-
+const emit = defineEmits([
+  'open-comments',
+  'like-error',
+  'updated',
+  'post-updated',
+  'liked',
+  'unliked',
+])
 
 const props = defineProps({
   post: { type: Object, required: true },
@@ -18,9 +23,7 @@ const props = defineProps({
 
 // --- Image URL resolver (keeps layout, only fixes src values) ---
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const IMAGE_BASE = import.meta.env.DEV
-  ? ''
-  : (import.meta.env.VITE_IMAGE_BASE_URL || API_BASE)
+const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || API_BASE
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 const currentUserEmail = computed(() => props.currentUserEmail || null)
@@ -37,7 +40,9 @@ const ENDPOINTS = {
 
 function resolveImageUrl(p) {
   if (!p) return null
-  let s = String(p).trim().replace(/^['"]+|['"]+$/g, '')
+  let s = String(p)
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
   if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
   s = s.replace(/^[./]+/, '').replace(/^\/+/, '')
   return IMAGE_BASE ? `${IMAGE_BASE}/${s}` : `/${s}`
@@ -79,7 +84,6 @@ function onAvatarError(e) {
   e.target.src = DEFAULT_AVATAR
 }
 
-
 // ---- Image handling (relative GET, no credentials) ----
 const blobCache = reactive(new Map())
 const pfpCache = reactive(new Map())
@@ -110,11 +114,12 @@ async function fetchImageBlobUrl(pathLike) {
 
 function revokeAllBlobs() {
   for (const url of blobCache.values()) {
-    try { URL.revokeObjectURL(url) } catch {}
+    try {
+      URL.revokeObjectURL(url)
+    } catch {}
   }
   blobCache.clear()
 }
-
 
 // Use post.photos if present; otherwise fall back to post.pictures
 const resolvedPhotos = computed(() => {
@@ -132,7 +137,9 @@ const photoCount = computed(() => resolvedPhotos.value.length)
 const currentIndex = ref(0)
 
 // Reset to first image whenever the post's photos change
-watch(resolvedPhotos, () => { currentIndex.value = 0 })
+watch(resolvedPhotos, () => {
+  currentIndex.value = 0
+})
 
 const currentResolved = computed(() => {
   return resolvedPhotos.value[currentIndex.value] || PLACEHOLDER_URL
@@ -157,21 +164,25 @@ function goToPhoto(i) {
 }
 
 // Update displayed hero when current index or sources change
-watch([currentResolved, currentRaw], async ([resolved, raw]) => {
-  try {
-    if (raw && needsPostFetch(raw)) {
-      heroDisplaySrc.value = PLACEHOLDER_URL
-      const blobUrl = await fetchImageBlobUrl(raw)
-      heroDisplaySrc.value = blobUrl
-    } else if (resolved) {
-      heroDisplaySrc.value = getSafeSrc(resolved)
-    } else {
+watch(
+  [currentResolved, currentRaw],
+  async ([resolved, raw]) => {
+    try {
+      if (raw && needsPostFetch(raw)) {
+        heroDisplaySrc.value = PLACEHOLDER_URL
+        const blobUrl = await fetchImageBlobUrl(raw)
+        heroDisplaySrc.value = blobUrl
+      } else if (resolved) {
+        heroDisplaySrc.value = getSafeSrc(resolved)
+      } else {
+        heroDisplaySrc.value = PLACEHOLDER_URL
+      }
+    } catch (e) {
       heroDisplaySrc.value = PLACEHOLDER_URL
     }
-  } catch (e) {
-    heroDisplaySrc.value = PLACEHOLDER_URL
-  }
-}, { immediate: true })
+  },
+  { immediate: true },
+)
 
 onBeforeUnmount(revokeAllBlobs)
 
@@ -181,14 +192,7 @@ const DEFAULT_AVATAR = '/images/default-avatar.jpg'
 const authorEmail = computed(() => {
   const p = props.post || {}
   // Try common fields for email on post/user
-  return (
-    p.user?.email ||
-    p.poster_email ||
-    p.user_email ||
-    p.owner_email ||
-    p.email ||
-    null
-  )
+  return p.user?.email || p.poster_email || p.user_email || p.owner_email || p.email || null
 })
 
 const authorPfpUrl = ref(null)
@@ -200,7 +204,7 @@ async function fetchPfpByEmail(email) {
     const res = await fetch(ENDPOINTS.getPfpByEmail, {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email }),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const json = await res.json()
@@ -223,7 +227,13 @@ async function loadAuthorPfp() {
   authorPfpUrl.value = url
 }
 
-watch(authorEmail, () => { loadAuthorPfp() }, { immediate: true })
+watch(
+  authorEmail,
+  () => {
+    loadAuthorPfp()
+  },
+  { immediate: true },
+)
 
 const tagText = computed(() => {
   const p = props.post || {}
@@ -244,7 +254,6 @@ const priceRangeText = computed(() => {
   return '$'.repeat(Math.max(1, Math.min(5, Math.round(price))))
 })
 
-
 const areaText = computed(() => {
   const p = props.post || {}
   return p.area || p.restaurant?.area || p.raw?.restaurant?.area || null
@@ -253,16 +262,21 @@ const areaText = computed(() => {
 const isPublicBool = computed(() => {
   const p = props.post || {}
   // check common fields in order: is_public → public? → raw.public
-  let v = (p.is_public !== undefined ? p.is_public
-           : (p['public?'] !== undefined ? p['public?']
-           : (p.raw && p.raw.public !== undefined ? p.raw.public : null)))
+  let v =
+    p.is_public !== undefined
+      ? p.is_public
+      : p['public?'] !== undefined
+        ? p['public?']
+        : p.raw && p.raw.public !== undefined
+          ? p.raw.public
+          : null
   if (v === null || v === undefined) return null
   if (typeof v === 'boolean') return v
   if (typeof v === 'number') return v === 1
   if (typeof v === 'string') {
     const s = v.trim().toLowerCase()
-    if (['true','1','yes','y'].includes(s)) return true
-    if (['false','0','no','n'].includes(s)) return false
+    if (['true', '1', 'yes', 'y'].includes(s)) return true
+    if (['false', '0', 'no', 'n'].includes(s)) return false
   }
   return !!v
 })
@@ -270,9 +284,12 @@ const isPublicBool = computed(() => {
 const visibilityText = computed(() => {
   const p = props.post || {}
   // Prefer is_public, fallback to legacy "public?"
-  const val = (typeof p.is_public === 'boolean')
-    ? p.is_public
-    : (typeof p['public?'] === 'boolean' ? p['public?'] : null)
+  const val =
+    typeof p.is_public === 'boolean'
+      ? p.is_public
+      : typeof p['public?'] === 'boolean'
+        ? p['public?']
+        : null
   if (val === null) return null
   return val ? 'Everyone' : 'Friends Only'
 })
@@ -294,18 +311,26 @@ const ratingValue = computed(() => {
 const postDateText = computed(() => {
   const p = props.post || {}
   // Accept common fields and nested raw fields
-  const dateStr = (
-    p.created_at || p.createdAt ||
-    p.timestamp || p.posted_at || p.postedAt || p.date ||
-    p.raw?.created_at || p.raw?.createdAt || p.raw?.timestamp || null
-  )
+  const dateStr =
+    p.created_at ||
+    p.createdAt ||
+    p.timestamp ||
+    p.posted_at ||
+    p.postedAt ||
+    p.date ||
+    p.raw?.created_at ||
+    p.raw?.createdAt ||
+    p.raw?.timestamp ||
+    null
   if (!dateStr) return null
   const d = new Date(dateStr)
   if (Number.isNaN(d.getTime())) return null
   try {
     return new Intl.DateTimeFormat('en-SG', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      timeZone: 'Asia/Singapore'
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'Asia/Singapore',
     }).format(d)
   } catch {
     return d.toLocaleDateString('en-SG', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -334,14 +359,16 @@ const liked = ref(false)
 const likeCount = ref(
   typeof props.post?.raw?.upvote_count === 'number' && !Number.isNaN(props.post.raw.upvote_count)
     ? props.post.raw.upvote_count
-    : (typeof props.post?.likes === 'number' && !Number.isNaN(props.post.likes)
-        ? props.post.likes
-        : 0)
+    : typeof props.post?.likes === 'number' && !Number.isNaN(props.post.likes)
+      ? props.post.likes
+      : 0,
 )
 const commentCount = ref(
   typeof props.externalCommentCount === 'number' && !Number.isNaN(props.externalCommentCount)
     ? props.externalCommentCount
-    : (typeof props.post.comments === 'number' ? props.post.comments : 0)
+    : typeof props.post.comments === 'number'
+      ? props.post.comments
+      : 0,
 )
 // Prevent rapid double-taps that cause race conditions / count drift
 const isLiking = ref(false)
@@ -353,8 +380,47 @@ watch(
       commentCount.value = n
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
+
+function emitEngagementPatch({ nextLikes, nextLikedFlag, nextCommentCount }) {
+  const post = props.post || {}
+  const pid = post.id || post.postid
+  if (!pid) return
+
+  const id = String(pid)
+  const raw = {}
+  const patch = { id, postid: id }
+  let dirty = false
+
+  if (Number.isFinite(Number(nextLikes))) {
+    const safeLikes = Math.max(0, Number(nextLikes))
+    patch.likes = safeLikes
+    raw.upvote_count = safeLikes
+    dirty = true
+  }
+  if (typeof nextLikedFlag === 'boolean') {
+    patch.user_has_upvoted = nextLikedFlag
+    raw.user_has_upvoted = nextLikedFlag
+    dirty = true
+  }
+  if (Number.isFinite(Number(nextCommentCount))) {
+    const safeComments = Math.max(0, Number(nextCommentCount))
+    patch.comment_count = safeComments
+    patch.comments_count = safeComments
+    patch.comments = safeComments
+    raw.comments_count = safeComments
+    dirty = true
+  }
+
+  if (!dirty) return
+  if (Object.keys(raw).length) patch.raw = raw
+
+  try {
+    emit('updated', patch)
+    emit('post-updated', patch)
+  } catch {}
+}
 
 async function refreshLikes() {
   const postId = props.post?.id || props.post?.postid
@@ -363,7 +429,7 @@ async function refreshLikes() {
     const res = await fetch(ENDPOINTS.getLikes, {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ postid: String(postId) })
+      body: JSON.stringify({ postid: String(postId) }),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
@@ -371,6 +437,7 @@ async function refreshLikes() {
     likeCount.value = emails.length
     const email = currentUserEmail.value
     liked.value = email ? emails.includes(email) : false
+    emitEngagementPatch({ nextLikes: likeCount.value, nextLikedFlag: liked.value })
   } catch (e) {
     // keep existing optimistic state on failure
   }
@@ -383,12 +450,13 @@ async function refreshComments() {
     const res = await fetch(ENDPOINTS.getComments, {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ postid: String(postId) })
+      body: JSON.stringify({ postid: String(postId) }),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     const list = Array.isArray(data?.data) ? data.data : []
     commentCount.value = list.length
+    emitEngagementPatch({ nextCommentCount: commentCount.value })
   } catch (e) {
     // ignore and keep last known count
   }
@@ -399,8 +467,14 @@ async function refreshEngagement() {
 }
 
 onMounted(refreshEngagement)
-watch(() => props.post?.id || props.post?.postid, () => refreshEngagement())
-watch(() => currentUserEmail.value, () => refreshLikes())
+watch(
+  () => props.post?.id || props.post?.postid,
+  () => refreshEngagement(),
+)
+watch(
+  () => currentUserEmail.value,
+  () => refreshLikes(),
+)
 
 // Keep local like state in sync when parent patches the post (e.g., from preview/dashboard)
 watch(
@@ -412,9 +486,11 @@ watch(
   }),
   (n) => {
     const nextCount =
-      (typeof n.rawLikes === 'number' && !Number.isNaN(n.rawLikes)) ? n.rawLikes :
-      (typeof n.flatLikes === 'number' && !Number.isNaN(n.flatLikes)) ? n.flatLikes :
-      null
+      typeof n.rawLikes === 'number' && !Number.isNaN(n.rawLikes)
+        ? n.rawLikes
+        : typeof n.flatLikes === 'number' && !Number.isNaN(n.flatLikes)
+          ? n.flatLikes
+          : null
     if (nextCount !== null && nextCount !== likeCount.value) {
       likeCount.value = nextCount
     }
@@ -510,8 +586,7 @@ async function toggleLike() {
     liked.value = prevLiked
     likeCount.value = prevCount
     emit('like-error', { postId, error: String(err) })
-  }
-  finally {
+  } finally {
     isLiking.value = false
   }
 }
@@ -553,7 +628,12 @@ const captionClampInlineStyle = computed(() => {
   <article :class="['card', { active: isActive }]">
     <!-- Top image / hero -->
     <div class="hero">
-      <img :src="heroDisplaySrc" alt="Post photo" crossorigin="anonymous" @error="(ev) => onImgError(ev, heroDisplaySrc)" />
+      <img
+        :src="heroDisplaySrc"
+        alt="Post photo"
+        crossorigin="anonymous"
+        @error="(ev) => onImgError(ev, heroDisplaySrc)"
+      />
       <div class="vis-badge" v-if="isPublicBool !== null">
         <span
           class="badge visibility-tag"
@@ -588,14 +668,20 @@ const captionClampInlineStyle = computed(() => {
       </button>
 
       <!-- Dots -->
-      <div v-if="controls && photoCount > 1" class="dots" role="tablist" aria-label="Photos" data-stop-preview>
+      <div
+        v-if="controls && photoCount > 1"
+        class="dots"
+        role="tablist"
+        aria-label="Photos"
+        data-stop-preview
+      >
         <button
           v-for="(_, i) in photoCount"
           :key="i"
           type="button"
           class="dot"
           :class="{ active: i === currentIndex }"
-          :aria-label="`Go to photo ${i+1}`"
+          :aria-label="`Go to photo ${i + 1}`"
           @click.stop="goToPhoto(i)"
           data-stop-preview
         />
@@ -634,12 +720,25 @@ const captionClampInlineStyle = computed(() => {
       <!-- Meta/footer -->
       <div class="meta">
         <div class="stats">
-          <button class="stat as-button" @click.stop="toggleLike" :aria-pressed="liked" data-stop-preview>
-            <span v-if="liked">💗</span><span v-else>🤍</span>
+          <button
+            class="stat as-button"
+            @click.stop="toggleLike"
+            :aria-pressed="liked"
+            data-stop-preview
+          >
+            <img v-if="!liked" src="/images/like.png" alt="Like" class="icon-20 me-1" width="16" height="16" />
+            <img v-else src="/images/liked.png" alt="Liked" class="icon-20 me-1" width="16" height="16" />
+            <!-- <span v-if="liked">💗</span><span v-else>🤍</span> -->
             <span>{{ likeCount }}</span>
           </button>
-          <button class="stat as-button" @click.stop="openComments" data-stop-preview title="Open comments">
-            💬 <span>{{ commentCount }}</span>
+          <button
+            class="stat as-button"
+            @click.stop="openComments"
+            data-stop-preview
+            title="Open comments"
+          >
+            <img src="/images/comment.png" alt="Comments" class="icon-20 me-1" width="16" height="16" />
+            <span>{{ commentCount }}</span>
           </button>
         </div>
 
@@ -657,9 +756,13 @@ const captionClampInlineStyle = computed(() => {
         </div>
 
         <button v-if="hasMapTarget" class="map-btn" @click="viewOnMap(post)" title="View on map">
-          📍 Map
+          <img src="/images/map.png" alt="Map" class="icon-20 me-1" width="16" height="16" />
+          Map
         </button>
-        <span v-else class="map-btn disabled" title="No map data">Map</span>
+        <span v-else class="map-btn disabled" title="No map data">
+          <img src="/images/map.png" alt="Map" class="icon-20 me-1" width="16" height="16" />
+          Map
+        </span>
 
         <span v-if="postDateText" class="date-text">Posted on {{ postDateText }}</span>
       </div>
@@ -822,7 +925,6 @@ const captionClampInlineStyle = computed(() => {
   color: #111827;
 }
 
-
 /* Carousel controls */
 .nav {
   position: absolute;
@@ -831,17 +933,23 @@ const captionClampInlineStyle = computed(() => {
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  border: 1px solid rgba(0,0,0,0.15);
-  background: rgba(255,255,255,0.8);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.8);
   color: #111827;
   display: grid;
   place-items: center;
   cursor: pointer;
   user-select: none;
 }
-.nav.prev { left: 10px; }
-.nav.next { right: 10px; }
-.nav:hover { background: #fff; }
+.nav.prev {
+  left: 10px;
+}
+.nav.next {
+  right: 10px;
+}
+.nav:hover {
+  background: #fff;
+}
 
 /* Dots */
 .dots {
@@ -857,13 +965,20 @@ const captionClampInlineStyle = computed(() => {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.7);
-  background: rgba(255,255,255,0.6);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.6);
   cursor: pointer;
 }
-.dot.active { background: #fff; }
+.dot.active {
+  background: #fff;
+}
 
-.vis-badge { position: absolute; top: 10px; left: 10px; z-index: 6; }
+.vis-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 6;
+}
 .visibility-tag {
   font-size: 11px;
   font-weight: 700;
@@ -871,11 +986,15 @@ const captionClampInlineStyle = computed(() => {
   border-radius: 999px;
   color: #fff;
   border: none;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-  text-shadow: 0 1px 1px rgba(0,0,0,0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
 }
-.sage-tag { background-color: var(--sage-600, #2f855a); }
-.terracotta-tag { background-color: var(--terracotta-500, #c05621); }
+.sage-tag {
+  background-color: var(--sage-600, #2f855a);
+}
+.terracotta-tag {
+  background-color: var(--terracotta-500, #c05621);
+}
 
 /* ---------------- Responsive tweaks for PostCard ---------------- */
 
@@ -883,14 +1002,23 @@ const captionClampInlineStyle = computed(() => {
 .hero img {
   height: clamp(160px, 32vw, 220px);
 }
-@media (min-width: 576px) { /* sm */
-  .hero img { height: clamp(200px, 28vw, 260px); }
+@media (min-width: 576px) {
+  /* sm */
+  .hero img {
+    height: clamp(200px, 28vw, 260px);
+  }
 }
-@media (min-width: 768px) { /* md */
-  .hero img { height: clamp(220px, 26vw, 300px); }
+@media (min-width: 768px) {
+  /* md */
+  .hero img {
+    height: clamp(220px, 26vw, 300px);
+  }
 }
-@media (min-width: 1200px) { /* xl */
-  .hero img { height: clamp(260px, 24vw, 360px); }
+@media (min-width: 1200px) {
+  /* xl */
+  .hero img {
+    height: clamp(260px, 24vw, 360px);
+  }
 }
 
 /* Title and text scale */
@@ -901,12 +1029,17 @@ const captionClampInlineStyle = computed(() => {
   font-size: clamp(13px, 1.8vw, 14px);
   line-height: 1.45;
 }
-.address, .stats, .name, .date-text {
+.address,
+.stats,
+.name,
+.date-text {
   font-size: clamp(12px, 1.7vw, 13px);
 }
 
 /* Let long text wrap nicely */
-.title, .address, .desc {
+.title,
+.address,
+.desc {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -938,13 +1071,21 @@ const captionClampInlineStyle = computed(() => {
     width: 36px;
     height: 36px;
   }
-  .dots { bottom: 6px; }
-  .dot { width: 6px; height: 6px; }
+  .dots {
+    bottom: 6px;
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+  }
 }
 
 /* Medium-up: keep layout tight but readable */
 @media (min-width: 768px) {
-  .map-btn { font-size: 14px; padding: 6px 14px; }
+  .map-btn {
+    font-size: 14px;
+    padding: 6px 14px;
+  }
 }
 
 /* Ensure avatar doesn't distort on small screens */
@@ -965,6 +1106,26 @@ const captionClampInlineStyle = computed(() => {
   gap: 6px;
   font: inherit;
 }
-.stat.as-button:hover { color: #111827; }
-.stat.as-button[aria-pressed="true"] { color: var(--sage-600, #2f855a); }
+.stat.as-button:hover {
+  color: #111827;
+}
+.stat.as-button[aria-pressed='true'] {
+  color: var(--sage-600, #2f855a);
+}
+
+
+  .icon-20 {
+    width: 16px !important;
+    height: 16px !important;
+    object-fit: contain;
+    display: inline-block;
+    vertical-align: middle;
+  }
+.stat.as-button {
+  line-height: 1;
+}
+  .stat.as-button { gap: 4px; }
+  .map-btn .icon-20 { margin-right: 4px; }
+  .stat.as-button .me-1 { margin-right: 4px; }
+
 </style>
