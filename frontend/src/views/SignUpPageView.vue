@@ -218,7 +218,7 @@ async function onSubmit() {
       password: password.value,
       options: {
         data: { username: username.value, handle }, // store both
-        emailRedirectTo: `${window.location.origin}/auth/callback`
+        emailRedirectTo: "https://forking-good.netlify.app/login"
       }
     })
 
