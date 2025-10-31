@@ -1,7 +1,7 @@
 <template>
   <div class="min-vh-100 bg-body text-body">
     <!-- Top nav (Bootstrap) -->
-    <nav class="navbar navbar-expand-lg sticky-top bg-white border-bottom">
+    <nav class="navbar navbar-expand-lg sticky-top bg-white border-bottom" data-animate="fadeInDown" data-delay="0s">
       <div class="container">
         <router-link class="navbar-brand d-flex align-items-center gap-2" to="/">
           <img
@@ -39,20 +39,20 @@
       <div class="container">
         <div class="row align-items-center g-4">
           <div class="col-lg-6">
-            <h1 class="display-5 fw-semibold lh-sm">
+            <h1 class="display-5 fw-semibold lh-sm animate__animated animate__fadeInUp" style="animation-delay: .05s;">
               Discover & share food gems with <span class="text-sage">friends</span>
             </h1>
-            <p class="lead text-muted mt-3">
+            <p class="lead text-muted mt-3 animate__animated animate__fadeInUp" style="animation-delay: .15s;">
               ForkingGood is your cosy map of bite-sized recommendations. Filter by area, cuisine &
               price, save places, and see what your circle actually loves.
             </p>
-            <div class="d-flex flex-wrap gap-2 mt-4">
+            <div class="d-flex flex-wrap gap-2 mt-4 animate__animated animate__fadeInUp" style="animation-delay: .25s;">
               <router-link class="btn btn-outline-secondary px-4" to="/signup"
                 >Create an account</router-link
               >
               
             </div>
-            <div class="d-flex align-items-center gap-2 mt-3 small text-muted">
+            <div class="d-flex align-items-center gap-2 mt-3 small text-muted animate__animated animate__fadeInUp" style="animation-delay: .35s;">
               <div class="d-inline-flex align-items-center">
                 <span
                   class="rounded-circle border border-2 border-white me-n2"
@@ -77,8 +77,8 @@
               :src="heroSrc"
               background="transparent"
               speed="1"
-              class="lottie-hero"
-              style="width: 100%; height: 420px; position: relative; z-index: 1"
+              class="lottie-hero animate__animated animate__zoomIn"
+              style="width: 100%; height: 420px; position: relative; z-index: 1; animation-delay: .15s;"
               autoplay
               loop
               @error="onLottieError"
@@ -112,7 +112,7 @@
 
         <div class="row g-4 mt-2">
           <div class="col-sm-6 col-lg-3" v-for="f in features" :key="f.title">
-            <div class="card h-100 shadow-sm border-0">
+            <div class="card h-100 shadow-sm border-0 reveal" data-animate="fadeInUp" data-delay="0s">
               <div class="card-body">
                 <div class="mb-3" style="width: 112px; height: 112px">
                   <lottie-player
@@ -138,7 +138,7 @@
       <div class="container">
         <div class="row g-4">
           <div class="col-md-4" v-for="(s, i) in steps" :key="i">
-            <div class="border rounded-4 p-4 bg-white h-100">
+            <div class="border rounded-4 p-4 bg-white h-100 reveal" data-animate="fadeInUp" data-delay="0s">
               <div class="d-flex justify-content-between align-items-center">
                 <span class="small fw-medium text-sage">Step {{ i + 1 }}</span>
                 <div style="width: 72px; height: 72px">
@@ -165,7 +165,7 @@
       </div>
     </section>
 
-    <footer class="py-4 bg-white border-top">
+    <footer class="py-4 bg-white border-top reveal" data-animate="fadeInUp" data-delay="0s">
       <div
         class="container d-flex flex-column flex-md-row align-items-center justify-content-between gap-3"
       >
@@ -182,14 +182,14 @@
     </footer>
 
     <!-- Floating mobile CTA -->
-    <router-link to="/login" class="btn btn-outline-secondary btn-lg d-md-none cta-fab">
+    <router-link to="/login" class="btn btn-outline-secondary btn-lg d-md-none cta-fab animate__animated animate__fadeInUp" style="animation-delay: .4s;">
       Log In
     </router-link>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 
 // Lottie sources
 const heroSrc = 'https://lottie.host/163d8d3c-e11d-49b5-9d57-9140b2c7af39/iJyhmcfKZc.json'
@@ -241,6 +241,54 @@ const onLottieError = (e) => {
   el.outerHTML =
     '<div class="d-inline-grid place-items-center rounded-3 border text-secondary small" style="width:112px;height:112px;">Lottie unavailable</div>'
 }
+
+// === Animate.css scroll reveal ===
+let _observer;
+onMounted(() => {
+  // Guard if IntersectionObserver unavailable (older browsers)
+  if (typeof window !== 'undefined' && 'IntersectionObserver' in window) {
+    _observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const el = entry.target;
+            const anim = el.getAttribute('data-animate') || 'fadeInUp';
+            const delay = el.getAttribute('data-delay') || '0s';
+            // apply Animate.css classes
+            el.classList.add('animate__animated', `animate__${anim}`);
+            el.style.animationDelay = delay;
+            el.classList.add('show');
+            _observer.unobserve(el);
+          }
+        });
+      },
+      { root: null, rootMargin: '0px 0px -10% 0px', threshold: 0.15 }
+    );
+
+    document.querySelectorAll('[data-animate]')?.forEach((el) => {
+      // mark as hidden until revealed
+      if (!el.classList.contains('animate__animated')) {
+        el.classList.add('reveal');
+      }
+      _observer.observe(el);
+    });
+  } else {
+    // Fallback: immediately apply animations
+    document.querySelectorAll('[data-animate]')?.forEach((el) => {
+      const anim = el.getAttribute('data-animate') || 'fadeInUp';
+      const delay = el.getAttribute('data-delay') || '0s';
+      el.classList.add('animate__animated', `animate__${anim}`);
+      el.style.animationDelay = delay;
+    });
+  }
+});
+
+onBeforeUnmount(() => {
+  if (_observer) {
+    _observer.disconnect();
+    _observer = null;
+  }
+});
 </script>
 
 <style scoped>
@@ -295,4 +343,8 @@ h3,
 h4 {
   letter-spacing: -0.015em;
 }
+
+/* Animate.css scroll-reveal helpers */
+.reveal { opacity: 0; transform: translateY(6px); }
+.reveal.show { opacity: 1; transform: none; }
 </style>

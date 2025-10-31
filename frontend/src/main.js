@@ -4,6 +4,7 @@ import App from "./App.vue";
 import router from "./router"; // ✅ import your router
 import '@/assets/css/theme.css';
 import 'https://unpkg.com/@googlemaps/extended-component-library@0.6'
+import 'animate.css';
 
 // Dynamically inject Google Maps script using env key
 const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
