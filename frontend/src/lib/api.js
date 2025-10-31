@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { supabase } from './supabase'; // Adjust path to your Supabase client
+import { supabase } from './supabaseClient.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
   (import.meta.env.PROD ? '/api' : 'http://localhost:8000');
