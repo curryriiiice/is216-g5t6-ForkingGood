@@ -58,7 +58,11 @@ const supabaseAuth = async (req, res, next) => {
 };
 
 // Apply Supabase auth to all routes
-app.use(supabaseAuth);
+//app.use(supabaseAuth);
+app.use((req, res, next) => {
+  // skip auth for development
+  next()
+})
 
 // Health check route (optional but useful)
 app.get('/health', (req, res) => {
