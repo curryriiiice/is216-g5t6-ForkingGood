@@ -6,16 +6,16 @@ import Modal from '@/components/Modal.vue'
 import { useRouter } from 'vue-router'
 import PostCard from '@/components/PostCard.vue'
 import { useAuthUser } from '@/lib/useAuthUser'
+import api from '@/lib/api.js'
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
-const IMAGE_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_IMAGE_BASE_URL || API_BASE)
+
+const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
 const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
 const COMMENTS_EP = {
-  get: `${API_BASE}/friends/getCommentsbyPostId`,
-  add: `${API_BASE}/friends/commentPost`,
-  del: `${API_BASE}/friends/deleteComment`,
-  edit: `${API_BASE}/friends/editComment`,
+  get: '/friends/getCommentsbyPostId',
+  add: '/friends/commentPost', 
+  del: '/friends/deleteComment',
+  edit: '/friends/editComment',
 }
 
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()

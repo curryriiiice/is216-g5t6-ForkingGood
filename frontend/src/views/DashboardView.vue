@@ -6,12 +6,12 @@ import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthUser } from '@/lib/useAuthUser'
+import api from '@/lib/api.js'
 
-// === Backend config ===
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
+
 // In dev, use relative paths so requests go through Vite proxy (no CORS)
-const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || API_BASE
+const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
+
 function resolveImageUrl(p) {
   if (!p) return null
   const s = String(p)
@@ -36,10 +36,10 @@ const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/
 
 // Friends-prefixed comment endpoints
 const COMMENTS_EP = {
-  get: `${API_BASE}/friends/getCommentsbyPostId`,
-  add: `${API_BASE}/friends/commentPost`,
-  del: `${API_BASE}/friends/deleteComment`,
-  edit: `${API_BASE}/friends/editComment`,
+  get: '/friends/getCommentsbyPostId',
+  add: '/friends/commentPost', 
+  del: '/friends/deleteComment',
+  edit: '/friends/editComment',
 }
 
 async function loadComments(postId) {
