@@ -96,14 +96,22 @@
             <div class="small text-muted mt-2" v-if="!hasChanges">No changes yet.</div>
           </div>
         </div>
-      </div>
     </div>
+  </div>
 
-    <!-- Loading overlay -->
-    <div
-      v-if="loading"
-      class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
-      style="background: rgba(0,0,0,.15); z-index: 1000;"
+  <!-- Status Modal (success/info) -->
+  <Modal :show="showStatus" :title="statusTitle" @close="showStatus = false">
+    <p class="mb-0">{{ statusMessage }}</p>
+    <template #footer>
+      <button type="button" class="btn btn-fit" @click="showStatus = false">OK</button>
+    </template>
+  </Modal>
+
+  <!-- Loading overlay -->
+  <div
+    v-if="loading"
+    class="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center"
+    style="background: rgba(0,0,0,.15); z-index: 1000;"
     >
       <div class="card p-3 shadow-sm theme-card">Loading profile…</div>
     </div>
@@ -294,6 +302,11 @@ const currentAvatar = computed(() => {
   if (meOriginal.avatar_url) return meOriginal.avatar_url;
   return DEFAULT_AVATAR;
 });
+
+// Status popup state
+const showStatus = ref(false)
+const statusTitle = ref('')
+const statusMessage = ref('')
 
 const hasChanges = computed(() =>
   usernameDirty.value ||
@@ -578,11 +591,15 @@ async function save() {
         detail: { email: meOriginal.email, avatar_url: meOriginal.avatar_url }
       }))
     } catch {}
-    alert('Profile updated!');
+    statusTitle.value = 'Profile Updated'
+    statusMessage.value = 'Your profile has been updated successfully.'
+    showStatus.value = true
   } catch (e) {
     console.error(e);
     const msg = e?.response?.data?.message || e?.message || 'Failed to save profile.';
-    alert(msg);
+    statusTitle.value = 'Update Failed'
+    statusMessage.value = msg
+    showStatus.value = true
   } finally {
     saving.value = false;
   }
