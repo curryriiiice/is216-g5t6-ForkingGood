@@ -1,13 +1,26 @@
-import axios from 'axios'
+import axios from 'axios';
+import { supabase } from './supabase'; // Adjust path to your Supabase client
 
-const base =
-  import.meta.env.VITE_API_BASE ||
-  import.meta.env.VITE_API_BASE_URL ||
-  'http://localhost:8000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
+  (import.meta.env.PROD ? '/api' : 'http://localhost:8000');
 
 const api = axios.create({
-  baseURL: base,
-  timeout: 15000,
-})
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  }
+});
 
-export default api
+// Add request interceptor for Supabase auth token
+api.interceptors.request.use(async (config) => {
+  // Get the current Supabase session
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  if (session?.access_token) {
+    config.headers.Authorization = `Bearer ${session.access_token}`;
+  }
+  
+  return config;
+});
+
+export default api;
