@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import PostCard from '@/components/PostCard.vue'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
-import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthUser } from '@/lib/useAuthUser'
 import api from '@/lib/api.js'
@@ -32,7 +31,6 @@ const newComment = ref('')
 const editingComment = ref(null)
 // Per-post comment counts (reactive map)
 const commentCounts = ref({})
-const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
 
 // Friends-prefixed comment endpoints
 const COMMENTS_EP = {
@@ -45,13 +43,8 @@ const COMMENTS_EP = {
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
-    const res = await fetch(COMMENTS_EP.get, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ postid: String(postId) }),
-    })
-    const data = await res.json()
-    comments.value = Array.isArray(data?.data) ? data.data : []
+    const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
+    comments.value = Array.isArray(response.data?.data) ? response.data.data : []
     setCommentCountForPost(postId, comments.value.length)
   } catch {
     comments.value = []
@@ -92,12 +85,11 @@ async function submitComment() {
   comments.value = [...comments.value, draft]
   newComment.value = ''
   try {
-    const res = await fetch(COMMENTS_EP.add, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ commenter_email: email, postid: String(postid), comment }),
+    await api.post(COMMENTS_EP.add, { 
+      commenter_email: email, 
+      postid: String(postid), 
+      comment 
     })
-    if (!res.ok) throw new Error('comment failed')
     await loadComments(postid)
   } catch {
     comments.value = comments.value.filter((c) => !(c === draft))
@@ -112,16 +104,13 @@ async function deleteComment(item) {
     (c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment),
   )
   try {
-    const res = await fetch(COMMENTS_EP.del, {
-      method: 'DELETE',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
+    await api.delete(COMMENTS_EP.del, { 
+      data: {
         postid: String(postid),
         commenter_email: item.commenter_email,
         comment: item.comment,
-      }),
+      }
     })
-    if (!res.ok) throw new Error('delete failed')
     await loadComments(postid)
   } catch {
     comments.value = prev
@@ -137,17 +126,12 @@ async function editComment(item, newText) {
   const prev = [...comments.value]
   comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c))
   try {
-    const res = await fetch(COMMENTS_EP.edit, {
-      method: 'PATCH',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
-        postid: String(postid),
-        commenter_email: item.commenter_email,
-        old_comment: oldText,
-        new_comment: nextText,
-      }),
+    await api.patch(COMMENTS_EP.edit, {
+      postid: String(postid),
+      commenter_email: item.commenter_email,
+      old_comment: oldText,
+      new_comment: nextText,
     })
-    if (!res.ok) throw new Error('edit failed')
     await loadComments(postid)
   } catch {
     comments.value = prev
