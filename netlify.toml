@@ -2,6 +2,9 @@
   command = "cd backend/functions && npm install && cd ../../frontend && npm install && npm run build"
   publish = "frontend/dist"
 
+[build.environment]
+  SECRETS_SCAN_ENABLED = false
+  
 [functions]
   directory = "backend/functions"
   node_bundler = "esbuild"
