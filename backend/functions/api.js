@@ -66,11 +66,11 @@ app.get('/health', (req, res) => {
 });
 
 // import and use exported routes from routers
-import friendsRoutes from './routers/friendsRouter.js';
-import mapRoutes from './routers/mapRouter.js';
-import restaurantRoutes from './routers/restaurantRouter.js';
-import searchRoutes from './routers/searchRouter.js';
-import userRoutes from './routers/userRouter.js';
+import friendsRoutes from '../routers/friendsRouter.js';
+import mapRoutes from '../routers/mapRouter.js';
+import restaurantRoutes from '../routers/restaurantRouter.js';
+import searchRoutes from '../routers/searchRouter.js';
+import userRoutes from '../routers/userRouter.js';
 
 // Use your routes with /api prefix for Netlify
 app.use('/api/friends', friendsRoutes);
