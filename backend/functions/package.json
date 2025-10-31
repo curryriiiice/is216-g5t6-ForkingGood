@@ -6,6 +6,8 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "serverless-http": "^3.2.0",
-    "@supabase/supabase-js": "^2.74.0"
+    "@supabase/supabase-js": "^2.74.0",
+    "multer": "^2.0.2",
+    "body-parser": "^2.2.0"
   }
 }
