@@ -84,7 +84,7 @@ function looksLikeEmail(v) {
   return /.+@.+\..+/.test(v)
 }
 
-async function onSubmit() {
+async function onSubmit() { 
   if (loading.value) return
   error.value = ''
 
