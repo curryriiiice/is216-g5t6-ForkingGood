@@ -31,6 +31,8 @@ const newComment = ref('')
 const editingComment = ref(null)
 // Per-post comment counts (reactive map)
 const commentCounts = ref({})
+const engagementMemo = ref({})
+const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
 
 // Friends-prefixed comment endpoints
 const COMMENTS_EP = {
@@ -40,11 +42,91 @@ const COMMENTS_EP = {
   edit: '/friends/editComment',
 }
 
+const DEFAULT_COMMENT_AVATAR = '/images/default-avatar.jpg'
+const commentProfileCache = ref(new Map())
+const pendingCommentProfiles = new Map()
+
+function cacheCommentProfile(email, profile) {
+  const next = new Map(commentProfileCache.value)
+  next.set(email, profile)
+  commentProfileCache.value = next
+  return profile
+}
+
+function deriveNameFromEmail(email) {
+  if (!email) return 'Anonymous'
+  const [name] = String(email).split('@')
+  return name || email
+}
+
+function resolveCommentAvatar(raw) {
+  if (!raw) return DEFAULT_COMMENT_AVATAR
+  return resolveImageUrl(raw) || DEFAULT_COMMENT_AVATAR
+}
+
+async function ensureProfileForCommenter(email) {
+  if (!email) return null
+  const cached = commentProfileCache.value.get(email)
+  if (cached) return cached
+
+  if (pendingCommentProfiles.has(email)) {
+    return pendingCommentProfiles.get(email)
+  }
+
+  const request = api
+    .post('/user/getProfile', { user_email: email })
+    .then((res) => {
+      const info = res.data?.data || {}
+      return cacheCommentProfile(email, {
+        displayName: (info?.username || '').trim() || deriveNameFromEmail(email),
+        avatar: resolveCommentAvatar(info?.profile_image_url),
+      })
+    })
+    .catch(() =>
+      cacheCommentProfile(email, {
+        displayName: deriveNameFromEmail(email),
+        avatar: DEFAULT_COMMENT_AVATAR,
+      }),
+    )
+    .finally(() => {
+      pendingCommentProfiles.delete(email)
+    })
+
+  pendingCommentProfiles.set(email, request)
+  return request
+}
+
+async function enrichCommentsWithProfiles(list) {
+  if (!Array.isArray(list) || list.length === 0) return []
+  const uniqueEmails = [...new Set(list.map((row) => row.commenter_email).filter(Boolean))]
+  await Promise.all(uniqueEmails.map((email) => ensureProfileForCommenter(email)))
+  return list.map((row) => {
+    const profile = commentProfileCache.value.get(row.commenter_email)
+    return {
+      ...row,
+      commenter_name: profile?.displayName ?? deriveNameFromEmail(row.commenter_email),
+      commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
+    }
+  })
+}
+
+function onCommentAvatarError(event) {
+  if (event?.target) {
+    event.target.src = DEFAULT_COMMENT_AVATAR
+  }
+}
+
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
-    const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
-    comments.value = Array.isArray(response.data?.data) ? response.data.data : []
+    const res = await fetch(COMMENTS_EP.get, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ postid: String(postId) }),
+    })
+    const data = await res.json()
+    const rawComments = Array.isArray(data?.data) ? data.data : []
+    comments.value = await enrichCommentsWithProfiles(rawComments)
     setCommentCountForPost(postId, comments.value.length)
   } catch {
     comments.value = []
@@ -57,6 +139,11 @@ function onOpenComments({ postId }) {
 }
 
 function closeComments() {
+  const pid = commentsForPostId.value
+  if (pid) {
+    const count = Array.isArray(comments.value) ? comments.value.length : 0
+    setCommentCountForPost(pid, count)
+  }
   showComments.value = false
   newComment.value = ''
   comments.value = []
@@ -81,7 +168,13 @@ async function submitComment() {
   if (!email) return
 
   // Otherwise, create a new comment (optimistic)
-  const draft = { commenter_email: email, comment }
+  const profile = await ensureProfileForCommenter(email)
+  const draft = {
+    commenter_email: email,
+    comment,
+    commenter_name: profile?.displayName ?? deriveNameFromEmail(email),
+    commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
+  }
   comments.value = [...comments.value, draft]
   newComment.value = ''
   try {
@@ -181,6 +274,20 @@ function openPreview(p) {
 async function closePreview() {
   showPreview.value = false
   const snap = previewPost.value
+  const snapId = snap ? String(snap.id ?? snap.postid ?? '') : ''
+  const snapshotCommentCount = snapId ? extractCommentCount(snap) : null
+  const snapshotLikeCount =
+    snapId && snap ? Number(snap.likes ?? snap.raw?.upvote_count ?? 0) : null
+  const snapshotLikedFlag =
+    snapId && snap
+      ? typeof snap.user_has_upvoted === 'boolean'
+        ? snap.user_has_upvoted
+        : typeof snap.raw?.user_has_upvoted === 'boolean'
+          ? snap.raw.user_has_upvoted
+          : typeof snap.raw?.has_upvoted === 'boolean'
+            ? snap.raw.has_upvoted
+            : null
+      : null
   let latestPatch = null
 
   // 1) Merge any in-modal state if present
@@ -219,6 +326,21 @@ async function closePreview() {
   }
   // 3) Refresh the feed and then re-apply the latest known engagement so it doesn't "disappear"
   await runSearch()
+  if (snapId && snapshotCommentCount !== null) {
+    setCommentCountForPost(snapId, snapshotCommentCount)
+  }
+  if (snapId && snapshotLikeCount !== null) {
+    applyPostPatch({
+      id: snapId,
+      postid: snapId,
+      likes: snapshotLikeCount,
+      user_has_upvoted: snapshotLikedFlag,
+      raw: {
+        upvote_count: snapshotLikeCount,
+        user_has_upvoted: snapshotLikedFlag ?? undefined,
+      },
+    })
+  }
   if (latestPatch) applyPostPatch(latestPatch)
   previewPost.value = null
 }
@@ -247,6 +369,25 @@ function extractCommentCount(patch) {
   return null
 }
 
+function extractLikeCount(patch) {
+  if (!patch) return null
+  const maybe = [patch.likes, patch?.raw?.upvote_count, patch?.raw?.upvotes, patch?.raw?.likes]
+  for (const val of maybe) {
+    if (val == null) continue
+    const num = Number(val)
+    if (Number.isFinite(num)) return Math.max(0, num)
+  }
+  return null
+}
+
+function extractLikedFlag(patch) {
+  if (!patch) return null
+  if (typeof patch.user_has_upvoted === 'boolean') return patch.user_has_upvoted
+  if (typeof patch?.raw?.user_has_upvoted === 'boolean') return patch.raw.user_has_upvoted
+  if (typeof patch?.raw?.has_upvoted === 'boolean') return patch.raw.has_upvoted
+  return null
+}
+
 function mergePatchIntoPost(target, patch) {
   if (!target) return null
   const merged = {
@@ -258,10 +399,7 @@ function mergePatchIntoPost(target, patch) {
   if (typeof likeCount === 'number' && !Number.isNaN(likeCount)) {
     merged.likes = likeCount
     merged.raw = { ...merged.raw, upvote_count: likeCount }
-  } else if (
-    typeof patch?.raw?.upvotes === 'number' &&
-    !Number.isNaN(patch.raw.upvotes)
-  ) {
+  } else if (typeof patch?.raw?.upvotes === 'number' && !Number.isNaN(patch.raw.upvotes)) {
     merged.likes = patch.raw.upvotes
     merged.raw = { ...merged.raw, upvote_count: patch.raw.upvotes }
   }
@@ -295,6 +433,19 @@ function applyPostPatch(patch) {
       commentCounts.value = { ...prevMap, [pid]: commentCount }
     }
   }
+  const likeCount = extractLikeCount(patch)
+  const likedFlag = extractLikedFlag(patch)
+  if (likeCount !== null || likedFlag !== null) {
+    const prev = engagementMemo.value || {}
+    const prevEntry = prev[pid] || {}
+    engagementMemo.value = {
+      ...prev,
+      [pid]: {
+        likes: likeCount !== null ? likeCount : (prevEntry.likes ?? null),
+        user_has_upvoted: likedFlag !== null ? likedFlag : (prevEntry.user_has_upvoted ?? null),
+      },
+    }
+  }
 
   // Update list item by id/postid
   const i = Array.isArray(posts.value)
@@ -319,6 +470,7 @@ function applyPostPatch(patch) {
       randomPost.value = mergePatchIntoPost(randomPost.value, patch)
     }
   }
+  nextTick(() => initRevealUp())
 }
 
 // Guard clicks so internal controls (e.g., carousel/swiper arrows) don't open the preview
@@ -953,29 +1105,50 @@ async function runSearch() {
       if (!x) continue
       const k = String(x?.id ?? x?.postid ?? '')
       if (!k) continue
+      const likeVal = Number(x?.likes ?? x?.raw?.upvote_count)
       known.set(k, {
-        likes: Number(x?.likes ?? x?.raw?.upvote_count),
-        user_has_upvoted: Boolean(x?.user_has_upvoted),
+        likes: Number.isFinite(likeVal) ? likeVal : undefined,
+        user_has_upvoted: typeof x?.user_has_upvoted === 'boolean' ? x.user_has_upvoted : undefined,
       })
     }
   }
   // from preview
   if (previewPost.value) {
     const k = String(previewPost.value?.id ?? previewPost.value?.postid ?? '')
-    if (k)
+    if (k) {
+      const likeVal = Number(previewPost.value?.likes ?? previewPost.value?.raw?.upvote_count)
       known.set(k, {
-        likes: Number(previewPost.value?.likes ?? previewPost.value?.raw?.upvote_count),
-        user_has_upvoted: Boolean(previewPost.value?.user_has_upvoted),
+        likes: Number.isFinite(likeVal) ? likeVal : undefined,
+        user_has_upvoted:
+          typeof previewPost.value?.user_has_upvoted === 'boolean'
+            ? previewPost.value.user_has_upvoted
+            : undefined,
       })
+    }
   }
   // from randomiser card
   if (randomPost.value) {
     const k = String(randomPost.value?.id ?? randomPost.value?.postid ?? '')
-    if (k)
+    if (k) {
+      const likeVal = Number(randomPost.value?.likes ?? randomPost.value?.raw?.upvote_count)
       known.set(k, {
-        likes: Number(randomPost.value?.likes ?? randomPost.value?.raw?.upvote_count),
-        user_has_upvoted: Boolean(randomPost.value?.user_has_upvoted),
+        likes: Number.isFinite(likeVal) ? likeVal : undefined,
+        user_has_upvoted:
+          typeof randomPost.value?.user_has_upvoted === 'boolean'
+            ? randomPost.value.user_has_upvoted
+            : undefined,
       })
+    }
+  }
+  const memo = engagementMemo.value || {}
+  for (const [k, v] of Object.entries(memo)) {
+    if (!k) continue
+    if (!known.has(k)) {
+      known.set(k, {
+        likes: Number.isFinite(Number(v?.likes)) ? Number(v.likes) : undefined,
+        user_has_upvoted: typeof v?.user_has_upvoted === 'boolean' ? v.user_has_upvoted : undefined,
+      })
+    }
   }
 
   feed = feed.map((p) => {
@@ -1146,6 +1319,54 @@ watch(
   },
 )
 
+// === Animate.css scroll-reveal ===
+let _revealObserver
+function initRevealUp() {
+  if (typeof window === 'undefined') return
+  const nodes = document.querySelectorAll('[data-animate]')
+  if (!nodes || !nodes.length) return
+
+  const reveal = (el) => {
+    const anim = el.getAttribute('data-animate') || 'fadeInUp'
+    const delay = el.getAttribute('data-delay') || '0s'
+    const duration = el.getAttribute('data-duration')
+    el.classList.add('animate__animated', `animate__${anim}`)
+    el.style.animationDelay = delay
+    if (duration) {
+      el.style.setProperty('--animate-duration', duration)
+    }
+    el.classList.add('show')
+  }
+
+  if (!('IntersectionObserver' in window)) {
+    nodes.forEach((el) => reveal(el))
+    return
+  }
+
+  if (_revealObserver) _revealObserver.disconnect()
+  _revealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const el = entry.target
+          reveal(el)
+          _revealObserver.unobserve(el)
+        }
+      })
+    },
+    { root: null, rootMargin: '0px 0px -10% 0px', threshold: 0.15 },
+  )
+
+  nodes.forEach((el, i) => {
+    if (!el.classList.contains('animate__animated')) el.classList.add('reveal')
+    if (!el.getAttribute('data-delay')) {
+      const stagger = Math.min(i * 0.04, 0.28).toFixed(2) + 's'
+      el.setAttribute('data-delay', stagger)
+    }
+    _revealObserver.observe(el)
+  })
+}
+
 // Close dropdowns when clicking outside the filter boxes
 function handleGlobalClick(e) {
   const t = e.target
@@ -1182,6 +1403,10 @@ onUnmounted(() => {
   document.removeEventListener('click', handleGlobalClick, true)
   document.removeEventListener('pointerdown', handleGlobalPointerDown, true)
   document.removeEventListener('keydown', handleKeydown, true)
+  if (_revealObserver) {
+    _revealObserver.disconnect()
+    _revealObserver = null
+  }
 })
 
 // Scope toggle
@@ -1531,6 +1756,14 @@ function rowToPost(row) {
   }
   const explicitIsPublic = coerceBool(row.is_public ?? row.public ?? row['public?'])
   const derivedIsPublic = explicitIsPublic === null ? !friendsOnly.value : explicitIsPublic
+  const likeCount =
+    row.upvote_count ?? row.upvotes ?? row.likes ?? row.raw_upvotes ?? row.raw_upvote_count ?? 0
+  const hasLiked =
+    row.user_has_upvoted ??
+    row.has_upvoted ??
+    row.raw_user_has_upvoted ??
+    row.raw_has_upvoted ??
+    false
   return {
     id: row.postid || row.post_id,
     text: row.review || '',
@@ -1554,14 +1787,15 @@ function rowToPost(row) {
       latitude: Number.isFinite(lat) ? lat : undefined,
       longitude: Number.isFinite(lng) ? lng : undefined,
     },
-    likes: 0,
+    likes: Number(likeCount) || 0,
     raw: {
       created_at: row.created_at,
       public: derivedIsPublic,
-      upvote_count: row.upvote_count ?? 0,
-      user_has_upvoted: row.user_has_upvoted ?? false,
+      upvote_count: Number(likeCount) || 0,
+      user_has_upvoted: Boolean(hasLiked),
       comments: row.comments ?? [],
     },
+    user_has_upvoted: Boolean(hasLiked),
   }
 }
 
@@ -1608,6 +1842,7 @@ function viewOnMap(post) {
 }
 
 onMounted(load)
+onMounted(() => nextTick(() => initRevealUp()))
 onMounted(() => nextTick(() => initTooltips()))
 watch(
   () => activeEmail.value,
@@ -1632,44 +1867,79 @@ watch(
 
 <template>
   <div class="page sage-bg">
-    <!-- Top toolbar with Cuisine Theme Switcher -->
+    <!-- Hero (template-style) -->
+    <section
+      class="fb-hero position-relative"
+      style="
+        background-image: url('/images/banner.png');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+      "
+    >
+      <div
+        class="hero-overlay position-absolute top-0 start-0 w-100 h-100"
+        style="background-color: rgba(0, 0, 0, 0.4); backdrop-filter: brightness(0.85)"
+      ></div>
+      <div class="hero-inner container py-4 text-white text-center position-relative">
+        <h2 class="hero-title">ForkingGood.</h2>
+        <p class="hero-sub">Find and share the best bites.</p>
+      </div>
+    </section>
+
+    <!-- Sticky section nav (template-style) -->
+
+    <nav id="skinStickyNav" class="fb-sticky-nav text-center">
+      <div class="container d-flex justify-content-center">
+        <ul class="nav gap-2 justify-content-center">
+          <li class="nav-item"><a href="#section-randomise" class="nav-link">Randomise</a></li>
+          <li class="nav-item"><a href="#section-posts" class="nav-link">Posts</a></li>
+        </ul>
+      </div>
+    </nav>
 
     <!-- Posts Feed -->
     <section class="feed container">
       <!-- Randomise Post (above Posts) -->
-      <div class="d-flex align-items-center justify-content-between mb-2">
+      <div id="section-randomise" class="d-flex align-items-center justify-content-between mb-2">
         <h3 class="feed-title mb-0">Randomise Post</h3>
       </div>
       <div class="feed-shell sage-glass p-3 mb-3 position-relative">
         <div class="d-flex align-items-center justify-content-between mb-2">
-              <button
-                type="button"
-                class="randomise-pill"
-                @click="fetchRandomPost"
-                title="Get a random post"
-              >
-                <span aria-hidden="true">🎲</span>
-                <span class="ms-1 fw-bold">Randomise</span>
-              </button>
-              <button
-                class="filter-pill"
-                type="button"
-                data-bs-toggle="collapse"
-                data-bs-target="#randomFiltersCollapse"
-                aria-expanded="false"
-                aria-controls="randomFiltersCollapse"
-                title="Show/Hide Filters"
-              >
-                Filter
-              </button>
-            </div>
+          <button
+            type="button"
+            class="randomise-pill"
+            @click="fetchRandomPost"
+            title="Get a random post"
+          >
+            <img src="/images/randomise.png" alt="Randomise" class="icon-20 me-1" />
+            <span class="fw-bold">Randomise</span>
+          </button>
+          <button
+            class="filter-pill"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#randomFiltersCollapse"
+            aria-expanded="false"
+            aria-controls="randomFiltersCollapse"
+            title="Show/Hide Filters"
+          >
+            Filter
+          </button>
+        </div>
         <div id="randomFiltersCollapse" class="collapse">
           <div class="card mb-3">
             <div class="card-body py-3 px-3 px-md-4">
-              <div class="row g-3 align-items-end">
+              <div class="row row-cols-1 row-cols-lg-auto g-4 align-items-end">
                 <!-- Cuisine (Randomiser) -->
-                <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rCuisineBox">
-                  <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine (Randomiser)</label>
+                <div
+                  class="col-12 col-lg-auto position-relative"
+                  style="min-width: 260px"
+                  ref="rCuisineBox"
+                >
+                  <label class="form-label mb-1 small fw-semibold text-secondary"
+                    >Cuisine (Randomiser)</label
+                  >
                   <input
                     class="form-control form-control-sm text-start"
                     placeholder="Type to search (e.g. Japanese)"
@@ -1679,20 +1949,48 @@ watch(
                     @blur="() => (showRCuisineList = false)"
                     ref="rCuisineInput"
                   />
-                  <ul v-if="showRCuisineList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                  <ul
+                    v-if="showRCuisineList"
+                    class="dropdown-menu show w-100 shadow-sm filter-list"
+                    style="z-index: 1200"
+                  >
                     <li>
-                      <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRCuisine('')">Show all cuisines</button>
+                      <button
+                        type="button"
+                        class="dropdown-item text-muted"
+                        @mousedown.prevent
+                        @click="pickRCuisine('')"
+                      >
+                        Show all cuisines
+                      </button>
                     </li>
-                    <li v-if="rCuisineQuery && !rCuisineSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                    <li
+                      v-if="rCuisineQuery && !rCuisineSuggestions.length"
+                      class="dropdown-item disabled text-muted"
+                    >
+                      No match
+                    </li>
                     <li v-for="(c, i) in rCuisineSuggestions" :key="'rc-' + i">
-                      <button type="button" class="dropdown-item" @mousedown.prevent="pickRCuisine(c)">{{ c }}</button>
+                      <button
+                        type="button"
+                        class="dropdown-item"
+                        @mousedown.prevent="pickRCuisine(c)"
+                      >
+                        {{ c }}
+                      </button>
                     </li>
                   </ul>
                 </div>
 
                 <!-- Area (Randomiser) -->
-                <div class="col-12 col-md-6 col-lg-4 position-relative" ref="rAreaBox">
-                  <label class="form-label mb-1 small fw-semibold text-secondary">Area (Randomiser)</label>
+                <div
+                  class="col-12 col-lg-auto position-relative"
+                  style="min-width: 260px"
+                  ref="rAreaBox"
+                >
+                  <label class="form-label mb-1 small fw-semibold text-secondary"
+                    >Area (Randomiser)</label
+                  >
                   <input
                     class="form-control form-control-sm text-start"
                     placeholder="Type to search (e.g. Bugis)"
@@ -1702,33 +2000,113 @@ watch(
                     @blur="() => (showRAreaList = false)"
                     ref="rAreaInput"
                   />
-                  <ul v-if="showRAreaList" class="dropdown-menu show w-100 shadow-sm filter-list" style="z-index: 1200">
+                  <ul
+                    v-if="showRAreaList"
+                    class="dropdown-menu show w-100 shadow-sm filter-list"
+                    style="z-index: 1200"
+                  >
                     <li>
-                      <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="pickRArea('')">Show all areas</button>
+                      <button
+                        type="button"
+                        class="dropdown-item text-muted"
+                        @mousedown.prevent
+                        @click="pickRArea('')"
+                      >
+                        Show all areas
+                      </button>
                     </li>
-                    <li v-if="rAreaQuery && !rAreaSuggestions.length" class="dropdown-item disabled text-muted">No match</li>
+                    <li
+                      v-if="rAreaQuery && !rAreaSuggestions.length"
+                      class="dropdown-item disabled text-muted"
+                    >
+                      No match
+                    </li>
                     <li v-for="(a, i) in rAreaSuggestions" :key="'ra-' + i">
-                      <button type="button" class="dropdown-item" @mousedown.prevent="pickRArea(a)">{{ a }}</button>
+                      <button type="button" class="dropdown-item" @mousedown.prevent="pickRArea(a)">
+                        {{ a }}
+                      </button>
                     </li>
                   </ul>
                 </div>
 
                 <!-- Price chips (Randomiser) -->
-                <div class="col-12 col-lg-4">
-                  <label class="form-label mb-1 small fw-semibold text-secondary">Price (Randomiser)</label>
+                <div class="col-12 col-lg-auto">
+                  <label class="form-label mb-1 small fw-semibold text-secondary"
+                    >Price (Randomiser)</label
+                  >
                   <div class="d-flex gap-2 flex-wrap">
-                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$' }" @click="setRandomPrice('$')" data-bs-toggle="tooltip" title="Inexpensive">$</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$$' }" @click="setRandomPrice('$$')" data-bs-toggle="tooltip" title="Moderate">$$</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$$$' }" @click="setRandomPrice('$$$')" data-bs-toggle="tooltip" title="Expensive">$$$</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === '$$$$' }" @click="setRandomPrice('$$$$')" data-bs-toggle="tooltip" title="Very Expensive">$$$$</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary price-chip" :class="{ active: randomFilters.priceSymbol === 'Any' }" @click="setRandomPrice('Any')" data-bs-toggle="tooltip" title="All prices">All</button>
-                    <button type="button" class="btn btn-sm btn-clear px-3" @click="clearRandomFilters">Clear</button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: randomFilters.priceSymbol === '$' }"
+                      @click="setRandomPrice('$')"
+                      data-bs-toggle="tooltip"
+                      title="Inexpensive"
+                    >
+                      $
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: randomFilters.priceSymbol === '$$' }"
+                      @click="setRandomPrice('$$')"
+                      data-bs-toggle="tooltip"
+                      title="Moderate"
+                    >
+                      $$
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: randomFilters.priceSymbol === '$$$' }"
+                      @click="setRandomPrice('$$$')"
+                      data-bs-toggle="tooltip"
+                      title="Expensive"
+                    >
+                      $$$
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: randomFilters.priceSymbol === '$$$$' }"
+                      @click="setRandomPrice('$$$$')"
+                      data-bs-toggle="tooltip"
+                      title="Very Expensive"
+                    >
+                      $$$$
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: randomFilters.priceSymbol === 'Any' }"
+                      @click="setRandomPrice('Any')"
+                      data-bs-toggle="tooltip"
+                      title="All prices"
+                    >
+                      All
+                    </button>
                   </div>
                 </div>
-              </div> <!-- /row -->
-            </div> <!-- /card-body -->
-          </div> <!-- /card -->
-        </div> <!-- /collapse -->
+                <!-- Clear button right-aligned (Randomiser) -->
+                <div
+                  class="col-12 col-lg-auto ms-lg-auto d-flex justify-content-lg-end align-items-end"
+                >
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-clear px-3"
+                    @click="clearRandomFilters"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <!-- /row -->
+            </div>
+            <!-- /card-body -->
+          </div>
+          <!-- /card -->
+        </div>
+        <!-- /collapse -->
 
         <div v-if="showRandomiseAnim" class="randomise-anim-overlay fullscreen-center">
           <lottie-player
@@ -1743,7 +2121,10 @@ watch(
         <!-- Randomised post result -->
         <div
           v-if="randomPost && !showRandomiseAnim"
-          class="card themed-card position-relative randomised-panel post-clickable"
+          class="card themed-card position-relative randomised-panel post-clickable reveal"
+          data-animate="zoomIn"
+          data-duration="0.35s"
+          :data-delay="randomPost ? '.12s' : '0s'"
           @click="onCardClick($event, randomPost)"
           role="button"
           tabindex="0"
@@ -1768,12 +2149,16 @@ watch(
         <!-- While animating: show nothing (overlay handles the UX) -->
         <div v-else-if="showRandomiseAnim"></div>
         <!-- Before first click: invite user to randomise -->
-        <div v-else-if="!hasRandomised" class="empty">Click “Get randomised post”</div>
+        <div v-else-if="!hasRandomised" class="empty" data-animate="fadeIn" data-delay=".1s">
+          Click “Get randomised post”
+        </div>
         <!-- After a click but no results: show empty state -->
-        <div v-else class="empty">No post found for that filter.</div>
+        <div v-else class="empty" data-animate="fadeIn" data-delay=".1s">
+          No post found for that filter.
+        </div>
       </div>
 
-      <div class="d-flex align-items-center justify-content-between mb-2">
+      <div id="section-posts" class="d-flex align-items-center justify-content-between mb-2">
         <h3 class="feed-title mb-0">Posts</h3>
       </div>
 
@@ -1789,7 +2174,7 @@ watch(
               aria-pressed="friendsOnly ? 'true' : 'false'"
               title="Friends only"
             >
-              <span class="seg-ico" aria-hidden="true">👥</span>
+              <img src="/images/friends.png" alt="Friends" class="icon-20 me-1" />
               <span class="seg-label">Friends</span>
             </button>
             <button
@@ -1800,7 +2185,7 @@ watch(
               aria-pressed="!friendsOnly ? 'true' : 'false'"
               title="Public"
             >
-              <span class="seg-ico" aria-hidden="true">🌐</span>
+              <img src="/images/everyone.png" alt="Public" class="icon-20 me-1" />
               <span class="seg-label">Public</span>
             </button>
           </div>
@@ -1822,169 +2207,164 @@ watch(
         <div id="feedFiltersCollapse" class="collapse">
           <div class="card mb-3">
             <div class="card-body py-3 px-3 px-md-4">
-            <!-- Row 1: Typeaheads + Price chips -->
-            <div class="row g-3 align-items-end">
-              <!-- Cuisine -->
-              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="cuisineBox">
-                <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
-                <input
-                  class="form-control form-control-sm text-start"
-                  placeholder="Type to search (e.g. Japanese)"
-                  v-model="cuisineQuery"
-                  @focus="onCuisineInput"
-                  @input="onCuisineInput"
-                  @blur="() => (showCuisineList = false)"
-                  ref="cuisineInput"
-                />
-                <ul
-                  v-if="showCuisineList"
-                  class="dropdown-menu show w-100 shadow-sm filter-list"
-                  style="z-index: 1200"
+              <!-- Row 1: Typeaheads + Price chips + Clear button -->
+              <div class="row row-cols-1 row-cols-lg-auto g-4 align-items-end">
+                <!-- Cuisine -->
+                <div
+                  class="col-12 col-lg-auto position-relative"
+                  style="min-width: 260px"
+                  ref="cuisineBox"
                 >
-                  <li>
+                  <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
+                  <input
+                    class="form-control form-control-sm text-start"
+                    placeholder="Type to search (e.g. Japanese)"
+                    v-model="cuisineQuery"
+                    @focus="onCuisineInput"
+                    @input="onCuisineInput"
+                    @blur="() => (showCuisineList = false)"
+                    ref="cuisineInput"
+                  />
+                  <ul
+                    v-if="showCuisineList"
+                    class="dropdown-menu show w-100 shadow-sm filter-list"
+                    style="z-index: 1200"
+                  >
+                    <li>
+                      <button
+                        type="button"
+                        class="dropdown-item text-muted"
+                        @mousedown.prevent
+                        @click="pickCuisine('')"
+                      >
+                        Show all cuisines
+                      </button>
+                    </li>
+                    <li
+                      v-if="cuisineQuery && !cuisineSuggestions.length"
+                      class="dropdown-item disabled text-muted"
+                    >
+                      No match
+                    </li>
+                    <li v-for="(c, i) in cuisineSuggestions" :key="'c-' + i">
+                      <button
+                        type="button"
+                        class="dropdown-item"
+                        @mousedown.prevent="pickCuisine(c)"
+                      >
+                        {{ c }}
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Area -->
+                <div
+                  class="col-12 col-lg-auto position-relative"
+                  style="min-width: 260px"
+                  ref="areaBox"
+                >
+                  <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
+                  <input
+                    class="form-control form-control-sm text-start"
+                    placeholder="Type to search (e.g. Bugis)"
+                    v-model="areaQuery"
+                    @focus="onAreaInput"
+                    @input="onAreaInput"
+                    @blur="() => (showAreaList = false)"
+                    ref="areaInput"
+                  />
+                  <ul
+                    v-if="showAreaList"
+                    class="dropdown-menu show w-100 shadow-sm filter-list"
+                    style="z-index: 1200"
+                  >
+                    <li>
+                      <button
+                        type="button"
+                        class="dropdown-item text-muted"
+                        @mousedown.prevent
+                        @click="pickArea('')"
+                      >
+                        Show all areas
+                      </button>
+                    </li>
+                    <li
+                      v-if="areaQuery && !areaSuggestions.length"
+                      class="dropdown-item disabled text-muted"
+                    >
+                      No match
+                    </li>
+                    <li v-for="(a, i) in areaSuggestions" :key="'a-' + i">
+                      <button type="button" class="dropdown-item" @mousedown.prevent="pickArea(a)">
+                        {{ a }}
+                      </button>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Price chips -->
+                <div class="col-12 col-lg-auto">
+                  <label class="form-label mb-1 small fw-semibold text-secondary"
+                    >Price Range</label
+                  >
+                  <div class="d-flex gap-2 flex-wrap">
                     <button
                       type="button"
-                      class="dropdown-item text-muted"
-                      @mousedown.prevent
-                      @click="pickCuisine('')"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: filters.priceSymbol === '$' }"
+                      @click="setPrice('$')"
+                      data-bs-toggle="tooltip"
+                      title="Inexpensive"
                     >
-                      Show all cuisines
+                      $
                     </button>
-                  </li>
-                  <li
-                    v-if="cuisineQuery && !cuisineSuggestions.length"
-                    class="dropdown-item disabled text-muted"
-                  >
-                    No match
-                  </li>
-                  <li v-for="(c, i) in cuisineSuggestions" :key="'c-' + i">
-                    <button type="button" class="dropdown-item" @mousedown.prevent="pickCuisine(c)">
-                      {{ c }}
-                    </button>
-                  </li>
-                </ul>
-              </div>
-
-              <!-- Area -->
-              <div class="col-12 col-md-6 col-lg-4 position-relative" ref="areaBox">
-                <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
-                <input
-                  class="form-control form-control-sm text-start"
-                  placeholder="Type to search (e.g. Bugis)"
-                  v-model="areaQuery"
-                  @focus="onAreaInput"
-                  @input="onAreaInput"
-                  @blur="() => (showAreaList = false)"
-                  ref="areaInput"
-                />
-                <ul
-                  v-if="showAreaList"
-                  class="dropdown-menu show w-100 shadow-sm filter-list"
-                  style="z-index: 1200"
-                >
-                  <li>
                     <button
                       type="button"
-                      class="dropdown-item text-muted"
-                      @mousedown.prevent
-                      @click="pickArea('')"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: filters.priceSymbol === '$$' }"
+                      @click="setPrice('$$')"
+                      data-bs-toggle="tooltip"
+                      title="Moderate"
                     >
-                      Show all areas
+                      $$
                     </button>
-                  </li>
-                  <li
-                    v-if="areaQuery && !areaSuggestions.length"
-                    class="dropdown-item disabled text-muted"
-                  >
-                    No match
-                  </li>
-                  <li v-for="(a, i) in areaSuggestions" :key="'a-' + i">
-                    <button type="button" class="dropdown-item" @mousedown.prevent="pickArea(a)">
-                      {{ a }}
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: filters.priceSymbol === '$$$' }"
+                      @click="setPrice('$$$')"
+                      data-bs-toggle="tooltip"
+                      title="Expensive"
+                    >
+                      $$$
                     </button>
-                  </li>
-                </ul>
-              </div>
-
-              <!-- Price chips -->
-              <div class="col-12 col-lg-4">
-                <label class="form-label mb-1 small fw-semibold text-secondary">Price Range</label>
-                <div class="d-flex gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: filters.priceSymbol === '$' }"
-                    @click="setPrice('$')"
-                    data-bs-toggle="tooltip"
-                    title="Inexpensive"
-                  >
-                    $
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: filters.priceSymbol === '$$' }"
-                    @click="setPrice('$$')"
-                    data-bs-toggle="tooltip"
-                    title="Moderate"
-                  >
-                    $$
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: filters.priceSymbol === '$$$' }"
-                    @click="setPrice('$$$')"
-                    data-bs-toggle="tooltip"
-                    title="Expensive"
-                  >
-                    $$$
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: filters.priceSymbol === '$$$$' }"
-                    @click="setPrice('$$$$')"
-                    data-bs-toggle="tooltip"
-                    title="Very Expensive"
-                  >
-                    $$$$
-                  </button>
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary price-chip"
-                    :class="{ active: filters.priceSymbol === '' }"
-                    @click="setPrice('')"
-                    title="Show all prices"
-                  >
-                    All
-                  </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: filters.priceSymbol === '$$$$' }"
+                      @click="setPrice('$$$$')"
+                      data-bs-toggle="tooltip"
+                      title="Very Expensive"
+                    >
+                      $$$$
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary price-chip"
+                      :class="{ active: filters.priceSymbol === '' }"
+                      @click="setPrice('')"
+                      title="Show all prices"
+                    >
+                      All
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
 
-            <!-- Row 2: Scope + Actions -->
-            <div class="row g-3 align-items-center mt-2">
-              <div class="col-12 col-md-6">
-                <div class="scope-toggle" role="group" aria-label="Scope toggle">
-                  <button
-                    type="button"
-                    :class="['scope-btn', { active: friendsOnly }]"
-                    @click="setFriends"
-                  >
-                    Friends Only
-                  </button>
-                  <button
-                    type="button"
-                    :class="['scope-btn', { active: !friendsOnly }]"
-                    @click="setPublic"
-                  >
-                    Everyone
-                  </button>
-                </div>
-              </div>
-              <div class="col-12 col-md-6 text-md-end">
-                <div class="d-inline-flex gap-2">
+                <!-- Clear button right-aligned -->
+                <div
+                  class="col-12 col-lg-auto ms-lg-auto d-flex justify-content-lg-end align-items-end"
+                >
                   <button type="button" class="btn btn-sm btn-clear px-3" @click="clearFilters">
                     Clear
                   </button>
@@ -1992,13 +2372,15 @@ watch(
               </div>
             </div>
           </div>
-        </div> <!-- /collapse -->
-      </div>
+          <!-- /collapse -->
+        </div>
         <template v-if="posts.length">
           <div class="row g-3 g-md-4">
             <div v-for="p in posts" :key="String(p.id ?? p.postid)" class="col-12 col-lg-6">
               <div
-                class="card themed-card position-relative post-clickable"
+                class="card themed-card position-relative post-clickable reveal"
+                data-animate="fadeInUp"
+                data-duration="0.35s"
                 :id="`post-${p.id ?? p.postid}`"
                 :class="{ active: String(highlightedPostId) === String(p.id ?? p.postid) }"
                 @click="onCardClick($event, p)"
@@ -2025,12 +2407,19 @@ watch(
             </div>
           </div>
         </template>
-        <div v-else class="empty">No posts yet. Create one!</div>
+        <div v-else class="empty" data-animate="fadeIn" data-delay=".06s">
+          No posts yet. Create one!
+        </div>
       </div>
     </section>
 
     <!-- Floating Create button -->
-    <button class="fab fab-terracotta fab-img" @click="showAdd = true" title="Create Post">
+    <button
+      class="fab fab-terracotta fab-img animate__animated animate__fadeInUp"
+      style="animation-delay: 0.2s"
+      @click="showAdd = true"
+      title="Create Post"
+    >
       <img src="/images/CreatePost_White.png" alt="Create Post" class="fab-icon" />
     </button>
 
@@ -2084,8 +2473,20 @@ watch(
           :key="idx"
           class="d-flex align-items-start gap-2 py-2 border-bottom"
         >
+          <img
+            :src="
+              c?.commenter_avatar ||
+              commenter_avatar ||
+              item?.commenter_avatar ||
+              row?.commenter_avatar
+            "
+            alt="avatar"
+            class="comment-avatar rounded-circle me-2"
+            style="width: 32px; height: 32px; object-fit: cover"
+            @error="onCommentAvatarError"
+          />
           <div class="flex-grow-1">
-            <div class="fw-semibold small">{{ c.commenter_email }}</div>
+            <div class="fw-semibold small">{{ c.commenter_name || c.commenter_email }}</div>
             <div class="small">{{ c.comment }}</div>
           </div>
           <div class="d-flex gap-2">
@@ -2354,6 +2755,23 @@ watch(
   transform: scale(0.997);
 }
 
+.commenter-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #f2f2f2;
+}
+
+/* Compact avatar sizing for comments */
+.comment-avatar,
+img[alt='avatar'] {
+  width: 32px !important;
+  height: 32px !important;
+  object-fit: cover;
+  border-radius: 50%;
+}
 /* Preview modal layout */
 .preview-wrap {
   position: relative;
@@ -2435,7 +2853,10 @@ watch(
   padding: 8px 18px;
   border-radius: 999px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
     box-shadow 0.15s ease;
 }
 .scope-btn:hover {
@@ -2493,10 +2914,14 @@ watch(
   font-weight: 800;
   border-radius: 999px;
   padding: 8px 18px;
-  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
 }
-.filter-pill:hover { background: #f9fafb; }
-.filter-pill:active { transform: translateY(1px); }
+.filter-pill:hover {
+  background: #f9fafb;
+}
+.filter-pill:active {
+  transform: translateY(1px);
+}
 
 /* Randomise CTA pill (pairs with .filter-pill) */
 .randomise-pill {
@@ -2506,11 +2931,109 @@ watch(
   font-weight: 800;
   border-radius: 999px;
   padding: 10px 20px;
-  box-shadow: 0 6px 18px rgba(0,0,0,.10);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
   display: inline-flex;
   align-items: center;
   line-height: 1;
 }
-.randomise-pill:hover { filter: brightness(0.96); }
-.randomise-pill:active { transform: translateY(1px); }
+.randomise-pill:hover {
+  filter: brightness(0.96);
+}
+.randomise-pill:active {
+  transform: translateY(1px);
+}
+
+/* Animate.css scroll-reveal helpers */
+.reveal {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.reveal.show {
+  opacity: 1;
+  transform: none;
+}
+
+/* === Template re-apply: hero + sticky section tabs === */
+.fb-hero {
+  background-image: url('/images/banner.png');
+  background-size: contain; /* show whole image */
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-attachment: scroll;
+
+  /* Full-bleed like template */
+  width: 100vw;
+  max-width: 100%;
+  margin-left: calc(-50vw + 50%);
+
+  min-height: 180px;
+  display: flex;
+  align-items: flex-end;
+}
+.fb-hero .hero-title,
+.fb-hero .hero-sub {
+  color: #fff;
+}
+.fb-hero .hero-title {
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.fb-sticky-nav {
+  position: sticky;
+  top: calc(56px + 21px); /* add 12px space below navbar */
+  z-index: 1000;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  background: var(--surface, #fff);
+}
+.fb-sticky-nav .nav-link {
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--charcoal);
+  position: relative;
+}
+.fb-sticky-nav .nav-link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  background: transparent;
+  transform: scaleX(0);
+  transition:
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+.fb-sticky-nav .nav-link:hover::after {
+  background: var(--terra-500, #d4816f);
+  transform: scaleX(1);
+}
+
+/* Ensure titles are visible when jumping to anchors under sticky bars */
+#section-randomise,
+#section-posts {
+  scroll-margin-top: 132px;
+}
+</style>
+
+<style>
+/* Make sure the Sticky section nav never covers the top navbar dropdowns */
+.fb-sticky-nav {
+  z-index: 10 !important; /* lower than Bootstrap dropdowns (1000) */
+}
+.randomise-pill .icon-20 {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  vertical-align: middle;
+}
+
+.seg-btn .icon-20 {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  vertical-align: middle;
+}
 </style>
