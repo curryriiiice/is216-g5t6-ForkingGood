@@ -61,7 +61,7 @@ const supabaseAuth = async (req, res, next) => {
 //app.use(supabaseAuth);
 app.use((req, res, next) => {
   // skip auth for development
-  next()
+  next() 
 })
 
 // Health check route (optional but useful)
