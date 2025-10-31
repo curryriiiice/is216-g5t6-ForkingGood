@@ -3,8 +3,8 @@
   publish = "frontend/dist"
 
 [build.environment]
-  SECRETS_SCAN_ENABLED = false
-  
+  SECRETS_SCAN_ENABLED = "false"
+
 [functions]
   directory = "backend/functions"
   node_bundler = "esbuild"
