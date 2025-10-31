@@ -80,8 +80,9 @@ app.use('/api/search', searchRoutes);
 app.use('/api/user', userRoutes);
 
 // Handle 404 for API routes
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+// Catch all undefined routes 
+app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
 });
 
 // Export the serverless function
