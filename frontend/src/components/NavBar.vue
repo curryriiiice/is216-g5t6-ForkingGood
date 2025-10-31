@@ -30,8 +30,8 @@
     <div class="right">
       <img src="/images/Bell.png" alt="Notifications" width="28" height="28" class="bell" />
 
-      <span v-if="localUser" class="welcome">
-        Welcome, {{ localUser.username || localUser.first_name }}!
+      <span v-if="welcomeHandle" class="welcome">
+        Welcome back {{ welcomeHandle }}
       </span>
 
       <!-- Avatar + menu -->
@@ -246,6 +246,14 @@ const props = defineProps({
 /* ------------------------- State ------------------------- */
 const router = useRouter()
 const localUser = ref(props.user)
+const backendUsername = ref('')
+const welcomeHandle = computed(() => {
+  const be = backendUsername.value && String(backendUsername.value).trim()
+  if (be) return be
+  const u = localUser.value?.username || localUser.value?.first_name || ''
+  if (!u) return ''
+  return String(u).startsWith('@') ? u : '@' + u
+})
 const avatarErrored = ref(false)
 
 /* Avatar menu */
@@ -729,6 +737,12 @@ onMounted(async () => {
           const url = r?.data?.data
           if (url) localUser.value.avatar_url = url
         }
+        if (localUser.value?.email) {
+          try {
+            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
+            backendUsername.value = r2?.data?.data || ''
+          } catch (_) { backendUsername.value = '' }
+        }
       } catch {}
     } else if (props.user) {
       localUser.value = props.user
@@ -765,6 +779,12 @@ onMounted(async () => {
           const url = r?.data?.data
           if (url) localUser.value.avatar_url = url
         }
+        if (localUser.value?.email) {
+          try {
+            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
+            backendUsername.value = r2?.data?.data || ''
+          } catch (_) { backendUsername.value = '' }
+        }
       } catch {}
     } catch (_) {
       localUser.value = {
@@ -779,6 +799,12 @@ onMounted(async () => {
           const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
           const url = r?.data?.data
           if (url) localUser.value.avatar_url = url
+        }
+        if (localUser.value?.email) {
+          try {
+            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
+            backendUsername.value = r2?.data?.data || ''
+          } catch (_) { backendUsername.value = '' }
         }
       } catch {}
     }
@@ -818,9 +844,9 @@ onBeforeUnmount(() => {
   justify-self: start;
   display: flex;
   align-items: center;
-  background: #e9ebee;
-  border-radius: 999px;
-  padding: 0.5rem 0.9rem;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
   width: auto;
   max-width: 100%;
 }

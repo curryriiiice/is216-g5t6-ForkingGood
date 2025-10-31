@@ -1,4 +1,4 @@
-<!-- src/views/ReverseImageView.vue -->
+﻿<!-- src/views/ReverseImageView.vue -->
 <template>
   <div class="wrap">
     <div class="header">
@@ -23,8 +23,8 @@
           <span class="sort-label">Sort:</span>
           <select v-model="sortOrder" class="sort-control" aria-label="Sort by price">
             <option value="none">Default</option>
-            <option value="asc">Price: Low to High</option>
-            <option value="desc">Price: High to Low</option>
+            <option value="asc">Price: High to Low</option>
+            <option value="desc">Price: Low to High</option>
           </select>
         </label>
         <RouterLink to="/dashboard" class="btn ghost">Back to Home</RouterLink>
@@ -139,12 +139,24 @@
       <p class="hint" v-else-if="error">{{ error }}</p>
       <p class="hint" v-else>We couldn't display results for this image.</p>
     </div>
+
+    <!-- Floating Create button -->
+    <button class="fab fab-terracotta fab-img" @click="showAdd = true" title="Create Post">
+      <img src="/images/CreatePost_White.png" alt="Create Post" class="fab-icon" />
+    </button>
   </div>
+
+  <!-- Modal: Add Recommendation -->
+  <Modal :show="showAdd" title="Add Food Recommendation" @close="showAdd = false">
+    <AddRecommendationForm @added="showAdd = false" />
+  </Modal>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import axios from 'axios'
+import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
+import Modal from '@/components/Modal.vue'
 
 const previewImage = ref('')
 const items = ref([])
@@ -161,6 +173,7 @@ const api = axios.create({
 let pollId = null
 const lastPayloadStr = ref('')
 const sortOrder = ref('none') // none | asc | desc
+const showAdd = ref(false)
 
 onMounted(async () => {
   await loadFromSession()
@@ -482,6 +495,27 @@ const visibleItems = computed(() => {
 .btn:active { transform: translateY(1px); }
 .btn.small { padding: 0.45rem 0.7rem; font-size: 0.9rem; }
 .btn.ghost { background: #fff; color: #374151; border: 1.5px solid #e5e7eb; }
+
+/* Floating Action Button (match Map/Dashboard) */
+.fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 85;
+}
+.fab-img {
+  background: transparent;
+  border: none;
+  padding: 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.fab-img:hover { transform: scale(1.08); box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
+.fab-img:active { transform: scale(0.96); }
+.fab-icon { width: 50px; height: 50px; object-fit: contain; }
 
 /* Animations */
 @keyframes spin { to { transform: rotate(360deg); } }
