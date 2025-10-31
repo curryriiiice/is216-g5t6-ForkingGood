@@ -7,9 +7,9 @@ import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import Modal from '@/components/Modal.vue'
 import { useAuthUser } from '@/lib/useAuthUser'
 
-const API_BASE = 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-const api = axios.create({ baseURL: API_BASE })
+const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
