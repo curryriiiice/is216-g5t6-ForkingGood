@@ -185,13 +185,10 @@ async function fetchAvatarsForPosts(posts) {
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
-    const res = await fetch(COMMENTS_EP.get, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ postid: String(postId) }),
-    })
-    const data = await res.json()
-    const rawComments = Array.isArray(data?.data) ? data.data : []
+    const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
+    
+    // Keep the existing logic for processing comments
+    const rawComments = Array.isArray(response.data?.data) ? response.data.data : []
     comments.value = await enrichCommentsWithProfiles(rawComments)
     commentCounts.value[String(postId)] = comments.value.length
   } catch {
@@ -213,14 +210,17 @@ async function submitComment() {
   const postid = commentsForPostId.value
   const comment = newComment.value?.trim()
   if (!postid || !comment) return
+  
   if (editingComment.value) {
     const item = editingComment.value
     editingComment.value = null
     newComment.value = ''
     return editComment(item, comment)
   }
+  
   const email = activeEmail.value
   if (!email) return
+  
   const profile = await ensureProfileForCommenter(email)
   const draft = {
     commenter_email: email,
@@ -228,15 +228,16 @@ async function submitComment() {
     commenter_name: profile?.displayName ?? deriveNameFromEmail(email),
     commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
   }
+  
   comments.value = [...comments.value, draft]
   newComment.value = ''
+  
   try {
-    const res = await fetch(COMMENTS_EP.add, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ commenter_email: email, postid: String(postid), comment }),
+    await api.post(COMMENTS_EP.add, {
+      commenter_email: email,
+      postid: String(postid),
+      comment,
     })
-    if (!res.ok) throw new Error('comment failed')
     await loadComments(postid)
   } catch {
     comments.value = comments.value.filter((c) => !(c === draft))
@@ -245,21 +246,20 @@ async function submitComment() {
 async function deleteComment(item) {
   const postid = commentsForPostId.value
   if (!postid) return
+  
   const prev = [...comments.value]
   comments.value = comments.value.filter(
     (c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment),
   )
+  
   try {
-    const res = await fetch(COMMENTS_EP.del, {
-      method: 'DELETE',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
+    await api.delete(COMMENTS_EP.del, {
+      data: {
         postid: String(postid),
         commenter_email: item.commenter_email,
         comment: item.comment,
-      }),
+      }
     })
-    if (!res.ok) throw new Error('delete failed')
     await loadComments(postid)
   } catch {
     comments.value = prev
@@ -271,20 +271,17 @@ async function editComment(item, newText) {
   if (!postid || !nextText) return
   const oldText = item.comment
   if (nextText === oldText) return
+  
   const prev = [...comments.value]
   comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c))
+  
   try {
-    const res = await fetch(COMMENTS_EP.edit, {
-      method: 'PATCH',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({
-        postid: String(postid),
-        commenter_email: item.commenter_email,
-        old_comment: oldText,
-        new_comment: nextText,
-      }),
+    await api.patch(COMMENTS_EP.edit, {
+      postid: String(postid),
+      commenter_email: item.commenter_email,
+      old_comment: oldText,
+      new_comment: nextText,
     })
-    if (!res.ok) throw new Error('edit failed')
     await loadComments(postid)
   } catch {
     comments.value = prev

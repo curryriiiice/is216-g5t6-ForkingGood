@@ -32,7 +32,6 @@ const editingComment = ref(null)
 // Per-post comment counts (reactive map)
 const commentCounts = ref({})
 const engagementMemo = ref({})
-const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
 
 // Friends-prefixed comment endpoints
 const COMMENTS_EP = {
@@ -119,13 +118,9 @@ function onCommentAvatarError(event) {
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
-    const res = await fetch(COMMENTS_EP.get, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ postid: String(postId) }),
-    })
-    const data = await res.json()
-    const rawComments = Array.isArray(data?.data) ? data.data : []
+    const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
+    
+    const rawComments = Array.isArray(response.data?.data) ? response.data.data : []
     comments.value = await enrichCommentsWithProfiles(rawComments)
     setCommentCountForPost(postId, comments.value.length)
   } catch {
