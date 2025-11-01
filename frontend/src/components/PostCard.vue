@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, reactive, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import api from '@/lib/api'
 
 const emit = defineEmits([
   'open-comments',
@@ -22,20 +23,19 @@ const props = defineProps({
 })
 
 // --- Image URL resolver (keeps layout, only fixes src values) ---
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || API_BASE
+const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 const currentUserEmail = computed(() => props.currentUserEmail || null)
 const ENDPOINTS = {
-  getLikes: `${API_BASE}/friends/getLikesbyPostId`,
-  like: `${API_BASE}/friends/likePost`,
-  unlike: `${API_BASE}/friends/unlikePost`,
-  getComments: `${API_BASE}/friends/getCommentsbyPostId`,
-  comment: `${API_BASE}/friends/commentPost`,
-  deleteComment: `${API_BASE}/friends/deleteComment`,
-  editComment: `${API_BASE}/friends/editComment`,
-  getPfpByEmail: `${API_BASE}/user/getPfpByEmail`,
+    getLikes: '/friends/getLikesbyPostId',
+    like: '/friends/likePost',
+    unlike: '/friends/unlikePost',
+    getComments: '/friends/getCommentsbyPostId',
+    comment: '/friends/commentPost',
+    deleteComment: '/friends/deleteComment',
+    editComment: '/friends/editComment',
+    getPfpByEmail: '/user/getPfpByEmail',
 }
 
 function resolveImageUrl(p) {
@@ -201,14 +201,8 @@ async function fetchPfpByEmail(email) {
   if (!email) return null
   if (pfpCache.has(email)) return pfpCache.get(email)
   try {
-    const res = await fetch(ENDPOINTS.getPfpByEmail, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ email }),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const json = await res.json()
-    const rawUrl = json?.data || null
+    const response = await api.post(ENDPOINTS.getPfpByEmail, { email })
+    const rawUrl = response.data?.data || null
     const url = rawUrl ? resolveImageUrl(rawUrl) : null
     if (url) pfpCache.set(email, url)
     return url
@@ -426,14 +420,8 @@ async function refreshLikes() {
   const postId = props.post?.id || props.post?.postid
   if (!postId) return
   try {
-    const res = await fetch(ENDPOINTS.getLikes, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ postid: String(postId) }),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-    const emails = Array.isArray(data?.data) ? data.data : []
+    const response = await api.post(ENDPOINTS.getLikes, { postid: String(postId) })
+    const emails = Array.isArray(response.data?.data) ? response.data.data : []
     likeCount.value = emails.length
     const email = currentUserEmail.value
     liked.value = email ? emails.includes(email) : false
@@ -447,14 +435,8 @@ async function refreshComments() {
   const postId = props.post?.id || props.post?.postid
   if (!postId) return
   try {
-    const res = await fetch(ENDPOINTS.getComments, {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ postid: String(postId) }),
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json()
-    const list = Array.isArray(data?.data) ? data.data : []
+    const response = await api.post(ENDPOINTS.getComments, { postid: String(postId) })
+    const list = Array.isArray(response.data?.data) ? response.data.data : []
     commentCount.value = list.length
     emitEngagementPatch({ nextCommentCount: commentCount.value })
   } catch (e) {
@@ -529,33 +511,27 @@ async function toggleLike() {
     liker_email: email,
   }
 
-  const request = (url, method) =>
-    fetch(url, {
-      method,
-      headers: JSON_HEADERS,
-      body: JSON.stringify(payload),
-    })
-
   try {
-    let res
+    let response
     if (liked.value) {
       // now liked -> create like
-      res = await request(ENDPOINTS.like, 'POST')
+      response = await api.post(ENDPOINTS.like, payload)
     } else {
       // now unliked -> attempt DELETE first
-      res = await request(ENDPOINTS.unlike, 'DELETE')
-      // Fallback: some backends route unlike as POST instead of DELETE
-      if (!res.ok && (res.status === 404 || res.status === 405 || res.status === 415)) {
-        res = await request(ENDPOINTS.unlike, 'POST')
+      try {
+        response = await api.delete(ENDPOINTS.unlike, { data: payload })
+      } catch (error) {
+        // Fallback: some backends route unlike as POST instead of DELETE
+        if (error.response?.status === 404 || error.response?.status === 405 || error.response?.status === 415) {
+          response = await api.post(ENDPOINTS.unlike, payload)
+        } else {
+          throw error
+        }
       }
     }
 
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     // Try to use server canonical values if provided
-    let data = null
-    try {
-      if (typeof res.json === 'function') data = await res.json()
-    } catch {}
+    const data = response.data
     const serverCount = data?.upvote_count ?? data?.upvotes ?? data?.likes
     const serverFlag = data?.user_has_upvoted ?? data?.has_upvoted
     if (Number.isFinite(Number(serverCount))) {
@@ -564,6 +540,7 @@ async function toggleLike() {
     if (typeof serverFlag === 'boolean') {
       liked.value = serverFlag
     }
+    
     // Notify parent(s) with a compact patch so lists/previews can sync instantly
     try {
       const idStr = String(props.post?.id || props.post?.postid)

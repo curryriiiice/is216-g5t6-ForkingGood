@@ -291,7 +291,7 @@ const deleteUserAccount = async (user_email) => {
         // First, get the user's UID from the public.user table
         const { data: userData, error: userError } = await supabase
             .from('user')
-            .select('uid')
+            .select('UID')
             .eq('user_email', user_email)
             .single();
 
@@ -299,12 +299,11 @@ const deleteUserAccount = async (user_email) => {
             return { error: `User not found: ${userError.message}` };
         }
 
-        const userId = userData.uid;
+        const userId = userData.UID;
 
         // Improved helper function to delete all files in a folder
         const deleteFolderRecursively = async (bucketName, folderPath) => {
             try {
-                console.log(`🗑️ Deleting folder: ${bucketName}/${folderPath}`);
                 
                 // List all files in the folder (including subfolders)
                 const { data: files, error: listError } = await supabase.storage
@@ -316,14 +315,14 @@ const deleteUserAccount = async (user_email) => {
 
                 if (listError) {
                     if (listError.message?.includes('not found') || listError.message?.includes('No such file or directory')) {
-                        console.log(`📁 Folder ${folderPath} doesn't exist in ${bucketName}`);
+                        console.log(`Folder ${folderPath} doesn't exist in ${bucketName}`);
                         return;
                     }
                     throw listError;
                 }
 
                 if (!files || files.length === 0) {
-                    console.log(`📁 Folder ${folderPath} is empty in ${bucketName}`);
+                    console.log(`Folder ${folderPath} is empty in ${bucketName}`);
                     return;
                 }
 
@@ -332,7 +331,6 @@ const deleteUserAccount = async (user_email) => {
                     .filter(file => !file.id) // Only files, not folders
                     .map(file => `${folderPath}/${file.name}`);
 
-                console.log(`📄 Files to delete from ${bucketName}:`, filesToRemove);
 
                 // Delete all files in the folder
                 if (filesToRemove.length > 0) {
@@ -341,10 +339,9 @@ const deleteUserAccount = async (user_email) => {
                         .remove(filesToRemove);
 
                     if (removeError) {
-                        console.error(`❌ Error deleting files from ${bucketName}:`, removeError);
+                        console.error(`Error deleting files from ${bucketName}:`, removeError);
                         throw removeError;
                     }
-                    console.log(`✅ Successfully deleted ${filesToRemove.length} files from ${bucketName}/${folderPath}`);
                 }
 
                 // Recursively handle subfolders
@@ -354,12 +351,10 @@ const deleteUserAccount = async (user_email) => {
                 }
 
             } catch (error) {
-                console.error(`❌ Error deleting folder ${bucketName}/${folderPath}:`, error);
+                console.error(`Error deleting folder ${bucketName}/${folderPath}:`, error);
                 throw error;
             }
         };
-
-        console.log(`🚮 Starting deletion process for user: ${user_email}`);
 
         // delete user's entire folder from post-images storage
         await deleteFolderRecursively('post-images', user_email);
@@ -387,11 +382,9 @@ const deleteUserAccount = async (user_email) => {
             // Continue anyway since we've deleted the public data
         }
 
-        console.log(`✅ Successfully deleted account for user: ${user_email}`);
         return { data: { message: "User account data deleted successfully" } };
 
     } catch (error) {
-        console.error('❌ Error in deleteUserAccount:', error);
         return { error: error.message };
     }
 };
