@@ -316,9 +316,9 @@ async function fetchMyPosts() {
   }
   loadingMyPosts.value = true; errorMyPosts.value = ''; myPosts.value = [];
   try {
-    const r = await api.post('/user/getUserPosts', {
+    const r = await api.post('/user/getUserPosts', { //
       user_email: activeEmail.value,
-      friends: false,
+      friends: true, //
     })
     const rawPosts = Array.isArray(r.data?.data) ? r.data.data : []
     await fetchAvatarsForPosts(rawPosts);
