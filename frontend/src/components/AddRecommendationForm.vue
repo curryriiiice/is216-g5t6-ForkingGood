@@ -181,6 +181,9 @@ function confirmCrop() {
 }
 const priceRange = ref(null) // '$' | '$$' | '$$$' | '$$$$'
 const visibility = ref('friends')
+const friendsOnly = computed(() => visibility.value === 'friends')
+function setFriends() { visibility.value = 'friends' }
+function setPublic() { visibility.value = 'everyone' }
 const isDragging = ref(false)
 const MAX_PHOTOS = 6
 // --- Simple carousel state ---
@@ -1063,24 +1066,38 @@ onBeforeUnmount(() => {
     <!-- Visibility -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Who can see this?</label>
-      <div class="vis-group" role="radiogroup" aria-label="Visibility">
-        <input
-          class="vis-input"
-          type="radio"
-          id="vis-friends"
-          value="friends"
-          v-model="visibility"
-        />
-        <label class="vis-chip" for="vis-friends">👥 Friends</label>
+      <div class="segmented bg-white shadow-sm" role="tablist" aria-label="Feed scope">
+        <button
+          type="button"
+          class="seg-btn"
+          :class="{ active: friendsOnly }"
+          @click="setFriends"
+          aria-pressed="friendsOnly ? 'true' : 'false'"
+          title="Friends only"
+        >
+          <img
+            :src="friendsOnly ? '/images/friends_white.png' : '/images/friends.png'"
+            alt="Friends"
+            class="icon-20 me-1"
+          />
+          <span class="seg-label">Friends</span>
+        </button>
 
-        <input
-          class="vis-input"
-          type="radio"
-          id="vis-everyone"
-          value="everyone"
-          v-model="visibility"
-        />
-        <label class="vis-chip" for="vis-everyone">🌍 Everyone</label>
+        <button
+          type="button"
+          class="seg-btn"
+          :class="{ active: !friendsOnly }"
+          @click="setPublic"
+          aria-pressed="!friendsOnly ? 'true' : 'false'"
+          title="Public"
+        >
+          <img
+            :src="!friendsOnly ? '/images/everyone_white.png' : '/images/everyone.png'"
+            alt="Public"
+            class="icon-20 me-1"
+          />
+          <span class="seg-label">Public</span>
+        </button>
       </div>
     </div>
 
@@ -1100,6 +1117,7 @@ onBeforeUnmount(() => {
 
 /* Labels visible on dark */
 .form-label {
+  display: block; /* force label onto its own line so the toggle sits below */
   color: var(--charcoal);
   margin-bottom: 6px;
 }
@@ -1473,4 +1491,34 @@ onBeforeUnmount(() => {
 .zoom-btn.reset { font-size: 16px; }
 
 .carousel-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+
+/* Segmented visibility toggle */
+.segmented {
+  display: inline-flex;
+  gap: 6px;
+  padding: 4px;
+  border: 2px solid var(--line-200);
+  border-radius: 999px;
+  margin-top: 6px; /* ensure it renders below the label with spacing */
+}
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 0;
+  background: #fff;
+  color: #111827;
+  border-radius: 999px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.seg-btn.active {
+  background: var(--sage-600);
+  color: #fff;
+}
+/* Smaller icons + tighter segmented buttons */
+.seg-btn { padding: 6px 10px; gap: 6px; }
+.seg-label { font-size: 13px; }
+.seg-btn .icon-20 { width: 20px !important; height: 20px !important; vertical-align: -1px; display: inline-block; flex: 0 0 12px; }
 </style>
