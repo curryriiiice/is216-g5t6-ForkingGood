@@ -199,7 +199,7 @@
         <div class="mm-panel" role="menu">
           <RouterLink to="/dashboard" class="mm-link" role="menuitem" @click="closeMobileMenu">Home</RouterLink>
           <RouterLink to="/map" class="mm-link" role="menuitem" @click="closeMobileMenu">Map</RouterLink>
-          <RouterLink to="/myposts" class="mm-link" role="menuitem" @click="closeMobileMenu">Activity</RouterLink>
+          <RouterLink to="/activity" class="mm-link" role="menuitem" @click="closeMobileMenu">Activity</RouterLink>
           <RouterLink to="/friends" class="mm-link badge-wrap" role="menuitem" @click="closeMobileMenu">
             Friends
             <span v-if="pendingRequestsCount > 0" class="badge">
