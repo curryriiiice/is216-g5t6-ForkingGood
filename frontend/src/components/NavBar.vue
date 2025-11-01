@@ -234,7 +234,6 @@ import api from '@/lib/api'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
-const API_BASE = (import.meta.env.VITE_IMAGE_BASE_URL || import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 const DEFAULT_NAV_AVATAR = '/images/default-avatar.jpg'
 
 /* ------------------------- Props ------------------------- */
@@ -495,12 +494,14 @@ async function submitReverseSearch() {
 
     const form = new FormData()
     form.append('photo', fileToSend)
-    const resp = await fetch((import.meta.env.VITE_API_BASE_URL || '') + '/search/reverseSearch', {
-      method: 'POST',
-      body: form, // browser sets multipart boundary automatically
+    
+    const response = await api.post('/search/reverseSearch', form, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     })
-    if (!resp.ok) throw new Error('Reverse search failed with status ' + resp.status)
-    const data = await resp.json()
+    
+    const data = response.data
 
     const dataUrl = await readAsDataURL(fileToSend)
     sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl], results: data || null }))
@@ -571,10 +572,10 @@ function resolveAvatarUrl(raw) {
   if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
   s = s.replace(/^supabase:\/\//, '')
   if (s.startsWith('/')) {
-    if (API_BASE) return `${API_BASE}${s}`
+    if (api.defaults.baseURL) return `${api.defaults.baseURL}${s}`
     return s
   }
-  if (API_BASE) return `${API_BASE}/${s.replace(/^\/+/, '')}`
+  if (api.defaults.baseURL) return `${api.defaults.baseURL}/${s.replace(/^\/+/, '')}`
   return `/${s.replace(/^\/+/, '')}`
 }
 

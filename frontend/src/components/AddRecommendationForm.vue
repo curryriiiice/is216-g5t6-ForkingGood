@@ -716,15 +716,21 @@ async function submit() {
           : []
 
     sources.forEach((d, i) => {
-      const f = dataURLtoFile(d, `photo_${i + 1}.jpg`)
-      if (f) fd.append('photos', f)
+      const file = dataURLtoFile(d, `photo_${i + 1}.jpg`)
+      if (file) fd.append('photos', file);
     })
 
     submitting.value = true
     errorMsg.value = ''
 
     // POST multipart to /user/createPost
-    const res = await api.post('/user/createPost', fd) // axios will set multipart boundary automatically
+    // Make sure axios is configured to NOT transform FormData
+    const res = await api.post('/user/createPost', fd, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      },
+      transformRequest: (data) => data // Prevent axios from transforming FormData
+    }); // axios will set multipart boundary automatically
     const data = res?.data || {}
     const payload = data?.data || data
 
