@@ -161,30 +161,15 @@ const editProfile = async (user_email, username, bio, profile_photo) => {
     // Handle profile photo upload if provided
     if (profile_photo) {
         const fileExtension = profile_photo.originalname.split('.').pop();
-        const fileName = `profile.${fileExtension}`;
+        // Use unique filename with timestamp to force overwrite
+        const fileName = `profile_${Date.now()}.${fileExtension}`;
         const storagePath = `${user_email}/${fileName}`;
 
-        // Delete old profile image if it exists and is not the default
-        const { data: userData } = await supabase
-            .from('user')
-            .select('profile_image_url')
-            .eq('user_email', user_email)
-            .single();
-
-        if (userData.profile_image_url && !userData.profile_image_url.includes('default-avatar.jpg')) {
-            const oldFileName = userData.profile_image_url.split('/').pop();
-            const oldStoragePath = `${user_email}/${oldFileName}`;
-            
-            await supabase.storage
-                .from('profile-images')
-                .remove([oldStoragePath]);
-        }
-
-        // Upload new profile photo
+        // Upload new profile photo - will create new file each time
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('profile-images')
             .upload(storagePath, profile_photo.buffer, {
-                upsert: true // Overwrite if exists
+                upsert: false // Don't upsert, always create new file
             });
 
         if (uploadError) {
@@ -197,6 +182,27 @@ const editProfile = async (user_email, username, bio, profile_photo) => {
             .getPublicUrl(storagePath);
 
         profileImageUrl = publicUrl;
+
+        // Clean up old profile images (keep only the new one and default)
+        const { data: existingFiles } = await supabase.storage
+            .from('profile-images')
+            .list(user_email);
+
+        if (existingFiles) {
+            const filesToRemove = existingFiles
+                .filter(file => 
+                    file.name.startsWith('profile') && 
+                    file.name !== fileName && // Keep the new file
+                    !file.name.includes('default-avatar') // Keep default
+                )
+                .map(file => `${user_email}/${file.name}`);
+            
+            if (filesToRemove.length > 0) {
+                await supabase.storage
+                    .from('profile-images')
+                    .remove(filesToRemove);
+            }
+        }
     }
 
     // Update user profile in database
@@ -229,28 +235,20 @@ const editProfile = async (user_email, username, bio, profile_photo) => {
 };
 
 const removeProfilePicture = async (user_email) => {
-    // Get current user data to check existing profile picture
-    const { data: userData, error: userError } = await supabase
-        .from('user')
-        .select('profile_image_url')
-        .eq('user_email', user_email)
-        .single();
+    // Clean up ALL old profile images (keep only default)
+    const { data: existingFiles } = await supabase.storage
+        .from('profile-images')
+        .list(user_email);
 
-    if (userError) {
-        return { error: userError };
-    }
-
-    // Delete current profile picture from storage if it's not the default
-    if (userData.profile_image_url && !userData.profile_image_url.includes('default-avatar.jpg')) {
-        const fileName = userData.profile_image_url.split('/').pop();
-        const storagePath = `${user_email}/${fileName}`;
+    if (existingFiles) {
+        const filesToRemove = existingFiles
+            .filter(file => file.name.startsWith('profile')) // Remove all profile_ files
+            .map(file => `${user_email}/${file.name}`);
         
-        const { error: deleteError } = await supabase.storage
-            .from('profile-images')
-            .remove([storagePath]);
-
-        if (deleteError) {
-            return { error: deleteError };
+        if (filesToRemove.length > 0) {
+            await supabase.storage
+                .from('profile-images')
+                .remove(filesToRemove);
         }
     }
 
@@ -290,43 +288,78 @@ const getProfile = async (user_email) => {
 
 const deleteUserAccount = async (user_email) => {
     try {
-        // helper function to delete all files in a folder recursively
+        // First, get the user's UID from the public.user table
+        const { data: userData, error: userError } = await supabase
+            .from('user')
+            .select('uid')
+            .eq('user_email', user_email)
+            .single();
+
+        if (userError) {
+            return { error: `User not found: ${userError.message}` };
+        }
+
+        const userId = userData.uid;
+
+        // Improved helper function to delete all files in a folder
         const deleteFolderRecursively = async (bucketName, folderPath) => {
-            const { data: files, error } = await supabase.storage
-                .from(bucketName)
-                .list(folderPath);
-            
-            if (error) {
-                // Folder doesn't exist, which is fine
-                if (error.message.includes('not found')) {
+            try {
+                console.log(`🗑️ Deleting folder: ${bucketName}/${folderPath}`);
+                
+                // List all files in the folder (including subfolders)
+                const { data: files, error: listError } = await supabase.storage
+                    .from(bucketName)
+                    .list(folderPath, {
+                        limit: 1000, // Increase limit to get all files
+                        offset: 0
+                    });
+
+                if (listError) {
+                    if (listError.message?.includes('not found') || listError.message?.includes('No such file or directory')) {
+                        console.log(`📁 Folder ${folderPath} doesn't exist in ${bucketName}`);
+                        return;
+                    }
+                    throw listError;
+                }
+
+                if (!files || files.length === 0) {
+                    console.log(`📁 Folder ${folderPath} is empty in ${bucketName}`);
                     return;
                 }
-                throw error;
-            }
-            
-            if (files && files.length > 0) {
-                const filesToRemove = [];
-                
-                for (const file of files) {
-                    const filePath = folderPath ? `${folderPath}/${file.name}` : file.name;
-                    
-                    if (file.id) {
-                        // It's a folder, recurse into it
-                        await deleteFolderRecursively(bucketName, filePath);
-                    } else {
-                        // It's a file, add to removal list
-                        filesToRemove.push(filePath);
-                    }
-                }
-                
-                // Remove all files in current folder
+
+                // Extract file paths for deletion
+                const filesToRemove = files
+                    .filter(file => !file.id) // Only files, not folders
+                    .map(file => `${folderPath}/${file.name}`);
+
+                console.log(`📄 Files to delete from ${bucketName}:`, filesToRemove);
+
+                // Delete all files in the folder
                 if (filesToRemove.length > 0) {
-                    await supabase.storage
+                    const { error: removeError } = await supabase.storage
                         .from(bucketName)
                         .remove(filesToRemove);
+
+                    if (removeError) {
+                        console.error(`❌ Error deleting files from ${bucketName}:`, removeError);
+                        throw removeError;
+                    }
+                    console.log(`✅ Successfully deleted ${filesToRemove.length} files from ${bucketName}/${folderPath}`);
                 }
+
+                // Recursively handle subfolders
+                const folders = files.filter(file => file.id); // Folders have id
+                for (const folder of folders) {
+                    await deleteFolderRecursively(bucketName, `${folderPath}/${folder.name}`);
+                }
+
+            } catch (error) {
+                console.error(`❌ Error deleting folder ${bucketName}/${folderPath}:`, error);
+                throw error;
             }
         };
+
+        console.log(`🚮 Starting deletion process for user: ${user_email}`);
 
         // delete user's entire folder from post-images storage
         await deleteFolderRecursively('post-images', user_email);
@@ -346,9 +379,19 @@ const deleteUserAccount = async (user_email) => {
             return { error: deleteError };
         }
 
+        // Delete user from auth schema using admin API
+        const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+
+        if (authDeleteError) {
+            console.error('Failed to delete user from auth:', authDeleteError);
+            // Continue anyway since we've deleted the public data
+        }
+
+        console.log(`✅ Successfully deleted account for user: ${user_email}`);
         return { data: { message: "User account data deleted successfully" } };
 
     } catch (error) {
+        console.error('❌ Error in deleteUserAccount:', error);
         return { error: error.message };
     }
 };
