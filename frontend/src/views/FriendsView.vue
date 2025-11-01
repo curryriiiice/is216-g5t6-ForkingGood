@@ -81,8 +81,8 @@ async function fetchAvatarsForPosts(posts) {
   if (emailsToFetch.size === 0) return;
 
   const promises = Array.from(emailsToFetch).map(email =>
-    api.post('/user/getPfpByEmail', { user_email: email })
-      .then(res => ({ email, url: res.data?.data }))
+    api.post('/user/getPfpByEmail', { user_email: email }) //
+      .then(res => ({ email, url: res.data?.data })) //
       .catch(err => ({ email, url: null, error: err }))
   );
   const results = await Promise.allSettled(promises);
@@ -261,8 +261,10 @@ async function fetchAllUsers() {
           u.friendship_status === 'outgoing_request' ? 2 :
           u.friendship_status === 'friend' ? 3 : 4,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    onSearchInput(); // Apply default view (friends+pending)
+      .sort((a, b) => a.name.localeCompare(b.name)); // Pre-sort by name
+    
+    onSearchInput(); // Apply default view (which now shows all, sorted by status)
+    
   } catch (e) {
     console.error('[friends] fetchAllUsers failed', e);
     searchError.value = e.response?.data?.message || 'Failed to load user list.';
@@ -289,6 +291,7 @@ const onSearchInput = () => {
         return emailMatch || usernameMatch;
       });
   }
+  // If no query, listToFilter remains the full allUsersCache
   
   // Sort the (full or filtered) list based on the new order
   listToFilter.sort((a, b) => {
@@ -307,6 +310,7 @@ const onSearchInput = () => {
 async function sendFriendReq(user) {
   if (!activeEmail.value) return;
   // Optimistic UI update
+  const originalStatus = { ...user };
   user.isPendingOutgoing = true
   user.isFriend = false
   user.isPendingIncoming = false
@@ -321,8 +325,10 @@ async function sendFriendReq(user) {
   } catch (e) {
     console.error('[friends] add failed', e)
     // Rollback
-    user.isPendingOutgoing = false
-    user.statusScore = 4;
+    user.isPendingOutgoing = originalStatus.isPendingOutgoing;
+    user.isFriend = originalStatus.isFriend;
+    user.isPendingIncoming = originalStatus.isPendingIncoming;
+    user.statusScore = originalStatus.statusScore;
     onSearchInput(); // Re-sort list
     alert(`Error: ${e.response?.data?.message || 'A request is already pending.'}`)
   }
@@ -355,6 +361,11 @@ async function confirmRemove() {
   user.isPendingOutgoing = false;
   user.statusScore = 4;
   onSearchInput(); // Re-sort list
+  // Also update profileData if this user is in the modal
+  if (profileData.value && profileData.value.email === user.email) {
+    profileData.value.isFriend = false;
+    profileData.value.statusScore = 4;
+  }
 
   try {
     await api.delete('/friends/removeFriend', {
@@ -371,6 +382,9 @@ async function confirmRemove() {
     user.isPendingIncoming = originalStatus.isPendingIncoming;
     user.isPendingOutgoing = originalStatus.isPendingOutgoing;
     user.statusScore = originalStatus.statusScore;
+    if (profileData.value && profileData.value.email === user.email) {
+      profileData.value.isFriend = originalStatus.isFriend;
+    }
     onSearchInput(); 
     searchError.value = e.response?.data?.message || 'Could not remove friend';
     closeConfirmRemoveModal();
@@ -395,23 +409,11 @@ function closeConfirmRemoveModal() {
 
 
 // Load incoming pending requests (ONLY for badge count)
-async function loadPendingRequests() {
-  if (!activeEmail.value) { pendingRequests.value = []; return; }
-  pendingLoading.value = true; pendingError.value = ''; pendingRequests.value = [];
-  try {
-    const r = await api.post('/friends/getPendingFriendReqs', { user_email: activeEmail.value })
-    const requestData = Array.isArray(r.data?.data) ? r.data.data : []
-    pendingRequests.value = requestData.map(req => ({
-        sender_email: req.email,
-        username: req.username || req.email.split('@')[0],
-        avatar: req.profile_image_url || '/default-avatar.jpg'
-    }));
-  } catch (e) {
-    console.error('[friends] loadPendingRequests failed', e);
-  } finally {
-    pendingLoading.value = false;
-  }
-}
+// This function is no longer used for the main list, but can be kept for a badge
+// For now, it's removed to avoid confusion. The main `fetchAllUsers` handles all statuses.
+// async function loadPendingRequests() { ... } 
+// async function openPendingModal() { ... } 
+
 
 // Accept an incoming friend request (from the card)
 async function acceptFriendReq(user) {
@@ -424,17 +426,24 @@ async function acceptFriendReq(user) {
    user.isPendingOutgoing = false;
    user.statusScore = 3; // Set score to "Friend"
    onSearchInput(); // Re-sort list
+   // Update profile modal if this user is shown
+   if (profileData.value && profileData.value.email === user.email) {
+     profileData.value.isFriend = true;
+     profileData.value.isPendingIncoming = false;
+   }
    
    try {
     await api.post('/friends/acceptFriendReq', { user_email: activeEmail.value, friend_email: user.email });
-    // Update badge count
-    await loadPendingRequests();
   } catch (e) { 
     console.error('[friends] acceptFriendReq failed', e);
     // Rollback
     user.isFriend = originalStatus.isFriend;
     user.isPendingIncoming = originalStatus.isPendingIncoming;
     user.statusScore = originalStatus.statusScore;
+    if (profileData.value && profileData.value.email === user.email) {
+      profileData.value.isFriend = originalStatus.isFriend;
+      profileData.value.isPendingIncoming = originalStatus.isPendingIncoming;
+    }
     onSearchInput();
     alert('Failed to accept request.');
   }
@@ -450,17 +459,22 @@ async function rejectFriendReq(user) {
    user.isPendingOutgoing = false;
    user.statusScore = 4; // Set score to "Other"
    onSearchInput(); // Re-sort list
+   // Update profile modal if this user is shown
+   if (profileData.value && profileData.value.email === user.email) {
+     profileData.value.isPendingIncoming = false;
+   }
 
    try {
     await api.post('/friends/rejectFriendReq', { user_email: activeEmail.value, friend_email: user.email });
-    // Update badge count
-    await loadPendingRequests();
   } catch (e) { 
     console.error('[friends] rejectFriendReq failed', e);
     // Rollback
     user.isFriend = originalStatus.isFriend;
     user.isPendingIncoming = originalStatus.isPendingIncoming;
     user.statusScore = originalStatus.statusScore;
+    if (profileData.value && profileData.value.email === user.email) {
+      profileData.value.isPendingIncoming = originalStatus.isPendingIncoming;
+    }
     onSearchInput();
     alert('Failed to reject request.');
   }
@@ -597,21 +611,36 @@ function initTooltips() {
   } catch {}
 }
 
+// --- NEW: Helper functions for section headers ---
+function getHeader(user) {
+  switch (user.statusScore) {
+    case 1: return 'Received Requests';
+    case 2: return 'Sent Requests';
+    case 3: return 'Friends';
+    case 4: return 'Suggested Users';
+    default: return 'Users';
+  }
+}
+function shouldShowHeader(user, index) {
+  // Always show header for the first item in the list
+  if (index === 0) return true;
+  
+  const prevUser = searchResults.value[index - 1];
+  // Show header if the status score is different from the previous user
+  return user.statusScore !== prevUser.statusScore;
+}
+
+
 // Lifecycle Hooks
 onMounted(async () => {
   await refreshAuthUser();
-  await Promise.all([
-     fetchAllUsers(),
-     loadPendingRequests() // Still call this for the badge count
-  ]);
+  await fetchAllUsers(); // Only fetch all users
   await nextTick();
 });
+// Watch for changes in user login status
 watch(activeEmail, async (newEmail, oldEmail) => {
   if (newEmail !== oldEmail) { 
-    await Promise.all([
-       fetchAllUsers(),
-       loadPendingRequests() // Still call this for the badge count
-    ]);
+    await fetchAllUsers();
   }
 });
 
@@ -626,7 +655,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
           v-model="query"
           @input="onSearchInput"
           class="form-control form-control-sm"
-          placeholder="Search users..."
+          placeholder="Search users by email or @username..."
         />
       </div>
 
@@ -637,38 +666,46 @@ watch(activeEmail, async (newEmail, oldEmail) => {
         No users found matching "{{ query }}".
       </div>
       <div v-else-if="!searchResults.length && !query" class="empty text-muted p-4 rounded-3 bg-white shadow-sm mb-3">
-        Your community feed is empty. Search to find new users!
+        No users to display.
       </div>
       
       <div class="row g-3" v-else>
-        <div v-for="user in searchResults" :key="user.email" class="col-12 col-md-6 col-lg-4">
-          <div class="card h-100 shadow-sm border-0">
-            <div class="card-body d-flex gap-3 align-items-center">
-              <img
-                :src="user.avatar"
-                alt="Avatar"
-                class="rounded-circle flex-shrink-0"
-                style="width: 56px; height: 56px; object-fit: cover; border: 1px solid #eee"
-                @error="$event.target.src='/default-avatar.jpg'"
-              />
-              <div class="flex-grow-1" style="min-width: 0">
-                 <a href="#" @click.prevent="viewProfile(user)" class="text-decoration-none profile-link" :title="`View ${user.name}'s profile`">
-                  <div class="fw-bold text-truncate text-dark">{{ user.name }}</div>
-                  <div class="text-muted small text-truncate">{{ user.email }}</div>
-                </a>
-              </div>
-              <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
-                <div v-if="user.isPendingIncoming" class="d-flex gap-2">
-                   <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(user)"> Reject </button>
-                   <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(user)"> Accept </button>
+        <template v-for="(user, index) in searchResults" :key="user.email">
+          <div v-if="shouldShowHeader(user, index)" class="col-12 mt-4">
+            <h4 class="section-divider">
+              {{ getHeader(user) }}
+            </h4>
+          </div>
+
+          <div class="col-12 col-md-6 col-lg-4">
+            <div class="card h-100 shadow-sm border-0">
+              <div class="card-body d-flex gap-3 align-items-center">
+                <img
+                  :src="user.avatar"
+                  alt="Avatar"
+                  class="rounded-circle flex-shrink-0"
+                  style="width: 56px; height: 56px; object-fit: cover; border: 1px solid #eee"
+                  @error="$event.target.src='/default-avatar.jpg'"
+                />
+                <div class="flex-grow-1" style="min-width: 0">
+                   <a href="#" @click.prevent="viewProfile(user)" class="text-decoration-none profile-link" :title="`View ${user.name}'s profile`">
+                    <div class="fw-bold text-truncate text-dark">{{ user.name }}</div>
+                    <div class="text-muted small text-truncate">{{ user.email }}</div>
+                  </a>
                 </div>
-                <button v-else-if="user.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(user)"> Remove </button>
-                <button v-else-if="user.isPendingOutgoing" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
-                <button v-else class="btn btn-sm btn-fit" @click="sendFriendReq(user)"> Add </button>
+                <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
+                  <div v-if="user.isPendingIncoming" class="d-flex gap-2">
+                     <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(user)"> Reject </button>
+                     <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(user)"> Accept </button>
+                  </div>
+                  <button v-else-if="user.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(user)"> Remove </button>
+                  <button v-else-if="user.isPendingOutgoing" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
+                  <button v-else class="btn btn-sm btn-fit" @click="sendFriendReq(user)"> Add </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </template>
       </div>
     </section>
 
@@ -688,8 +725,8 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                  </div>
                  <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
                     <div v-if="profileData.isPendingIncoming" class="d-flex gap-2">
-                      <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(profileData)"> Accept </button>
-                      <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(profileData)"> Reject </button> 
+                       <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(profileData)"> Reject </button>
+                       <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(profileData)"> Accept </button>
                     </div>
                     <button v-else-if="profileData.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(profileData)"> Remove </button>
                     <button v-else-if="profileData.isPendingOutgoing" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
@@ -956,5 +993,20 @@ watch(activeEmail, async (newEmail, oldEmail) => {
   color: #fff;
   border: 0;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+.section-divider {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ink-500);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line-200);
+  margin: 1rem 0 0.5rem;
+}
+
+.col-12:first-child .section-divider {
+  margin-top: 0;
 }
 </style>
