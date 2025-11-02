@@ -1080,7 +1080,7 @@ onBeforeUnmount(() => {
             alt="Friends"
             class="icon-20 me-1"
           />
-          <span class="seg-label">Friends</span>
+          <span class="seg-label">Friends Only</span>
         </button>
 
         <button
@@ -1096,7 +1096,7 @@ onBeforeUnmount(() => {
             alt="Public"
             class="icon-20 me-1"
           />
-          <span class="seg-label">Public</span>
+          <span class="seg-label">Everyone</span>
         </button>
       </div>
     </div>

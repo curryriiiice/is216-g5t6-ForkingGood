@@ -23,6 +23,69 @@ function resolveImageUrl(p) {
   return IMAGE_BASE ? `${IMAGE_BASE}/${s}` : `/${s}`
 }
 
+const DEFAULT_AVATAR = '/images/default-avatar.jpg'
+const DEFAULT_AVATAR_REGEX = /default-avatar/i
+const AVATAR_CACHE = new Map()
+const AVATAR_REQUESTS = new Map()
+
+function sanitizeUsername(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (trimmed.toLowerCase() === '@user') return null
+  return trimmed
+}
+
+function isDefaultAvatarUrl(url) {
+  if (!url) return true
+  if (typeof url !== 'string') return false
+  return DEFAULT_AVATAR_REGEX.test(url)
+}
+
+async function fetchPfpByUsername(username) {
+  const clean = sanitizeUsername(username)
+  if (!clean) return null
+  if (AVATAR_CACHE.has(clean)) return AVATAR_CACHE.get(clean)
+  if (AVATAR_REQUESTS.has(clean)) return AVATAR_REQUESTS.get(clean)
+
+  const request = api
+    .post('/user/getPfpByUsername', { username: clean })
+    .then((response) => {
+      const rawUrl = response.data?.data || null
+      const resolved = rawUrl ? resolveImageUrl(rawUrl) : null
+      AVATAR_CACHE.set(clean, resolved || null)
+      return resolved
+    })
+    .catch(() => {
+      AVATAR_CACHE.set(clean, null)
+      return null
+    })
+    .finally(() => {
+      AVATAR_REQUESTS.delete(clean)
+    })
+
+  AVATAR_REQUESTS.set(clean, request)
+  return request
+}
+
+async function ensurePostAvatar(post) {
+  if (!post || !post.user) return null
+  if (post.user.avatar && !isDefaultAvatarUrl(post.user.avatar)) return null
+
+  const username = sanitizeUsername(post.user.username)
+  if (!username) return null
+
+  const url = await fetchPfpByUsername(username)
+  if (url && !isDefaultAvatarUrl(url)) {
+    post.user.avatar = url
+  }
+}
+
+function onDrawerAvatarError(ev) {
+  ev.target.onerror = null
+  ev.target.src = DEFAULT_AVATAR
+}
+
 // --- THEME PERSISTENCE ---
 // Apply theme from localStorage on mount
 const THEME_KEY = 'fg_theme_v2'
@@ -333,7 +396,7 @@ async function loadPinsFromFilters() {
 
   // 1) Group rows by restaurant_id → postsByRestaurant
   const groups = new Map()
-  const allPosts = []
+  const avatarTasks = []
 
   for (const r of filteredRows) {
     const lat = Number(r.lat ?? r.latitude)
@@ -367,6 +430,9 @@ async function loadPinsFromFilters() {
       r.poster_profile_pic ||
       r.profile_image_url ||
       null
+    const normalizedUsername = sanitizeUsername(r.poster_username) || null
+    const displayName = normalizedUsername || r.poster_username || posterEmail || '@user'
+
     const post = {
       id: r.postid || r.post_id,
       rating: Number(r.rating ?? 0),
@@ -391,17 +457,24 @@ async function loadPinsFromFilters() {
         longitude: lng,
       },
     }
-  const baseAvatar = resolveImageUrl(rawAvatar)
-  post.user = {
-    id: r.poster_username || posterEmail,
-    name: r.poster_username || posterEmail,
-    username: r.poster_username || posterEmail,
-    email: posterEmail,
-    avatar: baseAvatar,
-  }
+    const baseAvatar = resolveImageUrl(rawAvatar)
+    post.user = {
+      id: normalizedUsername || posterEmail || displayName,
+      name: displayName,
+      username: normalizedUsername,
+      email: posterEmail,
+      avatar: baseAvatar || DEFAULT_AVATAR,
+    }
+    const task = ensurePostAvatar(post)
+    if (task instanceof Promise) {
+      avatarTasks.push(task.catch(() => null))
+    }
     if (!groups.has(restaurantId)) groups.set(restaurantId, [])
     groups.get(restaurantId).push(post)
-    allPosts.push(post)
+  }
+
+  if (avatarTasks.length) {
+    await Promise.allSettled(avatarTasks)
   }
 
 
@@ -1563,7 +1636,7 @@ function clearFilters() {
               value="public"
               v-model="feedScope"
             />
-            <label class="btn btn-outline-primary btn-sm" for="scopePublic2">Public</label>
+            <label class="btn btn-outline-primary btn-sm" for="scopePublic2">Everyone</label>
           </div>
         </span>
       </div>
@@ -1610,25 +1683,41 @@ function clearFilters() {
               @keydown.enter="goToPost(p)"
             >
               <div class="card-body">
-                <div class="d-flex align-items-center mb-2">
-                  <div class="flex-grow-1 me-2">
-                    <div class="fw-bold text-dark">
+                <div class="d-flex align-items-start mb-2 drawer-row">
+                  <img
+                    :src="p.user?.avatar || DEFAULT_AVATAR"
+                    class="drawer-avatar me-2"
+                    alt="User avatar"
+                    width="32"
+                    height="32"
+                    crossorigin="anonymous"
+                    @error="onDrawerAvatarError"
+                  />
+                  <div class="flex-grow-1 min-w-0">
+                    <div class="drawer-username">
                       {{ p.user?.name || p.user?.username || p.user?.id }}
                     </div>
                   </div>
-                  <div class="ms-auto">
-                    <div class="vis-badge" v-if="p.is_public !== null">
-                      <span
-                        class="badge visibility-tag"
-                        :class="p.is_public ? 'vis-everyone' : 'vis-friends'"
-                        :aria-label="p.is_public ? 'Visible to everyone' : 'Visible to friends only'"
-                      >
-                        {{ p.is_public ? 'Everyone' : 'Friends Only' }}
-                      </span>
+                  <div class="ms-auto d-flex align-items-start gap-2 drawer-right">
+                    <template v-if="p.is_public !== null">
+                      <div class="vis-badge">
+                        <span
+                          class="badge visibility-tag"
+                          :class="p.is_public ? 'vis-everyone' : 'vis-friends'"
+                          :aria-label="p.is_public ? 'Visible to everyone' : 'Visible to friends only'"
+                        >
+                          {{ p.is_public ? 'Everyone' : 'Friends Only' }}
+                        </span>
+                      </div>
+                    </template>
+                    <div
+                      v-if="Number.isFinite(Number(p.rating))"
+                      class="rating-pill"
+                      :aria-label="`Rated ${Number(p.rating || 0).toFixed(1)} stars`"
+                    >
+                      <span class="star">★</span>
+                      <span class="rating-num">{{ Number(p.rating || 0).toFixed(1) }}</span>
                     </div>
-                    <span class="badge rating-tag">
-                      ⭐ {{ Number(p.rating || 0).toFixed(1) }}
-                    </span>
                   </div>
                 </div>
                 <!-- <div class="d-flex justify-content-end mt-1">
@@ -1959,13 +2048,29 @@ aside.side.clicking {
   color: #fff;
 }
 
-.rating-tag {
-  font-size: 0.75rem;
-  background-color: var(--line-100, #f1f1f1);
-  color: var(--charcoal, #111827);
-  border-radius: 8px;
-  padding: 4px 8px;
-  font-weight: 600;
+.rating-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+.rating-pill .star {
+  color: #f59e0b;
+  font-size: 16px;
+  line-height: 1;
+}
+.rating-pill .rating-num {
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.drawer-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  flex-shrink: 0;
 }
 
 /* Theme-aware visibility badges driven by data-theme */
@@ -2123,4 +2228,18 @@ aside.side.clicking {
 }
 
 
+/* Drawer row: allow name to wrap while keeping right pills fixed-aligned */
+.drawer-row { gap: 8px; }
+.min-w-0 { min-width: 0; }
+.drawer-username {
+  font-weight: 700;
+  color: var(--charcoal);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.2;
+  word-break: break-word;
+}
+.drawer-right { flex-shrink: 0; white-space: nowrap; }
 </style>

@@ -116,6 +116,46 @@ function onCommentAvatarError(event) {
   }
 }
 
+async function ensureAnchoredPost(targetId) {
+  const id = String(targetId || '')
+  if (!id) return false
+
+  const exists =
+    Array.isArray(posts.value) && posts.value.some((p) => String(p?.id ?? p?.postid) === id)
+  if (exists) return true
+
+  try {
+    const raw = await getPostById(id)
+    if (!raw) return false
+    const normalized = rowToPost(raw)
+    if (!normalized) return false
+
+    anchoredPost.value = normalized
+
+    const next = Array.isArray(posts.value) ? posts.value.filter((p) => String(p?.id ?? p?.postid) !== id) : []
+    posts.value = [normalized, ...(next || [])]
+
+    const commentCount = Array.isArray(normalized.raw?.comments)
+      ? normalized.raw.comments.length
+      : normalized.raw?.comments_count ?? null
+    if (commentCount !== null) {
+      setCommentCountForPost(id, commentCount)
+    }
+
+    if (Array.isArray(posts.value) && posts.value.length) {
+      const latest = posts.value.find((p) => String(p?.id ?? p?.postid) === id)
+      if (latest) {
+        anchoredPost.value = latest
+      }
+    }
+
+    return true
+  } catch (e) {
+    console.warn('[dashboard] ensureAnchoredPost failed:', e)
+    return false
+  }
+}
+
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
@@ -245,6 +285,9 @@ function setCommentCountForPost(postId, count) {
 const posts = ref([])
 const showAdd = ref(false)
 const highlightedPostId = ref(null)
+const anchoredPostId = ref(null)
+const anchorSatisfied = ref(false)
+const anchoredPost = ref(null)
 const randomPost = ref(null)
 const showRandomiseAnim = ref(false)
 const hasRandomised = ref(false)
@@ -1165,8 +1208,23 @@ async function runSearch() {
   })
 
   feed.sort((a, b) => new Date(b.raw.created_at || 0) - new Date(a.raw.created_at || 0))
+
+  const anchorId = anchoredPostId.value ? String(anchoredPostId.value) : null
+  if (anchorId) {
+    const idx = feed.findIndex((p) => String(p?.id ?? p?.postid ?? '') === anchorId)
+    if (idx >= 0) {
+      anchoredPost.value = feed[idx]
+    } else if (
+      anchoredPost.value &&
+      String(anchoredPost.value?.id ?? anchoredPost.value?.postid ?? '') === anchorId
+    ) {
+      feed.unshift(anchoredPost.value)
+    }
+  }
+
   if (!Array.isArray(posts.value)) posts.value = []
   posts.value.splice(0, posts.value.length, ...feed)
+  nextTick(() => initRevealUp())
 
   // Initialize comment counts for visible posts (fallback to raw.comments_count if present)
   const nextCounts = {}
@@ -1194,10 +1252,12 @@ function applyVisibilityFromQuery() {
   const q = route.query || {}
   if (q.feed === 'public') {
     friendsOnly.value = false
+    nextTick(() => initRevealUp())
     return true
   }
   if (q.feed === 'friends') {
     friendsOnly.value = true
+    nextTick(() => initRevealUp())
     return true
   }
   if (q.is_public === '1' || q.public === '1' || q.public === 'true' || q.is_public === 'true') {
@@ -1213,8 +1273,21 @@ function applyVisibilityFromQuery() {
 async function scrollToPostIfAny() {
   const q = route.query || {}
   const postId = q.postId || q.postID || q.postid
-  if (!postId) return
+  if (!postId) {
+    anchoredPostId.value = null
+    anchorSatisfied.value = false
+    anchoredPost.value = null
+    // Ensure any already-visible cards don't get stuck hidden
+    nextTick(() => initRevealUp())
+    return
+  }
   const targetId = String(postId)
+  if (anchoredPostId.value !== targetId) {
+    anchoredPostId.value = targetId
+    anchorSatisfied.value = false
+    anchoredPost.value = null
+  }
+  if (anchorSatisfied.value) return
 
   const hasPostInFeed = () =>
     Array.isArray(posts.value) && posts.value.some((p) => String(p?.id ?? p?.postid) === targetId)
@@ -1234,6 +1307,10 @@ async function scrollToPostIfAny() {
   const tryScroll = () => {
     const el = document.getElementById(`post-${targetId}`)
     if (!el) return false
+
+    // Force the card visible and mark as animated so later init won't re-hide it
+    el.classList.add('show', 'animate__animated')
+    el.classList.remove('reveal')
 
     highlightedPostId.value = targetId
     const header = document.querySelector('.navbar, header.sticky')
@@ -1256,9 +1333,9 @@ async function scrollToPostIfAny() {
       el.setAttribute('tabindex', '-1')
       el.focus({ preventScroll: true })
     }
+    anchorSatisfied.value = true
     setTimeout(() => {
       highlightedPostId.value = null
-      clearPostQuery()
     }, 1400)
     return true
   }
@@ -1273,15 +1350,14 @@ async function scrollToPostIfAny() {
     ok = tryScroll()
     attempts++
   }
-}
-function clearPostQuery() {
-  try {
-    const url = new URL(window.location.href)
-    url.searchParams.delete('postId')
-    url.searchParams.delete('postID')
-    url.searchParams.delete('postid')
-    window.history.replaceState(window.history.state, '', url.toString())
-  } catch {}
+
+  if (!ok) {
+    const ensured = await ensureAnchoredPost(targetId)
+    if (ensured) {
+      await nextTick()
+      tryScroll()
+    }
+  }
 }
 
 // Bootstrap tooltips (optional)
@@ -1317,21 +1393,42 @@ watch(
 
 // === Animate.css scroll-reveal ===
 let _revealObserver
+
 function initRevealUp() {
   if (typeof window === 'undefined') return
   const nodes = document.querySelectorAll('[data-animate]')
   if (!nodes || !nodes.length) return
 
+  // Reduce motion guard
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
   const reveal = (el) => {
     const anim = el.getAttribute('data-animate') || 'fadeInUp'
     const delay = el.getAttribute('data-delay') || '0s'
-    const duration = el.getAttribute('data-duration')
-    el.classList.add('animate__animated', `animate__${anim}`)
+    const duration = el.getAttribute('data-duration') || '0.42s'
+    const easing = el.getAttribute('data-ease') || 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+    // Apply style properties first
     el.style.animationDelay = delay
-    if (duration) {
-      el.style.setProperty('--animate-duration', duration)
+    el.style.setProperty('--animate-duration', duration)
+    el.style.animationTimingFunction = easing
+
+    // Promote to its own layer for smoother motion
+    el.style.willChange = 'opacity, transform'
+    el.style.backfaceVisibility = 'hidden'
+    el.style.transform = 'translateZ(0)'
+
+    // Reduce motion: skip animation classes, just show
+    if (prefersReduced) {
+      el.classList.add('show')
+      return
     }
-    el.classList.add('show')
+
+    // Add classes on the next frame to avoid batching/jank
+    requestAnimationFrame(() => {
+      el.classList.add('animate__animated', `animate__${anim}`)
+      el.classList.add('show')
+    })
   }
 
   if (!('IntersectionObserver' in window)) {
@@ -1344,19 +1441,17 @@ function initRevealUp() {
     (entries) => {
       entries.forEach((entry) => {
         if (entry.isIntersecting) {
-          const el = entry.target
-          reveal(el)
-          _revealObserver.unobserve(el)
+          reveal(entry.target)
+          _revealObserver.unobserve(entry.target)
         }
       })
     },
-    { root: null, rootMargin: '0px 0px -10% 0px', threshold: 0.15 },
+    { root: null, rootMargin: '0px 0px -8% 0px', threshold: 0.12 },
   )
 
   nodes.forEach((el, i) => {
-    if (!el.classList.contains('animate__animated')) el.classList.add('reveal')
     if (!el.getAttribute('data-delay')) {
-      const stagger = Math.min(i * 0.04, 0.28).toFixed(2) + 's'
+      const stagger = Math.min(i * 0.03, 0.21).toFixed(2) + 's'
       el.setAttribute('data-delay', stagger)
     }
     _revealObserver.observe(el)
@@ -1626,6 +1721,7 @@ async function fetchRandomPost() {
     // Reveal result and end animation
     randomPost.value = candidate
     showRandomiseAnim.value = false
+    nextTick(() => initRevealUp())
   } catch (e) {
     console.error('[Dashboard] randomiserSearch failed:', e.response?.data || e.message)
     // Ensure animation hides after a short delay even on error
@@ -1860,6 +1956,68 @@ watch(
   () => nextTick(() => initTooltips()),
 )
 </script>
+
+<style>
+/* --- Smooth reveal performance hints --- */
+[data-animate] { will-change: opacity, transform; backface-visibility: hidden; -webkit-font-smoothing: antialiased; }
+@media (prefers-reduced-motion: reduce) {
+  [data-animate] { animation: none !important; transition: none !important; }
+}
+
+/* Randomised card: hidden until `.show` is applied */
+.randomised-panel[data-animate]:not(.show) {
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+}
+
+.randomised-panel[data-animate].show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+/* Lock Bootstrap modal width token for preview modal */
+.preview-modal { --bs-modal-width: 760px; }
+
+/* ========== Preview modal unified sizing (≥992px) ========== */
+@media (min-width: 992px) {
+  .preview-modal { --bs-modal-width: 760px; }
+  .preview-modal .modal-dialog {
+    width: var(--bs-modal-width) !important;
+    max-width: var(--bs-modal-width) !important;
+    margin: 3vh auto;
+  }
+  /* Override Bootstrap size variants to the same width */
+  .preview-modal .modal-dialog.modal-lg,
+  .preview-modal .modal-dialog.modal-xl,
+  .preview-modal .modal-dialog.modal-xxl,
+  .preview-modal .modal-lg .modal-dialog,
+  .preview-modal .modal-xl .modal-dialog,
+  .preview-modal .modal-xxl .modal-dialog {
+    width: var(--bs-modal-width) !important;
+    max-width: var(--bs-modal-width) !important;
+  }
+  .preview-modal .modal-content {
+    max-height: 86vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-radius: 12px;
+  }
+  .preview-modal .modal-body {
+    padding: 0;
+    overflow: auto;
+  }
+  .preview-modal .hero img {
+    max-height: 42vh;
+    width: 100%;
+    height: auto;
+    object-fit: cover;
+    display: block;
+  }
+}
+</style>
+
 
 <template>
   <div class="page sage-bg">
@@ -2117,7 +2275,7 @@ watch(
         <!-- Randomised post result -->
         <div
           v-if="randomPost && !showRandomiseAnim"
-          class="card themed-card position-relative randomised-panel post-clickable reveal"
+          class="card themed-card position-relative randomised-panel post-clickable"
           data-animate="zoomIn"
           data-duration="0.35s"
           :data-delay="randomPost ? '.12s' : '0s'"
@@ -2175,7 +2333,7 @@ watch(
                 alt="Friends"
                 class="icon-20 me-1"
               />
-              <span class="seg-label">Friends</span>
+              <span class="seg-label">Friends Only</span>
             </button>
 
             <button
@@ -2191,7 +2349,7 @@ watch(
                 alt="Public"
                 class="icon-20 me-1"
               />
-              <span class="seg-label">Public</span>
+              <span class="seg-label">Everyone</span>
             </button>
           </div>
 
@@ -2383,8 +2541,7 @@ watch(
           <div class="row g-3 g-md-4">
             <div v-for="p in posts" :key="String(p.id ?? p.postid)" class="col-12 col-lg-6">
               <div
-                class="card themed-card position-relative post-clickable reveal"
-                data-animate="fadeInUp"
+                class="card themed-card position-relative post-clickable"
                 data-duration="0.35s"
                 :id="`post-${p.id ?? p.postid}`"
                 :class="{ active: String(highlightedPostId) === String(p.id ?? p.postid) }"
@@ -2444,7 +2601,7 @@ watch(
   </Modal>
 
   <!-- Post Preview Modal -->
-  <Modal :show="showPreview" title="Post Preview" @close="closePreview">
+  <Modal :show="showPreview" class="preview-modal" title="Post Preview" @close="closePreview">
     <div class="preview-wrap">
       <div class="card themed-card position-relative preview-card">
         <PostCard
