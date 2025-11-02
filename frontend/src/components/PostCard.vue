@@ -188,6 +188,13 @@ onBeforeUnmount(revokeAllBlobs)
 
 // --- Author profile picture (via getPfpByEmail) ---
 const DEFAULT_AVATAR = '/images/default-avatar.jpg'
+const DEFAULT_AVATAR_REGEX = /default-avatar/i
+
+function isDefaultAvatarUrl(url) {
+  if (!url) return true
+  if (typeof url !== 'string') return false
+  return DEFAULT_AVATAR_REGEX.test(url)
+}
 
 const authorEmail = computed(() => {
   const p = props.post || {}
@@ -197,9 +204,46 @@ const authorEmail = computed(() => {
 
 const authorPfpUrl = ref(null)
 
+function extractAvatarFromResponse(payload) {
+  if (!payload) return null
+  if (typeof payload === 'string') return payload
+  if (Array.isArray(payload)) {
+    const first = payload[0]
+    if (!first) return null
+    return (
+      first.public_url ||
+      first.publicUrl ||
+      first.url ||
+      first.avatar ||
+      (typeof first.data === 'string' ? first.data : null) ||
+      null
+    )
+  }
+  if (typeof payload === 'object') {
+    return (
+      payload.data?.public_url ||
+      payload.data?.publicUrl ||
+      payload.data?.url ||
+      (typeof payload.data === 'string' ? payload.data : null) ||
+      payload.url ||
+      payload.public_url ||
+      payload.publicUrl ||
+      payload.avatar ||
+      null
+    )
+  }
+  return null
+}
+
 async function fetchPfpByEmail(email) {
   if (!email) return null
-  if (pfpCache.has(email)) return pfpCache.get(email)
+  if (pfpCache.has(email)) {
+    const cached = pfpCache.get(email)
+    if (cached && !isDefaultAvatarUrl(cached)) {
+      return cached
+    }
+    pfpCache.delete(email)
+  }
   try {
     const response = await api.post(ENDPOINTS.getPfpByEmail, { email })
     const rawUrl = response.data?.data || null
@@ -663,6 +707,14 @@ const captionClampInlineStyle = computed(() => {
           data-stop-preview
         />
       </div>
+      <!-- Photo index counter -->
+      <div
+        v-if="photoCount > 0"
+        class="photo-count"
+        :aria-label="`Photo ${currentIndex + 1} of ${photoCount}`"
+      >
+        <span class="pc-num">{{ currentIndex + 1 }}/{{ photoCount }}</span>
+      </div>
     </div>
 
     <!-- Content body -->
@@ -703,8 +755,22 @@ const captionClampInlineStyle = computed(() => {
             :aria-pressed="liked"
             data-stop-preview
           >
-            <img v-if="!liked" src="/images/like.png" alt="Like" class="icon-20 me-1" width="16" height="16" />
-            <img v-else src="/images/liked.png" alt="Liked" class="icon-20 me-1" width="16" height="16" />
+            <img
+              v-if="!liked"
+              src="/images/like.png"
+              alt="Like"
+              class="icon-20 me-1"
+              width="16"
+              height="16"
+            />
+            <img
+              v-else
+              src="/images/liked.png"
+              alt="Liked"
+              class="icon-20 me-1"
+              width="16"
+              height="16"
+            />
             <!-- <span v-if="liked">💗</span><span v-else>🤍</span> -->
             <span>{{ likeCount }}</span>
           </button>
@@ -714,7 +780,13 @@ const captionClampInlineStyle = computed(() => {
             data-stop-preview
             title="Open comments"
           >
-            <img src="/images/comment.png" alt="Comments" class="icon-20 me-1" width="16" height="16" />
+            <img
+              src="/images/comment.png"
+              alt="Comments"
+              class="icon-20 me-1"
+              width="16"
+              height="16"
+            />
             <span>{{ commentCount }}</span>
           </button>
         </div>
@@ -1090,19 +1162,55 @@ const captionClampInlineStyle = computed(() => {
   color: var(--sage-600, #2f855a);
 }
 
-
-  .icon-20 {
-    width: 16px !important;
-    height: 16px !important;
-    object-fit: contain;
-    display: inline-block;
-    vertical-align: middle;
-  }
+.icon-20 {
+  width: 16px !important;
+  height: 16px !important;
+  object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
+}
 .stat.as-button {
   line-height: 1;
 }
-  .stat.as-button { gap: 4px; }
-  .map-btn .icon-20 { margin-right: 4px; }
-  .stat.as-button .me-1 { margin-right: 4px; }
+.stat.as-button {
+  gap: 4px;
+}
+.map-btn .icon-20 {
+  margin-right: 4px;
+}
+.stat.as-button .me-1 {
+  margin-right: 4px;
+}
 
+.photo-count {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 7;
+  background: rgba(17, 24, 39, 0.82);
+  color: #fff;
+  padding: 4px 9px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.photo-count .pc-num {
+  display: inline-block;
+  min-width: 1.5em;
+  text-align: center;
+  color: white;
+}
+
+/* Small screen adjustments */
+@media (max-width: 575.98px) {
+  .photo-count {
+    right: 8px;
+    bottom: 8px;
+    font-size: 11px;
+    padding: 3px 7px;
+  }
+}
 </style>
