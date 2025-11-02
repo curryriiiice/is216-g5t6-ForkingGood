@@ -7,7 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 import PostCard from '@/components/PostCard.vue'
 
 // auth imports
-import { useAuthUser } from '@/lib/useAuthUser'
+import { useAuthUser } from '@/lib/useAuthUser' 
 
 // API
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
