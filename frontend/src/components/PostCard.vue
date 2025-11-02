@@ -24,7 +24,6 @@ const props = defineProps({
 
 // --- Image URL resolver (keeps layout, only fixes src values) ---
 const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
-const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 const currentUserEmail = computed(() => props.currentUserEmail || null)
 const ENDPOINTS = {

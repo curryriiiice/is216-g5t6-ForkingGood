@@ -94,7 +94,7 @@
   <Teleport to="body">
     <Modal :show="showReversePopup" title="Reverse Image Search" @close="closeReversePopup">
       <div class="p-3">
-        <p class="mb-2 rev-title">Upload an image, zoom/drag to adjust, then submit.</p>
+        <p class="mb-2 rev-title">Upload a photo of your dish to find similar restaurants!</p>
 
         <input
           ref="fileInputRef"

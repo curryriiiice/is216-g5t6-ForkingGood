@@ -154,7 +154,6 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
-import axios from 'axios'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import Modal from '@/components/Modal.vue'
 
