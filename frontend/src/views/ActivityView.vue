@@ -10,15 +10,14 @@ import PostCard from '@/components/PostCard.vue'
 import { useAuthUser } from '@/lib/useAuthUser' 
 
 // API
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
-const IMAGE_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_IMAGE_BASE_URL || API_BASE)
-const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
+import api from '@/lib/api.js'
+const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
+
 const COMMENTS_EP = {
-  get: `${API_BASE}/friends/getCommentsbyPostId`,
-  add: `${API_BASE}/friends/commentPost`,
-  del: `${API_BASE}/friends/deleteComment`,
-  edit: `${API_BASE}/friends/editComment`,
+  get: '/friends/getCommentsbyPostId',
+  add: '/friends/commentPost',
+  del: '/friends/deleteComment',
+  edit: '/friends/editComment',
 }
 
 // Auth
@@ -95,13 +94,14 @@ async function fetchAvatarsForPosts(posts) {
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
-    const res = await fetch(COMMENTS_EP.get, {
-      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ postid: String(postId) }),
-    })
-    const data = await res.json()
-    comments.value = Array.isArray(data?.data) ? data.data : []
-    commentCounts.value[String(postId)] = comments.value.length
-  } catch { comments.value = [] }
+    const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
+
+    const rawComments = Array.isArray(response.data?.data) ? response.data.data : []
+    comments.value = await enrichCommentsWithProfiles(rawComments)
+    setCommentCountForPost(postId, comments.value.length)
+  } catch {
+    comments.value = []
+  }
 }
 function onOpenComments({ postId }) {
   showComments.value = true
@@ -112,47 +112,82 @@ function closeComments() {
   commentsForPostId.value = null; editingComment.value = null;
 }
 async function submitComment() {
-  const postid = commentsForPostId.value; const comment = newComment.value?.trim();
-  if (!postid || !comment) return;
+  const postid = commentsForPostId.value
+  const comment = newComment.value?.trim()
+  if (!postid || !comment) return
+
+  // If currently editing an existing comment, save instead of creating
   if (editingComment.value) {
-    const item = editingComment.value; editingComment.value = null; newComment.value = '';
-    return editComment(item, comment);
+    const item = editingComment.value
+    editingComment.value = null
+    newComment.value = ''
+    return editComment(item, comment)
   }
-  const email = activeEmail.value; if (!email) return;
-  const draft = { commenter_email: email, comment };
-  comments.value = [...comments.value, draft]; newComment.value = '';
+
+  const email = activeEmail.value
+  if (!email) return
+
+  // Otherwise, create a new comment (optimistic)
+  const profile = await ensureProfileForCommenter(email)
+  const draft = {
+    commenter_email: email,
+    comment,
+    commenter_name: profile?.displayName ?? deriveNameFromEmail(email),
+    commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
+  }
+  comments.value = [...comments.value, draft]
+  newComment.value = ''
   try {
-    const res = await fetch(COMMENTS_EP.add, {
-      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ commenter_email: email, postid: String(postid), comment }),
-    });
-    if (!res.ok) throw new Error('comment failed');
-    await loadComments(postid);
-  } catch { comments.value = comments.value.filter((c) => !(c === draft)); }
+    await api.post(COMMENTS_EP.add, { 
+      commenter_email: email, 
+      postid: String(postid), 
+      comment 
+    })
+    await loadComments(postid)
+  } catch {
+    comments.value = comments.value.filter((c) => !(c === draft))
+  }
 }
 async function deleteComment(item) {
-  const postid = commentsForPostId.value; if (!postid) return;
-  const prev = [...comments.value];
-  comments.value = comments.value.filter((c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment));
+  const postid = commentsForPostId.value
+  if (!postid) return
+  const prev = [...comments.value]
+  comments.value = comments.value.filter(
+    (c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment),
+  )
   try {
-    const res = await fetch(COMMENTS_EP.del, {
-      method: 'DELETE', headers: JSON_HEADERS, body: JSON.stringify({ postid: String(postid), commenter_email: item.commenter_email, comment: item.comment }),
-    });
-    if (!res.ok) throw new Error('delete failed');
-    await loadComments(postid);
-  } catch { comments.value = prev; }
+    await api.delete(COMMENTS_EP.del, { 
+      data: {
+        postid: String(postid),
+        commenter_email: item.commenter_email,
+        comment: item.comment,
+      }
+    })
+    await loadComments(postid)
+  } catch {
+    comments.value = prev
+  }
 }
+
 async function editComment(item, newText) {
-  const postid = commentsForPostId.value; const nextText = (newText ?? '').trim();
-  if (!postid || !nextText) return; const oldText = item.comment; if (nextText === oldText) return;
-  const prev = [...comments.value];
-  comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c));
+  const postid = commentsForPostId.value
+  const nextText = (newText ?? '').trim()
+  if (!postid || !nextText) return
+  const oldText = item.comment
+  if (nextText === oldText) return
+  const prev = [...comments.value]
+  comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c))
   try {
-    const res = await fetch(COMMENTS_EP.edit, {
-      method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ postid: String(postid), commenter_email: item.commenter_email, old_comment: oldText, new_comment: nextText }),
-    });
-    if (!res.ok) throw new Error('edit failed');
-    await loadComments(postid);
-  } catch { comments.value = prev; }
+    await api.patch(COMMENTS_EP.edit, {
+      postid: String(postid),
+      commenter_email: item.commenter_email,
+      old_comment: oldText,
+      new_comment: nextText,
+    })
+    await loadComments(postid)
+  } catch {
+    comments.value = prev
+  }
 }
 
 // PostCard Sync Function
