@@ -10,6 +10,8 @@ const emit = defineEmits([
   'post-updated',
   'liked',
   'unliked',
+  'edit-post', // Emit for edit
+  'delete-post', // Emit for delete
 ])
 
 const props = defineProps({
@@ -20,6 +22,7 @@ const props = defineProps({
   externalCommentCount: { type: Number, default: undefined },
   currentUserEmail: { type: String, default: null },
   captionMaxLines: { type: Number, default: 4 },
+  showOwnerMenu: { type: Boolean, default: false }, // CHANGED: Replaced showOwnerControls
 })
 
 // --- Image URL resolver (keeps layout, only fixes src values) ---
@@ -710,7 +713,6 @@ const captionClampInlineStyle = computed(() => {
 
 <template>
   <article :class="['card', { active: isActive }]">
-    <!-- Top image / hero -->
     <div class="hero">
       <img
         :src="heroDisplaySrc"
@@ -729,7 +731,6 @@ const captionClampInlineStyle = computed(() => {
       </div>
       <div v-if="tagLine" class="chip">{{ tagLine }}</div>
 
-      <!-- Carousel controls -->
       <button
         v-if="controls && photoCount > 1"
         class="nav prev"
@@ -751,7 +752,6 @@ const captionClampInlineStyle = computed(() => {
         ›
       </button>
 
-      <!-- Dots -->
       <div
         v-if="controls && photoCount > 1"
         class="dots"
@@ -770,7 +770,6 @@ const captionClampInlineStyle = computed(() => {
           data-stop-preview
         />
       </div>
-      <!-- Photo index counter -->
       <div
         v-if="photoCount > 0"
         class="photo-count"
@@ -780,9 +779,7 @@ const captionClampInlineStyle = computed(() => {
       </div>
     </div>
 
-    <!-- Content body -->
     <div class="body">
-      <!-- Title row with rating on the right -->
       <div class="title-row">
         <h3 class="title">
           {{ post.restaurant?.name || post.raw?.restaurant?.name || post.title || 'Untitled' }}
@@ -792,14 +789,41 @@ const captionClampInlineStyle = computed(() => {
           <span class="star">★</span>
           <span class="rating-num">{{ Number(ratingValue).toFixed(1) }}</span>
         </div>
+
+        <div v-if="showOwnerMenu" class="dropdown owner-menu ms-2" data-stop-preview>
+          <button
+            class="btn btn-icon"
+            type="button"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+            @click.stop
+            data-stop-preview
+            aria-label="Post options"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-three-dots-vertical" viewBox="0 0 16 16">
+              <path d="M9.5 13a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0m0-5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0"/>
+            </svg>
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end" data-stop-preview>
+            <li>
+              <button class="dropdown-item" type="button" @click.stop="$emit('edit-post', post)">
+                Edit Post
+              </button>
+            </li>
+            <li>
+              <button class="dropdown-item text-danger" type="button" @click.stop="$emit('delete-post', post)">
+                Delete Post
+              </button>
+            </li>
+          </ul>
+        </div>
+
       </div>
 
-      <!-- Subtitle (dish / category) -->
       <div v-if="post.restaurant?.address || post.raw?.restaurant?.address" class="address">
         {{ post.restaurant?.address || post.raw?.restaurant?.address }}
       </div>
 
-      <!-- Description text -->
       <p
         v-if="post.text"
         class="desc"
@@ -809,7 +833,6 @@ const captionClampInlineStyle = computed(() => {
         {{ post.text }}
       </p>
 
-      <!-- Meta/footer -->
       <div class="meta">
         <div class="stats">
           <button
@@ -834,7 +857,6 @@ const captionClampInlineStyle = computed(() => {
               width="16"
               height="16"
             />
-            <!-- <span v-if="liked">💗</span><span v-else>🤍</span> -->
             <span>{{ likeCount }}</span>
           </button>
           <button
@@ -854,7 +876,7 @@ const captionClampInlineStyle = computed(() => {
           </button>
         </div>
 
-        <div class="author" v-if="post.user">
+        <div class="author" v-if="post.user" style="min-width: 0;" @click.stop="openProfile" role="button" data-stop-preview>
           <img
             :src="authorPfpUrl || resolveImageUrl(post.user?.avatar) || DEFAULT_AVATAR"
             class="avatar"
@@ -864,10 +886,10 @@ const captionClampInlineStyle = computed(() => {
             crossorigin="anonymous"
             @error="onAvatarError"
           />
-          <span class="name">{{ post.user?.name }}</span>
+          <span class="name text-truncate">{{ post.user?.name }}</span>
         </div>
 
-        <button v-if="hasMapTarget" class="map-btn" @click="viewOnMap(post)" title="View on map">
+        <button v-if="hasMapTarget" class="map-btn" @click.stop="viewOnMap(post)" title="View on map" data-stop-preview>
           <img src="/images/map.png" alt="Map" class="icon-20 me-1" width="16" height="16" />
           Map
         </button>
@@ -884,6 +906,9 @@ const captionClampInlineStyle = computed(() => {
 
 <style scoped>
 .card {
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* Make card fill the height of its grid container */
   background: #fff;
   border-radius: 14px;
   box-shadow: 0 12px 24px rgba(17, 24, 39, 0.08);
@@ -892,6 +917,7 @@ const captionClampInlineStyle = computed(() => {
 }
 .hero {
   position: relative;
+  flex-shrink: 0; /* Prevent image from shrinking */
 }
 .hero img {
   width: 100%;
@@ -911,8 +937,12 @@ const captionClampInlineStyle = computed(() => {
   backdrop-filter: blur(4px);
 }
 
+/* ADDED: flex styles for body */
 .body {
   padding: 14px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1; /* Allow body to grow and fill empty space */
 }
 .title-row {
   display: flex;
@@ -925,6 +955,7 @@ const captionClampInlineStyle = computed(() => {
   font-size: 18px;
   font-weight: 700;
   color: #111827;
+  /* Allow title to shrink if menu is present */
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -932,6 +963,7 @@ const captionClampInlineStyle = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* Don't let rating shrink */
   flex: 0 0 auto;
 }
 .star {
@@ -959,12 +991,17 @@ const captionClampInlineStyle = computed(() => {
   color: #9ca3af;
   font-size: 12px;
   margin-top: 2px;
+  /* MODIFIED: Added truncation styles */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .desc {
   margin: 10px 0 12px;
   color: #374151;
   font-size: 14px;
   line-height: 1.4;
+  flex-shrink: 0; /* Prevent description from shrinking */
 }
 .desc.clamped {
   overflow: hidden;
@@ -973,7 +1010,10 @@ const captionClampInlineStyle = computed(() => {
   min-height: calc(var(--caption-line-count, 4) * 1.4em);
 }
 
+/* ADDED: margin-top: auto to push meta to bottom */
 .meta {
+  margin-top: auto; /* This is the key change */
+  padding-top: 8px; /* Add some space above the meta block */
   display: grid;
   grid-template-columns: 1fr auto auto auto;
   align-items: center;
@@ -995,6 +1035,11 @@ const captionClampInlineStyle = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer; /* Make author clickable */
+  min-width: 0; /* Allow text-truncate to work */
+}
+.author:hover .name {
+  color: var(--accent, #ca6b4f); /* Add hover effect */
 }
 .avatar {
   width: 24px;
@@ -1008,6 +1053,7 @@ const captionClampInlineStyle = computed(() => {
 .name {
   font-size: 13px;
   color: #4b5563;
+  font-weight: 600; /* Make name slightly bolder */
 }
 
 .map-btn {
@@ -1019,9 +1065,6 @@ const captionClampInlineStyle = computed(() => {
   font-size: 13px;
   text-decoration: none;
   border: 1px solid #e5e7eb;
-  display: inline-flex;      /* ensure horizontal icon + text */
-  align-items: center;
-  gap: 6px;
 }
 .map-btn:hover {
   background: #e0e7ff;
@@ -1030,9 +1073,6 @@ const captionClampInlineStyle = computed(() => {
 .map-btn.disabled {
   pointer-events: none;
   opacity: 0.6;
-  display: inline-flex;      /* keep icon left of text when disabled */
-  align-items: center;
-  gap: 6px;
 }
 
 .icon-btn {
@@ -1045,6 +1085,7 @@ const captionClampInlineStyle = computed(() => {
 .icon-btn:hover {
   color: #111827;
 }
+
 
 /* Carousel controls */
 .nav {
@@ -1159,7 +1200,6 @@ const captionClampInlineStyle = computed(() => {
 
 /* Let long text wrap nicely */
 .title,
-.address,
 .desc {
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1234,7 +1274,7 @@ const captionClampInlineStyle = computed(() => {
   }
 
   /* Prevent overflow from long addresses/titles */
-  .address { overflow-wrap: anywhere; word-break: break-word; }
+  /* .address rule removed, handled by base style */
 
   /* Clamp long author names to two lines in preview */
   .author .name {
@@ -1329,5 +1369,37 @@ const captionClampInlineStyle = computed(() => {
     font-size: 11px;
     padding: 3px 7px;
   }
+}
+
+/* NEW: Kebab Menu Styles */
+.owner-menu {
+  flex: 0 0 auto; /* Don't shrink */
+}
+.owner-menu .btn-icon {
+  background: transparent;
+  border: none;
+  padding: 0.25rem;
+  border-radius: 50%;
+  color: #6b7280; /* var(--ink-400) */
+  line-height: 1;
+}
+.owner-menu .btn-icon:hover {
+  background-color: #f3f4f6; /* var(--surface-hover) */
+  color: #111827; /* var(--charcoal) */
+}
+.owner-menu .btn-icon:focus,
+.owner-menu .btn-icon.show {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage-600) 35%, transparent);
+}
+.owner-menu .dropdown-menu {
+  z-index: 10; /* Ensure it's above card content */
+}
+.owner-menu .dropdown-item {
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+}
+.owner-menu .dropdown-item.text-danger:hover {
+  color: #fff !important;
+  background-color: #dc3545;
 }
 </style>

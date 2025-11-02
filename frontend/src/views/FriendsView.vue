@@ -1,20 +1,25 @@
+// FILENAME: FriendsView.vue
 <script setup>
 // vue imports
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch, onUnmounted } from 'vue' // Added onUnmounted
 import axios from 'axios'
 import { useRouter } from 'vue-router'
 
 // component imports
 import Modal from '@/components/Modal.vue'
 import PostCard from '@/components/PostCard.vue'
+import AddRecommendationForm from '@/components/AddRecommendationForm.vue' // Added this line
 
 // auth imports
 import { useAuthUser } from '@/lib/useAuthUser'
 
-// API
-import api from '@/lib/api.js'
-const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
+// API configuration
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
 // Added from Dashboard/ActivityView for PostCard image resolving
+const IMAGE_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_IMAGE_BASE_URL || API_BASE)
+const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
+// MODIFIED: Use relative paths for the api instance
 const COMMENTS_EP = {
   get: '/friends/getCommentsbyPostId',
   add: '/friends/commentPost',
@@ -38,8 +43,6 @@ const searchError = ref('')
 const allUsersCache = ref([])
 // NEW: Cache for profile pictures (for post authors)
 const avatarCache = ref(new Map())
-
-// State for Pending Friend Requests Modal - REMOVED
 
 // State for Profile Popup Modal
 const showProfileModal = ref(false)
@@ -66,6 +69,93 @@ const commentCounts = ref({})
 // Post Preview Modal State
 const showPreview = ref(false)
 const previewPost = ref(null)
+const showAdd = ref(false)
+
+// --- NEW: Commenter Profile Caching ---
+const DEFAULT_COMMENT_AVATAR = '/images/default-avatar.jpg'
+const commentProfileCache = ref(new Map())
+const pendingCommentProfiles = new Map()
+
+// --- NEW: Helper Functions for Avatars ---
+function resolveImageUrl(p) {
+  if (!p) return null
+  let s = String(p).trim().replace(/^['"]+|['"]+$/g, '')
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
+  s = s.replace(/^[./]+/, '').replace(/^\/+/, '')
+  return IMAGE_BASE ? `${IMAGE_BASE}/${s}` : `/${s}`
+}
+
+function cacheCommentProfile(email, profile) {
+  const next = new Map(commentProfileCache.value)
+  next.set(email, profile)
+  commentProfileCache.value = next
+  return profile
+}
+
+function deriveNameFromEmail(email) {
+  if (!email) return 'Anonymous'
+  const [name] = String(email).split('@')
+  return name || email
+}
+
+function resolveCommentAvatar(raw) {
+  if (!raw) return DEFAULT_COMMENT_AVATAR
+  return resolveImageUrl(raw) || DEFAULT_COMMENT_AVATAR 
+}
+
+async function ensureProfileForCommenter(email) {
+  if (!email) return null
+  const cached = commentProfileCache.value.get(email)
+  if (cached) return cached
+
+  if (pendingCommentProfiles.has(email)) {
+    return pendingCommentProfiles.get(email)
+  }
+
+  const request = api
+    .post('/user/getProfile', { user_email: email })
+    .then((res) => {
+      const info = res.data?.data || {}
+      return cacheCommentProfile(email, {
+        displayName: (info?.username || '').trim() || deriveNameFromEmail(email),
+        avatar: resolveCommentAvatar(info?.profile_image_url),
+      })
+    })
+    .catch(() =>
+      cacheCommentProfile(email, {
+        displayName: deriveNameFromEmail(email),
+        avatar: DEFAULT_COMMENT_AVATAR,
+      }),
+    )
+    .finally(() => {
+      pendingCommentProfiles.delete(email)
+    })
+
+  pendingCommentProfiles.set(email, request)
+  return request
+}
+
+async function enrichCommentsWithProfiles(list) {
+  if (!Array.isArray(list) || list.length === 0) return []
+  const uniqueEmails = [...new Set(list.map((row) => row.commenter_email).filter(Boolean))]
+  await Promise.all(uniqueEmails.map((email) => ensureProfileForCommenter(email)))
+  return list.map((row) => {
+    const profile = commentProfileCache.value.get(row.commenter_email)
+    return {
+      ...row,
+      commenter_name: profile?.displayName ?? deriveNameFromEmail(row.commenter_email),
+      commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
+    }
+  })
+}
+
+function onCommentAvatarError(event) {
+  if (event?.target) {
+    event.target.src = DEFAULT_COMMENT_AVATAR
+  }
+}
+// --- END: Helper Functions for Avatars ---
+
 
 // Helper function to fetch avatars for post authors
 async function fetchAvatarsForPosts(posts) {
@@ -79,8 +169,8 @@ async function fetchAvatarsForPosts(posts) {
   if (emailsToFetch.size === 0) return;
 
   const promises = Array.from(emailsToFetch).map(email =>
-    api.post('/user/getPfpByEmail', { user_email: email }) //
-      .then(res => ({ email, url: res.data?.data })) //
+    api.post('/user/getPfpByEmail', { user_email: email })
+      .then(res => ({ email, url: res.data?.data }))
       .catch(err => ({ email, url: null, error: err }))
   );
   const results = await Promise.allSettled(promises);
@@ -93,17 +183,16 @@ async function fetchAvatarsForPosts(posts) {
   avatarCache.value = newCache;
 }
 
-// Comment Modal Functions
+// Comment Modal Functions (MODIFIED)
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
     const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
-
     const rawComments = Array.isArray(response.data?.data) ? response.data.data : []
     comments.value = await enrichCommentsWithProfiles(rawComments)
-    setCommentCountForPost(postId, comments.value.length)
-  } catch {
-    comments.value = []
+    commentCounts.value[String(postId)] = comments.value.length
+  } catch { 
+    comments.value = [] 
   }
 }
 function onOpenComments({ postId }) {
@@ -115,22 +204,15 @@ function closeComments() {
   commentsForPostId.value = null; editingComment.value = null;
 }
 async function submitComment() {
-  const postid = commentsForPostId.value
-  const comment = newComment.value?.trim()
-  if (!postid || !comment) return
-
-  // If currently editing an existing comment, save instead of creating
+  const postid = commentsForPostId.value; const comment = newComment.value?.trim();
+  if (!postid || !comment) return;
   if (editingComment.value) {
-    const item = editingComment.value
-    editingComment.value = null
-    newComment.value = ''
-    return editComment(item, comment)
+    const item = editingComment.value; editingComment.value = null; newComment.value = '';
+    return editComment(item, comment);
   }
+  const email = activeEmail.value; if (!email) return;
 
-  const email = activeEmail.value
-  if (!email) return
-
-  // Otherwise, create a new comment (optimistic)
+  // MODIFIED: Optimistic comment with profile
   const profile = await ensureProfileForCommenter(email)
   const draft = {
     commenter_email: email,
@@ -138,58 +220,51 @@ async function submitComment() {
     commenter_name: profile?.displayName ?? deriveNameFromEmail(email),
     commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
   }
-  comments.value = [...comments.value, draft]
-  newComment.value = ''
+  comments.value = [...comments.value, draft]; newComment.value = '';
+  
   try {
     await api.post(COMMENTS_EP.add, { 
       commenter_email: email, 
       postid: String(postid), 
       comment 
     })
-    await loadComments(postid)
-  } catch {
-    comments.value = comments.value.filter((c) => !(c === draft))
+    await loadComments(postid);
+  } catch { 
+    comments.value = comments.value.filter((c) => !(c === draft)); 
   }
 }
 async function deleteComment(item) {
-  const postid = commentsForPostId.value
-  if (!postid) return
-  const prev = [...comments.value]
-  comments.value = comments.value.filter(
-    (c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment),
-  )
+  const postid = commentsForPostId.value; if (!postid) return;
+  const prev = [...comments.value];
+  comments.value = comments.value.filter((c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment));
   try {
     await api.delete(COMMENTS_EP.del, { 
-      data: {
-        postid: String(postid),
-        commenter_email: item.commenter_email,
-        comment: item.comment,
+      data: { 
+        postid: String(postid), 
+        commenter_email: item.commenter_email, 
+        comment: item.comment 
       }
-    })
-    await loadComments(postid)
-  } catch {
-    comments.value = prev
+    });
+    await loadComments(postid);
+  } catch { 
+    comments.value = prev; 
   }
 }
-
 async function editComment(item, newText) {
-  const postid = commentsForPostId.value
-  const nextText = (newText ?? '').trim()
-  if (!postid || !nextText) return
-  const oldText = item.comment
-  if (nextText === oldText) return
-  const prev = [...comments.value]
-  comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c))
+  const postid = commentsForPostId.value; const nextText = (newText ?? '').trim();
+  if (!postid || !nextText) return; const oldText = item.comment; if (nextText === oldText) return;
+  const prev = [...comments.value];
+  comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c));
   try {
     await api.patch(COMMENTS_EP.edit, {
-      postid: String(postid),
-      commenter_email: item.commenter_email,
-      old_comment: oldText,
-      new_comment: nextText,
-    })
-    await loadComments(postid)
-  } catch {
-    comments.value = prev
+      postid: String(postid), 
+      commenter_email: item.commenter_email, 
+      old_comment: oldText, 
+      new_comment: nextText
+    });
+    await loadComments(postid);
+  } catch { 
+    comments.value = prev; 
   }
 }
 
@@ -288,16 +363,16 @@ async function fetchAllUsers() {
         name: u.username || u.email.split('@')[0],
         avatar: u.profile_image_url || '/default-avatar.jpg',
         isFriend: u.friendship_status === 'friend',
-        isPendingIncoming: u.friendship_status === 'incoming_request', // Assumes backend sends this
-        isPendingOutgoing: u.friendship_status === 'outgoing_request', // Assumes backend sends this
+        isPendingIncoming: u.friendship_status === 'incoming_request',
+        isPendingOutgoing: u.friendship_status === 'outgoing_request',
         statusScore: 
           u.friendship_status === 'incoming_request' ? 1 :
           u.friendship_status === 'outgoing_request' ? 2 :
           u.friendship_status === 'friend' ? 3 : 4,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name)); // Pre-sort by name
+      .sort((a, b) => a.name.localeCompare(b.name));
     
-    onSearchInput(); // Apply default view (which now shows all, sorted by status)
+    onSearchInput(); // Apply default view
     
   } catch (e) {
     console.error('[friends] fetchAllUsers failed', e);
@@ -305,6 +380,7 @@ async function fetchAllUsers() {
     allUsersCache.value = []; searchResults.value = [];
   } finally {
     searchLoading.value = false;
+    nextTick(() => initRevealUp()); // Animate in
   }
 }
 
@@ -316,7 +392,6 @@ const onSearchInput = () => {
   let listToFilter = allUsersCache.value;
 
   if (q) {
-    // If searching, filter the *entire* user cache
     listToFilter = allUsersCache.value.filter((user) => {
         const emailMatch = user.email.toLowerCase().startsWith(q);
         const usernameMatch = user.username && user.username.length > 1
@@ -325,31 +400,27 @@ const onSearchInput = () => {
         return emailMatch || usernameMatch;
       });
   }
-  // If no query, listToFilter remains the full allUsersCache
   
-  // Sort the (full or filtered) list based on the new order
   listToFilter.sort((a, b) => {
-      // Sort by status score (1: Incoming, 2: Outgoing, 3: Friend, 4: Other)
       if (a.statusScore !== b.statusScore) {
           return a.statusScore - b.statusScore;
       }
-      // If status is the same, sort alphabetically by name
       return a.name.localeCompare(b.name);
   });
   
   searchResults.value = listToFilter;
+  nextTick(() => initRevealUp()); // Animate new results
 }
 
 // Send friend request
 async function sendFriendReq(user) {
   if (!activeEmail.value) return;
-  // Optimistic UI update
   const originalStatus = { ...user };
   user.isPendingOutgoing = true
   user.isFriend = false
   user.isPendingIncoming = false
-  user.statusScore = 2; // Set score to "Outgoing"
-  onSearchInput(); // Re-sort list
+  user.statusScore = 2;
+  onSearchInput();
   
   try {
     await api.post('/friends/sendFriendReq', {
@@ -358,12 +429,11 @@ async function sendFriendReq(user) {
     })
   } catch (e) {
     console.error('[friends] add failed', e)
-    // Rollback
     user.isPendingOutgoing = originalStatus.isPendingOutgoing;
     user.isFriend = originalStatus.isFriend;
     user.isPendingIncoming = originalStatus.isPendingIncoming;
     user.statusScore = originalStatus.statusScore;
-    onSearchInput(); // Re-sort list
+    onSearchInput();
     alert(`Error: ${e.response?.data?.message || 'A request is already pending.'}`)
   }
 }
@@ -389,13 +459,11 @@ async function confirmRemove() {
     statusScore: user.statusScore
   };
 
-  // Optimistic UI update: Change status to 'not_friend'
   user.isFriend = false;
   user.isPendingIncoming = false;
   user.isPendingOutgoing = false;
   user.statusScore = 4;
-  onSearchInput(); // Re-sort list
-  // Also update profileData if this user is in the modal
+  onSearchInput();
   if (profileData.value && profileData.value.email === user.email) {
     profileData.value.isFriend = false;
     profileData.value.statusScore = 4;
@@ -411,7 +479,6 @@ async function confirmRemove() {
     closeConfirmRemoveModal();
   } catch (e) {
     console.error('[friends] remove failed', e)
-    // Rollback UI on error
     user.isFriend = originalStatus.isFriend;
     user.isPendingIncoming = originalStatus.isPendingIncoming;
     user.isPendingOutgoing = originalStatus.isPendingOutgoing;
@@ -442,25 +509,16 @@ function closeConfirmRemoveModal() {
 }
 
 
-// Load incoming pending requests (ONLY for badge count)
-// This function is no longer used for the main list, but can be kept for a badge
-// For now, it's removed to avoid confusion. The main `fetchAllUsers` handles all statuses.
-// async function loadPendingRequests() { ... } 
-// async function openPendingModal() { ... } 
-
-
 // Accept an incoming friend request (from the card)
 async function acceptFriendReq(user) {
    if (!activeEmail.value) return;
    
-   // Optimistic UI update
    const originalStatus = { ...user };
    user.isFriend = true;
    user.isPendingIncoming = false;
    user.isPendingOutgoing = false;
-   user.statusScore = 3; // Set score to "Friend"
-   onSearchInput(); // Re-sort list
-   // Update profile modal if this user is shown
+   user.statusScore = 3;
+   onSearchInput();
    if (profileData.value && profileData.value.email === user.email) {
      profileData.value.isFriend = true;
      profileData.value.isPendingIncoming = false;
@@ -470,7 +528,6 @@ async function acceptFriendReq(user) {
     await api.post('/friends/acceptFriendReq', { user_email: activeEmail.value, friend_email: user.email });
   } catch (e) { 
     console.error('[friends] acceptFriendReq failed', e);
-    // Rollback
     user.isFriend = originalStatus.isFriend;
     user.isPendingIncoming = originalStatus.isPendingIncoming;
     user.statusScore = originalStatus.statusScore;
@@ -486,14 +543,12 @@ async function acceptFriendReq(user) {
 async function rejectFriendReq(user) {
    if (!activeEmail.value) return;
 
-   // Optimistic UI update
    const originalStatus = { ...user };
    user.isFriend = false;
    user.isPendingIncoming = false;
    user.isPendingOutgoing = false;
-   user.statusScore = 4; // Set score to "Other"
-   onSearchInput(); // Re-sort list
-   // Update profile modal if this user is shown
+   user.statusScore = 4;
+   onSearchInput();
    if (profileData.value && profileData.value.email === user.email) {
      profileData.value.isPendingIncoming = false;
    }
@@ -502,7 +557,6 @@ async function rejectFriendReq(user) {
     await api.post('/friends/rejectFriendReq', { user_email: activeEmail.value, friend_email: user.email });
   } catch (e) { 
     console.error('[friends] rejectFriendReq failed', e);
-    // Rollback
     user.isFriend = originalStatus.isFriend;
     user.isPendingIncoming = originalStatus.isPendingIncoming;
     user.statusScore = originalStatus.statusScore;
@@ -516,13 +570,11 @@ async function rejectFriendReq(user) {
 
 // Open profile modal
 async function viewProfile(user) {
-  // Handle profile clicks from PostCard (user object is minimal)
   if (user && !user.hasOwnProperty('isFriend') && !user.hasOwnProperty('isPendingIncoming')) {
     const fullUser = allUsersCache.value.find(u => u.email === user.id)
     if (fullUser) {
       profileData.value = fullUser;
     } else {
-      // Fallback if user isn't in cache
       profileData.value = {
         email: user.id, name: user.name, username: user.username, 
         avatar: user.avatar || '/default-avatar.jpg',
@@ -533,7 +585,6 @@ async function viewProfile(user) {
       }
     }
   } else {
-    // Click came from main friend list
     profileData.value = user
   }
   
@@ -631,6 +682,12 @@ function viewPostOnMap(post) {
    router.push({ path: '/map', query: { postId: pid } })
 }
 
+function handleAdded() {
+  showAdd.value = false
+  // You might want to refresh all users in case a new post
+  // was from a user not previously known, but for now just close.
+}
+
 // Helper to init tooltips
 function initTooltips() {
   try {
@@ -656,13 +713,63 @@ function getHeader(user) {
   }
 }
 function shouldShowHeader(user, index) {
-  // Always show header for the first item in the list
+  // Always show header for the first item
   if (index === 0) return true;
   
   const prevUser = searchResults.value[index - 1];
-  // Show header if the status score is different from the previous user
+  // Show header if the status score is different
   return user.statusScore !== prevUser.statusScore;
 }
+
+
+// === NEW: Animation on Scroll ===
+let _revealObserver = null;
+function initRevealUp() {
+  if (typeof window === 'undefined') return;
+  // Select all elements with the .reveal class that don't have .show
+  const nodes = document.querySelectorAll('.reveal:not(.show)');
+  if (!nodes || !nodes.length) return;
+
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const reveal = (el) => {
+    if (prefersReduced) {
+      el.classList.add('show'); // Show immediately if motion is reduced
+      return;
+    }
+    // Add staggered delay based on index
+    const delay = parseInt(el.dataset.index || 0, 10) * 50; // 50ms stagger
+    el.style.transitionDelay = `${delay}ms`;
+    el.classList.add('show');
+  };
+
+  if (!('IntersectionObserver' in window)) {
+    nodes.forEach((el, i) => {
+      el.dataset.index = i;
+      reveal(el);
+    });
+    return;
+  }
+
+  if (_revealObserver) _revealObserver.disconnect();
+  _revealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          reveal(entry.target);
+          _revealObserver.unobserve(entry.target);
+        }
+      });
+    },
+    { root: null, rootMargin: '0px 0px -10% 0px', threshold: 0.1 }
+  );
+
+  nodes.forEach((el, i) => {
+    el.dataset.index = i; // Add index for staggering
+    _revealObserver.observe(el);
+  });
+}
+// === End Animation ===
 
 
 // Lifecycle Hooks
@@ -670,7 +777,16 @@ onMounted(async () => {
   await refreshAuthUser();
   await fetchAllUsers(); // Only fetch all users
   await nextTick();
+  initRevealUp(); // Initial animation setup
 });
+
+onUnmounted(() => {
+  if (_revealObserver) {
+    _revealObserver.disconnect();
+    _revealObserver = null;
+  }
+});
+
 // Watch for changes in user login status
 watch(activeEmail, async (newEmail, oldEmail) => {
   if (newEmail !== oldEmail) { 
@@ -689,7 +805,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
           v-model="query"
           @input="onSearchInput"
           class="form-control form-control-sm"
-          placeholder="Search users by email or @username..."
+          placeholder="Search users..."
         />
       </div>
 
@@ -703,7 +819,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
         No users found matching "{{ query }}".
       </div>
       <div v-else-if="!searchResults.length && !query" class="empty text-muted p-4 rounded-3 bg-white shadow-sm mb-3">
-        No users to display.
+        Your community feed is empty. Search to find new users!
       </div>
       
       <div class="row g-3" v-else>
@@ -714,7 +830,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             </h4>
           </div>
 
-          <div class="col-12 col-md-6 col-lg-4">
+          <div class="col-12 col-md-6 col-lg-4 reveal">
             <div class="card h-100 shadow-sm border-0">
               <div class="card-body d-flex gap-3 align-items-center">
                 <img
@@ -732,8 +848,8 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                 </div>
                 <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
                   <div v-if="user.isPendingIncoming" class="d-flex gap-2">
-                     <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(user)"> Reject </button>
-                     <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(user)"> Accept </button>
+                    <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(user)"> Accept </button>
+                    <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(user)"> Reject </button>
                   </div>
                   <button v-else-if="user.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(user)"> Remove </button>
                   <button v-else-if="user.isPendingOutgoing" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
@@ -745,6 +861,20 @@ watch(activeEmail, async (newEmail, oldEmail) => {
         </template>
       </div>
     </section>
+
+    <button
+      class="fab fab-terracotta fab-img animate__animated animate__fadeInUp"
+      style="animation-delay: 0.2s"
+      @click="showAdd = true"
+      title="Create Post"
+    >
+      <img src="/images/CreatePost_White.png" alt="Create Post" class="fab-icon" />
+    </button>
+
+
+    <Modal :show="showAdd" title="Add Food Recommendation" @close="showAdd = false">
+      <AddRecommendationForm @added="handleAdded" />
+    </Modal>
 
     <Modal :show="showProfileModal" :title="`${profileData?.name || 'User Profile'}`" @close="closeProfileModal" size="lg">
         <div v-if="profileData" class="profile-modal-content">
@@ -862,8 +992,15 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             :key="idx"
             class="d-flex align-items-start gap-2 py-2 border-bottom"
           >
+            <img
+              :src="c.commenter_avatar"
+              alt="avatar"
+              class="rounded-circle me-2"
+              style="width: 32px; height: 32px; object-fit: cover"
+              @error="onCommentAvatarError"
+            />
             <div class="flex-grow-1">
-              <div class="fw-semibold small">{{ c.commenter_email }}</div>
+              <div class="fw-semibold small">{{ c.commenter_name || c.commenter_email }}</div>
               <div class="small">{{ c.comment }}</div>
             </div>
             <div class="d-flex gap-2">
@@ -907,7 +1044,62 @@ watch(activeEmail, async (newEmail, oldEmail) => {
   </div>
 </template>
 
+<style>
+.reveal {
+  opacity: 0;
+  transform: translateY(15px);
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  will-change: opacity, transform;
+}
+.reveal.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    transition: none;
+  }
+}
+</style>
+
 <style scoped>
+/* --- NEW: FAB Styles --- */
+.fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 85;
+}
+.fab-label {
+  position: fixed;
+  right: 28px;
+  bottom: 54px;
+  z-index: 85;
+}
+.fab-img {
+  background: transparent;
+  border: none;
+  padding: 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.fab-img:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.fab-img:active {
+  transform: scale(0.96);
+}
+.fab-icon {
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+}
+/* --- End FAB Styles --- */
+
 .page { min-height: calc(100vh - 56px); padding: 18px 0 80px; }
 .section-title { font-weight: 800; color: var(--charcoal); margin: 0; }
 .empty { text-align: center; color: var(--ink-400); font-weight: 500; }
@@ -1043,7 +1235,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
   margin: 1rem 0 0.5rem;
 }
 
-.col-12:first-child .section-divider {
+.row > .col-12:first-child .section-divider {
   margin-top: 0;
 }
 </style>

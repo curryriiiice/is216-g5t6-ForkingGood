@@ -8,7 +8,12 @@ import { useAuthUser } from '@/lib/useAuthUser'
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
 
-const emit = defineEmits(['added'])
+const props = defineProps({
+  postToEdit: { type: Object, default: null }
+})
+const emit = defineEmits(['added', 'edited'])
+
+const isEditMode = computed(() => !!props.postToEdit)
 
 /** Form state */
 const comment = ref('')
@@ -675,8 +680,110 @@ function capitalizeFirst(str = '') {
   return t.charAt(0).toUpperCase() + t.slice(1)
 }
 
-/** ---------- Submit ---------- */
-async function submit() {
+
+// --- NEW: Helper to fetch image URL and convert to Data URL ---
+// This is necessary to load existing server images into the cropper
+async function urlToDataUrl(url) {
+  if (!url) return null;
+  // If it's already a data URL, return it
+  if (String(url).startsWith('data:')) return url;
+  
+  // This requires the image server to have CORS enabled
+  try {
+    // MODIFIED: Use api.get with responseType 'blob' to handle auth/CORS
+    const response = await api.get(url, { responseType: 'blob' });
+    if (!response.data) throw new Error(`fetch failed`);
+    
+    const blob = response.data;
+    
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = (e) => reject(e);
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn(`Failed to convert image URL (${url}) to Data URL:`, e);
+    return null; // Return null on failure
+  }
+}
+
+// --- NEW: Function to populate form for editing ---
+async function populateFormForEdit(post) {
+  if (!post) return;
+  comment.value = post.text || '';
+  rating.value = post.rating || 3;
+  ratingInput.value = post.rating || 3;
+  cuisine.value = post.restaurant?.cuisine_type || '';
+  placeName.value = post.restaurant?.name || '';
+  address.value = post.restaurant?.address || '';
+  lat.value = post.restaurant?.latitude || null;
+  lng.value = post.restaurant?.longitude || null;
+  placeId.value = post.restaurant?.id || '';
+  visibility.value = post.is_public ? 'everyone' : 'friends';
+
+  // Handle Photos
+  if (post.photos && post.photos.length > 0) {
+    // Fetch and convert all image URLs to Data URLs
+    const fetchedPhotos = await Promise.all(post.photos.map(urlToDataUrl));
+    const validPhotos = fetchedPhotos.filter(Boolean); // Filter out any that failed
+    
+    photos.value = [...validPhotos];
+    originalPhotos.value = [...validPhotos]; // For cropper to revert
+    initialCrops.value = [...validPhotos];   // For cropper to revert
+    cropStates.value = validPhotos.map(() => ({ zoom: 1, x: 0, y: 0 }));
+    
+    if (validPhotos[0]) {
+      photoUrl.value = validPhotos[0];
+    }
+  } else {
+    // Clear photos if the post has none
+    photos.value = [];
+    originalPhotos.value = [];
+    initialCrops.value = [];
+    cropStates.value = [];
+    photoUrl.value = '';
+  }
+  currentSlide.value = 0;
+}
+
+// --- NEW: Function to reset the form (for create mode) ---
+function resetForm() {
+  comment.value = '';
+  rating.value = 3;
+  ratingInput.value = 3;
+  cuisine.value = '';
+  placeName.value = '';
+  address.value = '';
+  lat.value = null;
+  lng.value = null;
+  placeId.value = '';
+  visibility.value = 'friends';
+  photos.value = [];
+  originalPhotos.value = [];
+  initialCrops.value = [];
+  cropStates.value = [];
+  photoUrl.value = '';
+  currentSlide.value = 0;
+  errorMsg.value = '';
+  submitting.value = false;
+  
+  if (fileInputEl.value) fileInputEl.value.value = ''
+}
+
+// --- NEW: Watch prop to populate or reset form ---
+watch(() => props.postToEdit, (newPost) => {
+  if (newPost) {
+    populateFormForEdit(newPost);
+  } else {
+    resetForm(); // Reset form if prop is cleared
+  }
+}, { immediate: true }); // 'immediate' runs this on component mount
+
+
+/** ---------- Submit (Create) ---------- */
+// Original submit function, renamed to createPost
+async function createPost() {
   try {
     if (!placeName.value.trim()) {
       alert('Please enter a restaurant name.')
@@ -727,13 +834,12 @@ async function submit() {
     errorMsg.value = ''
 
     // POST multipart to /user/createPost
-    // Make sure axios is configured to NOT transform FormData
     const res = await api.post('/user/createPost', fd, {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
-      transformRequest: (data) => data // Prevent axios from transforming FormData
-    }); // axios will set multipart boundary automatically
+      transformRequest: (data) => data
+    });
     const data = res?.data || {}
     const payload = data?.data || data
 
@@ -752,6 +858,67 @@ async function submit() {
     submitting.value = false
   }
 }
+
+/** ---------- Submit (Update) ---------- */
+// NEW: Function to update an existing post
+async function editPost() {
+  try {
+    if (!placeName.value.trim() || !rating.value) {
+       alert('Please enter a restaurant name and rating.')
+       return
+    }
+    let userEmail = activeEmail.value
+    if (!userEmail) {
+      alert('Authentication error. Please log in again.')
+      return
+    }
+
+    const normalizedCuisine = capitalizeFirst(cuisine.value);
+    cuisine.value = normalizedCuisine;
+
+    // MODIFIED: Send a plain JSON object, not FormData
+    const payload = {
+      postid: props.postToEdit.id,
+      user_email: String(userEmail),
+      name: placeName.value.trim(),
+      address: address.value.trim(),
+      cuisine_type: (cuisine.value || '').trim(),
+      rating: Number(rating.value),
+      review: comment.value.trim(),
+      is_public: visibility.value === 'everyone'
+    };
+
+    // NOTE: This endpoint does not support updating photos.
+    // New photos added in the form will not be sent.
+
+    submitting.value = true;
+    errorMsg.value = '';
+
+    // MODIFIED: Use api.put and send the JSON payload
+    await api.put('/user/editPost', payload);
+
+    emit('edited'); // Emit 'edited' on success
+    
+  } catch (err) {
+    console.error('Error updating post:', err);
+    const msg = err?.response?.data?.message || err.message || 'Failed to update post.';
+    alert(msg);
+    errorMsg.value = msg;
+  } finally {
+    submitting.value = false;
+  }
+}
+
+/** ---------- Submit (Main Handler) ---------- */
+// NEW: Main submit function that branches
+async function submit() {
+  if (isEditMode.value) {
+    await editPost();
+  } else {
+    await createPost();
+  }
+}
+
 
 /** Tooltips (unchanged) */
 function initTooltipsLocal() {
@@ -801,7 +968,6 @@ onBeforeUnmount(() => {
 
 <template>
   <form ref="rootEl" class="rec-form" @submit.prevent="submit">
-    <!-- Restaurant or Place -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Restaurant or Place</label>
       <div ref="nameWrap" class="ac-wrap">
@@ -831,7 +997,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Address -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Address</label>
       <div ref="addrWrap" class="ac-wrap">
@@ -861,7 +1026,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Cuisine Type -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Cuisine Type</label>
       <div ref="cuisineWrap" class="ac-wrap">
@@ -902,11 +1066,9 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Rating -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Rating</label>
 
-      <!-- live feedback for screen readers -->
       <div class="sr-only" aria-live="polite">{{ ratingLive }}</div>
 
       <div
@@ -928,12 +1090,10 @@ onBeforeUnmount(() => {
             <span class="star-fill" :style="{ width: getFill(s) * 100 + '%' }">★</span>
           </span>
 
-          <!-- half-click hit areas -->
           <span class="hit half-left" @click.stop="setHalf(s)" aria-hidden="true"></span>
           <span class="hit half-right" @click.stop="setFull(s)" aria-hidden="true"></span>
         </button>
       </div>
-      <!-- typed control -->
       <div class="rating-type">
         <label for="ratingInput" class="rating-type-label">or type</label>
         <input
@@ -955,7 +1115,6 @@ onBeforeUnmount(() => {
       <p v-if="ratingErr" class="rating-err">{{ ratingErr }}</p>
     </div>
 
-    <!-- Notes -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Notes or Why You Recommend It</label>
       <textarea
@@ -967,11 +1126,12 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <!-- Photos -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Photos</label>
+      <div vNote v-if="isEditMode" class="form-text text-muted small mb-2">
+        Note: Photo editing is not supported. New photos will not be saved.
+      </div>
 
-      <!-- Clickable drop area -->
       <div
         class="drop-area"
         :class="{ dragging: isDragging }"
@@ -982,6 +1142,7 @@ onBeforeUnmount(() => {
         tabindex="0"
         role="button"
         title="Click to choose an image or drop here"
+        :disabled="isEditMode"
       >
         <div class="drop-hint text-center">
           Click to select images or drag &amp; drop here (up to {{ MAX_PHOTOS }})
@@ -993,12 +1154,12 @@ onBeforeUnmount(() => {
           multiple
           class="hidden-file"
           @change="onInputChange"
+          :disabled="isEditMode"
         />
       </div>
 
-      <!-- Fixed-size carousel (3:2) with auto-cropped slides -->
       <div v-if="photos.length" class="carousel-wrap">
-        <div class="carousel-stage" @click="openCropper(currentSlide)">
+        <div class="carousel-stage" @click="!isEditMode && openCropper(currentSlide)">
           <img :src="photos[currentSlide]" alt="Selected" />
         </div>
         <div class="carousel-nav">
@@ -1007,10 +1168,10 @@ onBeforeUnmount(() => {
           <button type="button" class="nav-btn" @click.stop="nextSlide">›</button>
         </div>
         <div class="carousel-actions">
-          <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="!initialCrops[currentSlide]" @click.stop="revertCurrentSlide">
+          <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="!initialCrops[currentSlide] || isEditMode" @click.stop="revertCurrentSlide">
             Revert to Original
           </button>
-          <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="photos.length === 0" @click.stop="openCropper(currentSlide)">
+          <button type="button" class="btn btn-outline-secondary btn-sm" :disabled="photos.length === 0 || isEditMode" @click.stop="openCropper(currentSlide)">
             Edit Crop
           </button>
         </div>
@@ -1025,11 +1186,10 @@ onBeforeUnmount(() => {
             :aria-label="'Show photo ' + (i+1)"
           >
             <img :src="src" alt="" />
-            <span class="mini-del" @click.stop="removePhotoAt(i)">×</span>
+            <span class="mini-del" @click.stop="!isEditMode && removePhotoAt(i)" :class="{ 'd-none': isEditMode }">×</span>
           </button>
         </div>
       </div>
-    <!-- Inline Cropper Modal -->
     <div v-if="cropOpen" class="cropper-modal" @mousedown.self="cancelCrop">
       <div class="cropper-panel">
         <div
@@ -1063,7 +1223,6 @@ onBeforeUnmount(() => {
     </div>
     </div>
 
-    <!-- Visibility -->
     <div class="mb-3">
       <label class="form-label fw-semibold">Who can see this?</label>
       <div class="segmented bg-white shadow-sm" role="tablist" aria-label="Feed scope">
@@ -1102,7 +1261,7 @@ onBeforeUnmount(() => {
     </div>
 
     <button class="btn submit-btn w-100" type="submit" :disabled="submitting">
-      {{ submitting ? 'Posting…' : 'Submit Recommendation' }}
+      {{ isEditMode ? (submitting ? 'Updating...' : 'Update Post') : (submitting ? 'Posting...' : 'Submit Recommendation') }}
     </button>
   </form>
 </template>
@@ -1268,6 +1427,10 @@ onBeforeUnmount(() => {
   padding: 14px;
   background: rgba(250, 249, 246, 0.6);
   cursor: pointer;
+}
+.drop-area[disabled] {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 .drop-area.dragging {
   background: rgba(250, 249, 246, 0.9);
@@ -1477,6 +1640,8 @@ onBeforeUnmount(() => {
 .mini.active { border-color: var(--sage-600); }
 .mini img { width: 84px; height: 56px; object-fit: cover; border-radius: var(--radius-xs); display: block; }
 .mini-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: #111827; color: #fff; cursor: pointer; line-height: 1; font-weight: 900; }
+.mini-del.d-none { display: none; }
+
 
 /* Zoom controls */
 .zoom-ctrls { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; }

@@ -1,10 +1,11 @@
 // FILENAME: ActivityView.vue
 <script setup>
 // vue imports
-import { ref, onMounted, nextTick, computed, watch } from 'vue'
+import { ref, onMounted, nextTick, computed, watch, onUnmounted } from 'vue' // Added onUnmounted
 import Modal from '@/components/Modal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import PostCard from '@/components/PostCard.vue'
+import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 
 // auth imports
 import { useAuthUser } from '@/lib/useAuthUser' 
@@ -35,6 +36,7 @@ const loadingMyPosts = ref(true)
 const errorMyPosts = ref('')
 const loadingLikedPosts = ref(true)
 const errorLikedPosts = ref('')
+const showAdd = ref(false)
 
 // Avatar Cache
 const avatarCache = ref(new Map())
@@ -64,6 +66,106 @@ const userToRemove = ref(null)
 const removingFriend = ref(false)
 const awaitingPostId = ref(null)
 
+// NEW: Edit Post Modal State
+const showEdit = ref(false)
+const postToEdit = ref(null)
+
+// NEW: Delete Post Modal State
+const showConfirmDelete = ref(false)
+const postToDelete = ref(null)
+const isDeleting = ref(false)
+
+
+const DEFAULT_COMMENT_AVATAR = '/images/default-avatar.jpg'
+const commentProfileCache = ref(new Map())
+const pendingCommentProfiles = new Map()
+const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
+
+
+function cacheCommentProfile(email, profile) {
+  const next = new Map(commentProfileCache.value)
+  next.set(email, profile)
+  commentProfileCache.value = next
+  return profile
+}
+
+function deriveNameFromEmail(email) {
+  if (!email) return 'Anonymous'
+  const [name] = String(email).split('@')
+  return name || email
+}
+
+function resolveCommentAvatar(raw) {
+  if (!raw) return DEFAULT_COMMENT_AVATAR
+  return resolveImageUrl(raw) || DEFAULT_COMMENT_AVATAR 
+}
+
+async function ensureProfileForCommenter(email) {
+  if (!email) return null
+  const cached = commentProfileCache.value.get(email)
+  if (cached) return cached
+
+  if (pendingCommentProfiles.has(email)) {
+    return pendingCommentProfiles.get(email)
+  }
+
+  const request = api
+    .post('/user/getProfile', { user_email: email })
+    .then((res) => {
+      const info = res.data?.data || {}
+      return cacheCommentProfile(email, {
+        displayName: (info?.username || '').trim() || deriveNameFromEmail(email),
+        avatar: resolveCommentAvatar(info?.profile_image_url),
+      })
+    })
+    .catch(() =>
+      cacheCommentProfile(email, {
+        displayName: deriveNameFromEmail(email),
+        avatar: DEFAULT_COMMENT_AVATAR,
+      }),
+    )
+    .finally(() => {
+      pendingCommentProfiles.delete(email)
+    })
+
+  pendingCommentProfiles.set(email, request)
+  return request
+}
+
+async function enrichCommentsWithProfiles(list) {
+  if (!Array.isArray(list) || list.length === 0) return []
+  const uniqueEmails = [...new Set(list.map((row) => row.commenter_email).filter(Boolean))]
+  await Promise.all(uniqueEmails.map((email) => ensureProfileForCommenter(email)))
+  return list.map((row) => {
+    const profile = commentProfileCache.value.get(row.commenter_email)
+    return {
+      ...row,
+      commenter_name: profile?.displayName ?? deriveNameFromEmail(row.commenter_email),
+      commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
+    }
+  })
+}
+
+function onCommentAvatarError(event) {
+  if (event?.target) {
+    event.target.src = DEFAULT_COMMENT_AVATAR
+  }
+}
+
+function setCommentCountForPost(postId, count) {
+  const key = String(postId ?? '')
+  if (!key) return
+  const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0
+  const prevMap = commentCounts.value || {}
+  if (prevMap[key] !== safeCount) {
+    commentCounts.value = { ...prevMap, [key]: safeCount }
+  }
+  applyPostPatch({
+    id: key,
+    postid: key,
+    raw: { comments_count: safeCount },
+  })
+}
 
 // Helper function to fetch avatars for a list of posts
 async function fetchAvatarsForPosts(posts) {
@@ -112,22 +214,13 @@ function closeComments() {
   commentsForPostId.value = null; editingComment.value = null;
 }
 async function submitComment() {
-  const postid = commentsForPostId.value
-  const comment = newComment.value?.trim()
-  if (!postid || !comment) return
-
-  // If currently editing an existing comment, save instead of creating
+  const postid = commentsForPostId.value; const comment = newComment.value?.trim();
+  if (!postid || !comment) return;
   if (editingComment.value) {
-    const item = editingComment.value
-    editingComment.value = null
-    newComment.value = ''
-    return editComment(item, comment)
+    const item = editingComment.value; editingComment.value = null; newComment.value = '';
+    return editComment(item, comment);
   }
-
-  const email = activeEmail.value
-  if (!email) return
-
-  // Otherwise, create a new comment (optimistic)
+  const email = activeEmail.value; if (!email) return;
   const profile = await ensureProfileForCommenter(email)
   const draft = {
     commenter_email: email,
@@ -149,8 +242,7 @@ async function submitComment() {
   }
 }
 async function deleteComment(item) {
-  const postid = commentsForPostId.value
-  if (!postid) return
+  const postid = commentsForPostId.value; if (!postid) return;
   const prev = [...comments.value]
   comments.value = comments.value.filter(
     (c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment),
@@ -170,11 +262,8 @@ async function deleteComment(item) {
 }
 
 async function editComment(item, newText) {
-  const postid = commentsForPostId.value
-  const nextText = (newText ?? '').trim()
-  if (!postid || !nextText) return
-  const oldText = item.comment
-  if (nextText === oldText) return
+  const postid = commentsForPostId.value; const nextText = (newText ?? '').trim();
+  if (!postid || !nextText) return; const oldText = item.comment; if (nextText === oldText) return;
   const prev = [...comments.value]
   comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c))
   try {
@@ -389,6 +478,7 @@ async function fetchMyPosts() {
     errorMyPosts.value = e.response?.data?.message || 'Failed to load your posts.'
   } finally {
     loadingMyPosts.value = false
+    nextTick(() => initRevealUp()); // Animate in
   }
 }
 
@@ -410,6 +500,7 @@ async function fetchLikedPosts() {
     errorLikedPosts.value = e.response?.data?.message || 'Failed to load liked posts.'
   } finally {
     loadingLikedPosts.value = false
+    nextTick(() => initRevealUp()); // Animate in
   }
 }
 
@@ -473,6 +564,14 @@ function viewOnMap(post) {
    router.push({ path: '/map', query: { postId: pid } });
 }
 
+function handleAdded() {
+  showAdd.value = false
+  // Refresh "My Posts" tab after adding
+  fetchMyPosts()
+  // Optionally, switch to the "My Posts" tab
+  activeTab.value = 'myPosts'
+}
+
 // --- Helper to init tooltips ---
 function initTooltips() {
   try {
@@ -486,6 +585,117 @@ function initTooltips() {
     }
   } catch {}
 }
+
+// NEW: Edit Post Handlers
+function onEditPost(post) {
+  // MODIFIED: Close preview modal first
+  showPreview.value = false;
+  
+  postToEdit.value = post
+  showEdit.value = true
+}
+function closeEdit() {
+  showEdit.value = false
+  postToEdit.value = null
+}
+function handleEdited() {
+  showEdit.value = false
+  postToEdit.value = null
+  fetchMyPosts() // Refresh the list
+  // Also refresh liked posts in case the edited post was there
+  fetchLikedPosts()
+}
+
+// NEW: Delete Post Handlers
+function onDeletePost(post) {
+  postToDelete.value = post
+  showConfirmDelete.value = true
+}
+function closeDeleteConfirm() {
+  showConfirmDelete.value = false
+  postToDelete.value = null
+  isDeleting.value = false
+}
+async function confirmDeletePost() {
+  if (!postToDelete.value) return
+  isDeleting.value = true
+  const postId = postToDelete.value.id || postToDelete.value.postid
+  try {
+    // UPDATED: Use '/user/deletePost' and key 'post_id'
+    await api.delete('/user/deletePost', { 
+      data: { 
+        post_id: String(postId) // Use post_id as per controller
+      } 
+    })
+    
+    // On success, remove from local lists
+    myPosts.value = myPosts.value.filter(p => (p.id || p.postid) !== postId)
+    likedPosts.value = likedPosts.value.filter(p => (p.id || p.postid) !== postId)
+    
+    // If the deleted post was in preview, close the preview
+    if (previewPost.value && (previewPost.value.id || previewPost.value.postid) === postId) {
+      closePreview()
+    }
+    
+    closeDeleteConfirm()
+  } catch (err) {
+    console.error('Failed to delete post:', err)
+    alert('Error: Could not delete post. ' + (err.response?.data?.message || err.message))
+  } finally {
+    isDeleting.value = false
+  }
+}
+
+
+// === NEW: Animation on Scroll ===
+let _revealObserver = null;
+function initRevealUp() {
+  if (typeof window === 'undefined') return;
+  // Select all elements with the .reveal class that don't have .show
+  const nodes = document.querySelectorAll('.reveal:not(.show)');
+  if (!nodes || !nodes.length) return;
+
+  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const reveal = (el) => {
+    if (prefersReduced) {
+      el.classList.add('show'); // Show immediately if motion is reduced
+      return;
+    }
+    // Add staggered delay based on index
+    const delay = parseInt(el.dataset.index || 0, 10) * 50; // 50ms stagger
+    el.style.transitionDelay = `${delay}ms`;
+    el.classList.add('show');
+  };
+
+  if (!('IntersectionObserver' in window)) {
+    nodes.forEach((el, i) => {
+      el.dataset.index = i;
+      reveal(el);
+    });
+    return;
+  }
+
+  if (_revealObserver) _revealObserver.disconnect();
+  _revealObserver = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          reveal(entry.target);
+          _revealObserver.unobserve(entry.target);
+        }
+      });
+    },
+    { root: null, rootMargin: '0px 0px -10% 0px', threshold: 0.1 }
+  );
+
+  nodes.forEach((el, i) => {
+    el.dataset.index = i; // Add index for staggering
+    _revealObserver.observe(el);
+  });
+}
+// === End Animation ===
+
 
 watch(
   () => route.query?.postId,
@@ -528,13 +738,26 @@ onMounted(async () => {
   await refreshAuthUser()
   await Promise.all([fetchMyPosts(), fetchLikedPosts()])
   await nextTick()
+  initRevealUp(); // Initial animation setup
 })
+
+onUnmounted(() => {
+  if (_revealObserver) {
+    _revealObserver.disconnect();
+    _revealObserver = null;
+  }
+});
 
 watch(activeEmail, async (newEmail, oldEmail) => {
   if (newEmail !== oldEmail) {
     await Promise.all([fetchMyPosts(), fetchLikedPosts()])
   }
 })
+
+// Re-run animation logic when tab changes
+watch(activeTab, () => {
+  nextTick(() => initRevealUp());
+});
 
 </script>
 
@@ -580,19 +803,20 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             You haven't created any posts yet.
           </div>
           <div class="row g-3" v-else>
-            <div v-for="post in myPosts" :key="'my-' + post.id" class="col-12 col-md-6 col-lg-4">
+            <div v-for="post in myPosts" :key="'my-' + post.id" class="col-12 col-md-6 col-lg-4 reveal">
               <div
-                class="card-clickable"
+                class="card-clickable h-100"
                 @click="onCardClick($event, post)"
                 role="button"
                 tabindex="0"
-                :title="`View post for ${post.restaurant_name}`"
+                :title="`View post for ${post.restaurant?.name || 'post'}`"
               >
                 <PostCard
                   :post="post"
                   :controls="false"
                   :current-user-email="activeEmail"
                   :external-comment-count="commentCounts[post.id] ?? 0"
+                  :show-owner-menu="false" 
                   @open-comments="onOpenComments"
                   @open-profile="viewProfile"
                   @view-on-map="viewOnMap"
@@ -600,6 +824,8 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                   @post-updated="applyPostPatch"
                   @liked="applyPostPatch"
                   @unliked="applyPostPatch"
+                  @edit-post="onEditPost"
+                  @delete-post="onDeletePost"
                   class="h-100"
                 />
               </div>
@@ -617,19 +843,20 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             You haven't liked any posts yet.
           </div>
           <div class="row g-3" v-else>
-            <div v-for="post in likedPosts" :key="'liked-' + post.id" class="col-12 col-md-6 col-lg-4">
+            <div v-for="post in likedPosts" :key="'liked-' + post.id" class="col-12 col-md-6 col-lg-4 reveal">
                <div
-                class="card-clickable"
+                class="card-clickable h-100"
                 @click="onCardClick($event, post)"
                 role="button"
                 tabindex="0"
-                :title="`View post for ${post.restaurant_name}`"
+                :title="`View post for ${post.restaurant?.name || 'post'}`"
               >
                 <PostCard
                   :post="post"
                   :controls="false"
                   :current-user-email="activeEmail"
                   :external-comment-count="commentCounts[post.id] ?? 0"
+                  :show-owner-menu="false"
                   @open-comments="onOpenComments"
                   @open-profile="viewProfile"
                   @view-on-map="viewOnMap"
@@ -646,6 +873,42 @@ watch(activeEmail, async (newEmail, oldEmail) => {
       </div>
     </section>
 
+    <button
+      class="fab fab-terracotta fab-img animate__animated animate__fadeInUp"
+      style="animation-delay: 0.2s"
+      @click="showAdd = true"
+      title="Create Post"
+    >
+      <img src="/images/CreatePost_White.png" alt="Create Post" class="fab-icon" />
+    </button>
+
+
+    <Modal :show="showAdd" title="Add Food Recommendation" @close="showAdd = false">
+      <AddRecommendationForm @added="handleAdded" />
+    </Modal>
+
+    <Modal :show="showEdit" title="Edit Food Recommendation" @close="closeEdit">
+      <AddRecommendationForm 
+        v-if="postToEdit" 
+        :post-to-edit="postToEdit" 
+        @edited="handleEdited"
+        @added="handleEdited" 
+      />
+    </Modal>
+
+    <Modal :show="showConfirmDelete" title="Delete Post" @close="closeDeleteConfirm" modal-class="comments-modal-on-top">
+        <div v-if="postToDelete" class="p-2">
+            <p>Are you sure you want to permanently delete your post for <strong>{{ postToDelete.restaurant?.name || 'this post' }}</strong>?</p>
+            <div class="d-flex justify-content-end gap-2 mt-4">
+                 <button class="btn btn-outline-secondary" @click="closeDeleteConfirm" :disabled="isDeleting">Cancel</button>
+                 <button class="btn btn-danger" @click="confirmDeletePost" :disabled="isDeleting">
+                    <span v-if="isDeleting" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                    {{ isDeleting ? 'Deleting...' : 'Confirm Delete' }}
+                 </button>
+            </div>
+        </div>
+    </Modal>
+
     <Modal :show="showComments" title="Comments" @close="closeComments" modal-class="comments-modal-on-top">
       <div class="container py-2">
         <div v-if="!comments.length" class="text-muted mb-2">No comments yet. Be the first!</div>
@@ -655,8 +918,15 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             :key="idx"
             class="d-flex align-items-start gap-2 py-2 border-bottom"
           >
+            <img
+              :src="c.commenter_avatar"
+              alt="avatar"
+              class="rounded-circle me-2"
+              style="width: 32px; height: 32px; object-fit: cover"
+              @error="onCommentAvatarError"
+            />
             <div class="flex-grow-1">
-              <div class="fw-semibold small">{{ c.commenter_email }}</div>
+              <div class="fw-semibold small">{{ c.commenter_name || c.commenter_email }}</div>
               <div class="small">{{ c.comment }}</div>
             </div>
             <div class="d-flex gap-2">
@@ -720,6 +990,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             :caption-max-lines="0"
             :current-user-email="activeEmail"
             :external-comment-count="commentCounts[previewPost?.id] ?? commentCounts[previewPost?.postid] ?? (previewPost?.raw?.comments?.length || 0)"
+            :show-owner-menu="previewPost?.user?.id === activeEmail"
             @open-comments="onOpenComments"
             @open-profile="viewProfile"
             @view-on-map="viewOnMap"
@@ -727,6 +998,8 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             @post-updated="applyPostPatch"
             @liked="applyPostPatch"
             @unliked="applyPostPatch"
+            @edit-post="onEditPost"
+            @delete-post="onDeletePost"
           />
         </div>
       </div>
@@ -771,7 +1044,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                         @click="onCardClick($event, post)"
                         role="button"
                         tabindex="0"
-                        :title="`View post for ${post.restaurant_name}`"
+                        :title="`View post for ${post.restaurant?.name || 'post'}`"
                     >
                         <PostCard
                           :post="post"
@@ -810,8 +1083,62 @@ watch(activeEmail, async (newEmail, oldEmail) => {
   </div>
 </template>
 
+<style>
+.reveal {
+  opacity: 0;
+  transform: translateY(15px);
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  will-change: opacity, transform;
+}
+.reveal.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    transition: none;
+  }
+}
+</style>
+
 <style scoped>
-/* All styles rely on theme variables */
+/* --- NEW: FAB Styles --- */
+.fab {
+  position: fixed;
+  right: 28px;
+  bottom: 28px; /* Adjusted to match DashboardView */
+  border: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  z-index: 85; /* Match DashboardView */
+}
+.fab-label {
+  position: fixed;
+  right: 28px;
+  bottom: 54px; /* Adjusted to match DashboardView */
+  z-index: 85; /* Match DashboardView */
+}
+.fab-img {
+  background: transparent;
+  border: none;
+  padding: 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.fab-img:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+.fab-img:active {
+  transform: scale(0.96);
+}
+.fab-icon {
+  width: 50px;
+  height: 50px;
+  object-fit: contain;
+}
+/* --- End FAB Styles --- */
+
 .loading-fork {
   animation: spin 1s linear infinite;
   font-size: 50px;
