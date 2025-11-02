@@ -149,7 +149,7 @@ const getPfpByEmail = async (req, res) => {
     const { data, error: getPfpError } = await service.getPfpByEmail(user_email);
 
     if (getPfpError) {
-        return res.status(500).json({ message: "Error getting liked posts" });
+        return res.status(500).json({ message: "Error getting profile picture" });
     }
 
     return res.status(200).json({ data });
@@ -265,6 +265,23 @@ const getAllUsernames = async (req, res) => {
     return res.status(200).json({ data });
 };
 
+const getPfpByUsername = async (req, res) => {
+    // get username from FE
+    const { username } = req.body;
+    
+    // check if user_email is received 
+    if (!username) {
+        return res.status(400).json({ error: "Username is required" });
+    }
+
+    const { data, error: getPfpError } = await service.getPfpByUsername(username);
+
+    if (getPfpError) {
+        return res.status(500).json({ message: "Error getting profile picture" });
+    }
+
+    return res.status(200).json({ data });
+};
 
 export{
     getPostbyId,
@@ -281,6 +298,7 @@ export{
     deleteUserAccount,
     editPost,
     getAllUsernames,
-
+    getPfpByUsername,
+    
 
 }
