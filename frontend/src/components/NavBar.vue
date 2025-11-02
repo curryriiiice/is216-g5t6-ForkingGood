@@ -8,8 +8,8 @@
         @click="openReversePopup"
         aria-label="Reverse image search"
       >
-        <img src="/images/Search.png" alt="" aria-hidden="true" class="btn-icon" />
-        <span>Image Search</span>
+        <img src="/images/Upload.png" alt="Photo" aria-hidden="true" class="btn-icon" />
+        <span class="rev-text">Image Search</span>
       </button>
     </div>
 
@@ -1021,5 +1021,12 @@ onBeforeUnmount(() => {
 
 /* Icon in the Image Search button */
 .rev-btn.with-icon { display: inline-flex; align-items: center; gap: 0.4rem; }
-.rev-btn .btn-icon { width: 18px; height: 18px; display: block; }
+.rev-btn .btn-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  /* force white icon regardless of source image color */
+  filter: brightness(0) invert(1);
+}
+.rev-btn .rev-text { color: #fff; }
 </style>

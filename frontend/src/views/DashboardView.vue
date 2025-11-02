@@ -2941,6 +2941,10 @@ img[alt='avatar'] {
   align-items: center;
   line-height: 1;
 }
+.randomise-pill span,
+.randomise-pill .fw-bold {
+  color: #fff !important;
+}
 .randomise-pill:hover {
   filter: brightness(0.96);
 }
@@ -3033,6 +3037,8 @@ img[alt='avatar'] {
   height: 20px;
   object-fit: contain;
   vertical-align: middle;
+  /* render the randomise icon in white regardless of source color */
+  filter: brightness(0) invert(1);
 }
 
 .seg-btn .icon-20 {

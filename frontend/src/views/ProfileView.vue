@@ -584,7 +584,16 @@ async function save() {
       fd.append('profile_photo', fileToSend);
     }
     // Let Axios set multipart boundaries automatically
-    await api.post('/user/editProfile', fd);
+    console.log('[profile] submitting editProfile payload', {
+      email: user_email,
+      hasAvatar: Boolean(avatarBlob.value && !clearAvatar.value),
+      bioLen: (form.bio || '').length,
+      username: uname,
+    })
+    // Prefer PUT and ensure multipart headers are set in the browser
+    await api.put('/user/editProfile', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
     await loadMe();
     try {
       window.dispatchEvent(new CustomEvent('fg:profile-updated', {
@@ -595,7 +604,7 @@ async function save() {
     statusMessage.value = 'Your profile has been updated successfully.'
     showStatus.value = true
   } catch (e) {
-    console.error(e);
+    console.error('editProfile failed:', e?.response?.status, e?.response?.data || e);
     const msg = e?.response?.data?.message || e?.message || 'Failed to save profile.';
     statusTitle.value = 'Update Failed'
     statusMessage.value = msg

@@ -1,5 +1,5 @@
 <template>
-  <div class="min-vh-100 bg-body text-body">
+  <div class="landing-root min-vh-100 bg-body text-body">
     <!-- Top nav (Bootstrap) -->
     <nav class="navbar navbar-expand-lg sticky-top bg-white border-bottom" data-animate="fadeInDown" data-delay="0s">
       <div class="container">
@@ -39,7 +39,7 @@
       <div class="container">
         <div class="row align-items-center g-4">
           <div class="col-lg-6">
-            <h1 class="display-5 fw-semibold lh-sm animate__animated animate__fadeInUp" style="animation-delay: .05s;">
+            <h1 class="display-5 fw-semibold hero-title lh-sm animate__animated animate__fadeInUp" style="animation-delay: .05s;">
               Discover & share food gems with <span class="text-sage">friends</span>
             </h1>
             <p class="lead text-muted mt-3 animate__animated animate__fadeInUp" style="animation-delay: .15s;">
@@ -297,6 +297,42 @@ onBeforeUnmount(() => {
   --sage: #9bb59f;
   --terracotta: #c4684e;
 }
+
+/* Match auth pages font stack for consistency */
+.landing-root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    'Fira Sans',
+    'Droid Sans',
+    'Helvetica Neue',
+    sans-serif;
+}
+
+/* Match auth pages: heavier headings + legible body */
+.landing-root .navbar-brand span { font-weight: 900; letter-spacing: -0.01em; }
+.landing-root .nav-link { font-weight: 800; }
+.landing-root .btn { font-weight: 900; }
+
+/* Hero title like auth titles */
+.landing-root .hero-title { color: #111827; font-weight: 900 !important; letter-spacing: -0.02em; }
+.landing-root .lead { color: #6b7280; font-weight: 600; }
+
+/* Section headings aligned with app */
+.landing-root .h2,
+.landing-root h2 { font-weight: 800 !important; letter-spacing: -0.01em; }
+.landing-root .h6,
+.landing-root h6 { font-weight: 800; }
+
+/* Card text weight similar to dashboard */
+.landing-root .card .small { font-weight: 600; }
+.landing-root .card .fw-semibold { font-weight: 800 !important; }
 .text-sage {
   color: var(--sage) !important;
 }
