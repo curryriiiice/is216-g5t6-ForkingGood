@@ -22,6 +22,7 @@ import {
 	deleteUserAccount,
 	editPost,
 	getAllUsernames,
+	getPfpByUsername,
 
 
 }from '../controllers/userController.js';
@@ -46,6 +47,7 @@ router.post('/getProfile', getProfile);
 router.delete('/deleteUserAccount', deleteUserAccount);
 router.put('/editPost', editPost);
 router.get('/getAllUsernames', getAllUsernames);
+router.post('/getPfpByUsername',getPfpByUsername);
 
 
 export default router;

@@ -498,6 +498,16 @@ const getAllUsernames = async () => {
 }
 // tested, works
 
+const getPfpByUsername = async (username) => {
+    const {data, error} = await supabase.from('user').select('profile_image_url').match({username:username}); 
+
+    if(error){
+        return {error}; 
+    }
+
+    return {data: data[0].profile_image_url};
+};
+
 export{
     getPostbyId,
     getUsernamebyEmail,
@@ -513,7 +523,8 @@ export{
     deleteUserAccount,
     editPost,
     getAllUsernames,
-
+    getPfpByUsername,
+    
 
 }
 
