@@ -1,7 +1,10 @@
 <template>
   <nav class="navbar">
-    <!-- Left: Image Search -->
+    <!-- Left: Brand + Image Search -->
     <div class="search-wrap">
+      <RouterLink to="/dashboard" class="brand">
+        <img src="/images/forkinggood-logo.png" alt="ForkingGood" class="brand-logo" />
+      </RouterLink>
       <button
         type="button"
         class="rev-btn with-icon"
@@ -28,8 +31,6 @@
 
     <!-- Right side -->
     <div class="right">
-      <img src="/images/Bell.png" alt="Notifications" width="28" height="28" class="bell" />
-
       <span v-if="welcomeHandle" class="welcome">
         Welcome back {{ welcomeHandle }}
       </span>
@@ -492,19 +493,9 @@ async function submitReverseSearch() {
       ? new File([blobToSend], 'reverse-crop.png', { type: 'image/png' })
       : selectedFile.value
 
-    const form = new FormData()
-    form.append('photo', fileToSend)
-    
-    const response = await api.post('/search/reverseSearch', form, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    })
-    
-    const data = response.data
-
     const dataUrl = await readAsDataURL(fileToSend)
-    sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl], results: data || null }))
+    // Save only the image; the Reverse Image page will show a loader and call the API
+    sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl] }))
     showReversePopup.value = false
     removeFile()
     router.push('/reverseimage')
@@ -852,6 +843,12 @@ onBeforeUnmount(() => {
   max-width: 100%;
 }
 
+/* Brand (leftmost) */
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; margin-right: 10px; }
+.brand-logo { width: 36px; height: 36px; display: block; }
+@media (min-width: 768px) { .brand-logo { width: 44px; height: 44px; } }
+/* brand-text removed (logo-only) */
+
 /* Center links (hidden on small) */
 .links {
   grid-column: 2;
@@ -887,7 +884,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 0.75rem;
 }
-.bell { border-radius: 999px; cursor: pointer; }
+/* .bell styles removed along with icon */
 
 /* Avatar + menu */
 .avatar-menu-wrap { position: relative; }

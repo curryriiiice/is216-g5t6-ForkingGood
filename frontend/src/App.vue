@@ -1,4 +1,4 @@
-﻿<!-- src/App.vue -->
+<!-- src/App.vue -->
 <script setup>
 import { ref, onMounted, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -24,25 +24,36 @@ const hideNavbar = computed(() => !!route.meta?.hideNavbar)
    ========================= */
 const THEME_KEY_CUISINE = 'fg_cuisine_theme'
 const THEME_KEY_BRAND = 'fg_theme_v2'
-const CUISINE_THEMES = ['Plum', 'Mint', 'Light', 'Lagoon']
+// Food-centric theme names
+const CUISINE_THEMES = ['Taro', 'Matcha', 'Vanilla', 'Blueberry']
 
 const BRAND_BY_CUISINE = {
-  Plum: 'brand-plum',
-  Mint: 'brand-mint',
-  Light: 'light',
-  Lagoon: 'brand-lagoon',
+  Taro: 'brand-plum',
+  Matcha: 'brand-mint',
+  Vanilla: 'light',
+  Blueberry: 'brand-lagoon',
 }
 const CUISINE_BY_BRAND = {
-  'brand-plum': 'Plum',
-  'brand-mint': 'Mint',
-  light: 'Light',
-  'brand-lagoon': 'Lagoon',
+  'brand-plum': 'Taro',
+  'brand-mint': 'Matcha',
+  light: 'Vanilla',
+  'brand-lagoon': 'Blueberry',
 }
 
 // Initialize cuisine from saved brand if present, else saved cuisine, else default
 const savedBrand = (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_BRAND)) || ''
-const initialCuisine = CUISINE_BY_BRAND[savedBrand] || (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_CUISINE)) || 'Plum'
-const theme = ref(initialCuisine)
+// Legacy-to-new cuisine name mapping
+function normalizeCuisineName(name) {
+  switch (name) {
+    case 'Plum': return 'Taro'
+    case 'Mint': return 'Matcha'
+    case 'Light': return 'Vanilla'
+    case 'Lagoon': return 'Blueberry'
+    default: return name
+  }
+}
+const initialCuisineRaw = CUISINE_BY_BRAND[savedBrand] || (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_CUISINE)) || 'Taro'
+const theme = ref(normalizeCuisineName(initialCuisineRaw))
 
 function applyRootThemeFromCuisine(cuisine) {
   const brand = BRAND_BY_CUISINE[cuisine] || 'light'
@@ -76,7 +87,7 @@ const didMove = ref(false)
 const justDragged = ref(false)
 const dragOffset = ref({ x: 0, y: 0 })
 const switcherPos = ref({ x: 12, y: 12 })
-const collapsed = ref(false) // collapsed â†’ tiny draggable button
+const collapsed = ref(false) // collapsed → tiny draggable button
 
 function clampToViewport(pos) {
   const el = switcherEl.value
@@ -199,7 +210,7 @@ const pageClass = computed(() => ({
 
 <template>
   <div class="page" :class="pageClass" style="min-height: 100vh">
-    <div v-if="loading" style="padding: 16px; color: #6b7280">Loadingâ€¦</div>
+    <div v-if="loading" style="padding: 16px; color: #6b7280">Loading…</div>
 
     <div v-else class="content-safe">
       <NavBar
@@ -209,6 +220,7 @@ const pageClass = computed(() => ({
         :pendingRequestsCount="pendingRequestsCount"
       />
 
+      
       <!-- Draggable Theme Switcher -->
       <template v-if="!hideNavbar">
         <!-- Collapsed mini FAB -->
@@ -231,20 +243,20 @@ const pageClass = computed(() => ({
           :style="{ left: switcherPos.x + 'px', top: switcherPos.y + 'px' }"
         >
           <!-- Drag handle -->
-          <div class="switcher-handle" title="Drag" @pointerdown.prevent.stop="startDrag">⋮⋮</div>
+          <div class="switcher-handle" title="Drag" @pointerdown.prevent.stop="startDrag">🎨</div>
 
           <div class="switcher-col">
             <div class="switcher-row">
-              <button class="chip" :class="{ active: theme==='Plum' }"  @click="setTheme('Plum')">🟣 Plum</button>
-              <button class="chip" :class="{ active: theme==='Mint' }"  @click="setTheme('Mint')">🌿 Mint</button>
-              <button class="chip" :class="{ active: theme==='Light' }" @click="setTheme('Light')">☀️ Light</button>
-              <button class="chip" :class="{ active: theme==='Lagoon' }" @click="setTheme('Lagoon')">🌊 Lagoon</button>
+              <button class="chip" :class="{ active: theme==='Taro' }"  @click="setTheme('Taro')">🍠 Taro</button>
+              <button class="chip" :class="{ active: theme==='Matcha' }"  @click="setTheme('Matcha')">🍵 Matcha</button>
+              <button class="chip" :class="{ active: theme==='Vanilla' }" @click="setTheme('Vanilla')">🍦 Vanilla</button>
+              <button class="chip" :class="{ active: theme==='Blueberry' }" @click="setTheme('Blueberry')">🫐 Blueberry</button>
             </div>
           </div>
 
           <!-- Collapse control -->
           <div class="switcher-controls">
-            <button class="chip ghost" title="Collapse" @click="toggleCollapse">✖</button>
+            <button class="chip ghost" title="Collapse" @click="toggleCollapse">x</button>
           </div>
         </div>
       </template>
@@ -330,3 +342,4 @@ html, body, #app { height: 100%; margin: 0; }
 }
 .switcher-mini:active { cursor: grabbing; }
 </style>
+

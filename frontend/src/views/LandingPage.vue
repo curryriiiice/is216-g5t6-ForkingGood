@@ -1,38 +1,59 @@
 <template>
   <div class="landing-root min-vh-100 bg-body text-body">
-    <!-- Top nav (Bootstrap) -->
-    <nav class="navbar navbar-expand-lg sticky-top bg-white border-bottom" data-animate="fadeInDown" data-delay="0s">
-      <div class="container">
-        <router-link class="navbar-brand d-flex align-items-center gap-2" to="/">
-          <img
-            src="/images/forkinggood-logo.png"
-            alt="ForkingGood Logo"
-            style="height: 36px; width: auto"
-          />
-          <span class="fw-semibold">ForkingGood</span>
+    <!-- Top nav (styled similar to app NavBar) -->
+    <nav class="lp-navbar" data-animate="fadeInDown" data-delay="0s">
+      <div class="container lp-row">
+        <!-- Left: brand -->
+        <router-link class="brand" to="/">
+          <img src="/images/forkinggood-logo.png" alt="ForkingGood Logo" />
+          <span>ForkingGood</span>
         </router-link>
-        <button
-          class="navbar-toggler"
-          type="button"
-          data-bs-toggle="collapse"
-          data-bs-target="#navFG"
-          aria-controls="navFG"
-          aria-expanded="false"
-          aria-label="Toggle navigation"
-        >
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="navFG">
-          <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-lg-center">
-            <li class="nav-item"><a class="nav-link" href="#features">Features</a></li>
-            <li class="nav-item"><a class="nav-link" href="#how">How it works</a></li>
-            <li class="nav-item ms-lg-3">
-              <router-link class="btn btn-outline-secondary" to="/login">Log In</router-link>
-            </li>
-          </ul>
+
+        <!-- Center: links (landing only) -->
+        <div class="links">
+          <a href="#features" class="link">Features</a>
+          <a href="#how" class="link">How it works</a>
+        </div>
+
+        <!-- Right: auth CTAs -->
+        <div class="right">
+          <router-link to="/signup" class="btn-solid" data-animate="fadeInRight" data-delay=".05s">Sign Up</router-link>
+
+          <!-- Hamburger (mobile) -->
+          <button
+            type="button"
+            class="hamburger"
+            @click="showMobileMenu = !showMobileMenu"
+            aria-label="Open menu"
+            :aria-expanded="showMobileMenu ? 'true' : 'false'"
+            aria-controls="lp-mobile-menu"
+          >
+            <svg v-if="!showMobileMenu" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <svg v-else width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <router-link to="/login" class="btn-ghost" data-animate="fadeInRight" data-delay=".15s">Log In</router-link>
         </div>
       </div>
     </nav>
+
+    <!-- Mobile overlay menu -->
+    <transition name="mm-fade">
+      <div v-if="showMobileMenu" class="mm-overlay" @click="showMobileMenu = false">
+        <div id="lp-mobile-menu" class="mm-panel" @click.stop>
+          <a href="#features" class="mm-link" @click="showMobileMenu = false">Features</a>
+          <a href="#how" class="mm-link" @click="showMobileMenu = false">How it works</a>
+          <hr class="mm-sep" />
+          <div class="d-flex gap-2">
+            <router-link to="/login" class="btn-ghost w-100" @click="showMobileMenu = false">Log In</router-link>
+            <router-link to="/signup" class="btn-solid w-100" @click="showMobileMenu = false">Sign Up</router-link>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <!-- Hero -->
     <section class="py-5 position-relative overflow-hidden">
@@ -289,6 +310,8 @@ onBeforeUnmount(() => {
     _observer = null;
   }
 });
+// Mobile menu state for landing navbar
+const showMobileMenu = ref(false)
 </script>
 
 <style scoped>
@@ -336,6 +359,40 @@ onBeforeUnmount(() => {
 .text-sage {
   color: var(--sage) !important;
 }
+.lp-navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+.lp-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0;
+}
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+.brand img { width: 36px; height: 36px; display: block; }
+.brand span { color: #111827; font-weight: 900; letter-spacing: -0.01em; }
+.links { display: none; gap: 14px; align-items: center; justify-content: center; flex: 1; }
+@media (min-width: 768px) { .links { display: flex; } }
+.link { color: #374151; text-decoration: none; font-weight: 800; padding: 6px 8px; border-radius: 8px; }
+.link:hover { background: #f3f4f6; }
+.right { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.btn-ghost { display: inline-block; padding: 8px 12px; border: 1.5px solid #e5e7eb; border-radius: 10px; font-weight: 800; color: #374151; text-decoration: none; background: #fff; }
+.btn-ghost:hover { background: #f9fafb; }
+.btn-solid { display: inline-block; padding: 8px 12px; border-radius: 10px; font-weight: 800; color: #fff; text-decoration: none; background: var(--terracotta); border: 1.5px solid var(--terracotta); }
+.btn-solid:hover { filter: brightness(0.97); }
+.hamburger { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; cursor: pointer; }
+@media (min-width: 768px) { .hamburger { display: none; } }
+
+/* Mobile menu overlay */
+.mm-overlay { position: fixed; inset: 0; z-index: 9998; background: rgba(17,24,39,0.45); backdrop-filter: blur(2px); }
+.mm-panel { position: absolute; left: 0; right: 0; top: 0; background: #ffffff; border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); padding: 14px 18px 18px; }
+.mm-link { display: block; padding: 12px 8px; margin: 2px 0; color: #111827; text-decoration: none; font-weight: 700; border-radius: 10px; }
+.mm-link:hover { background: #f3f4f6; }
+.mm-sep { border: 0; border-top: 1px solid #e5e7eb; margin: 10px 0; }
+.mm-fade-enter-active, .mm-fade-leave-active { transition: opacity .16s ease; }
+.mm-fade-enter-from, .mm-fade-leave-to { opacity: 0; }
 .btn-sage {
   background: var(--sage);
   color: #fff;
