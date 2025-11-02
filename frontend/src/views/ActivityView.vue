@@ -1,28 +1,34 @@
+// FILENAME: ActivityView.vue
 <script setup>
-// ... (script content remains unchanged) ...
+// vue imports
 import { ref, onMounted, nextTick, computed, watch } from 'vue'
 import Modal from '@/components/Modal.vue'
 import { useRoute, useRouter } from 'vue-router'
 import PostCard from '@/components/PostCard.vue'
+
+// auth imports
 import { useAuthUser } from '@/lib/useAuthUser'
-import api from '@/lib/api.js'
 
-
-const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
+// API
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const api = axios.create({ baseURL: API_BASE, headers: { 'Content-Type': 'application/json' } })
+const IMAGE_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_IMAGE_BASE_URL || API_BASE)
 const JSON_HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json' }
 const COMMENTS_EP = {
-  get: '/friends/getCommentsbyPostId',
-  add: '/friends/commentPost', 
-  del: '/friends/deleteComment',
-  edit: '/friends/editComment',
+  get: `${API_BASE}/friends/getCommentsbyPostId`,
+  add: `${API_BASE}/friends/commentPost`,
+  del: `${API_BASE}/friends/deleteComment`,
+  edit: `${API_BASE}/friends/editComment`,
 }
 
+// Auth
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
 
 const router = useRouter()
 const route = useRoute()
 
+// UI State
 const activeTab = ref('myPosts')
 const myPosts = ref([])
 const likedPosts = ref([])
@@ -31,26 +37,36 @@ const errorMyPosts = ref('')
 const loadingLikedPosts = ref(true)
 const errorLikedPosts = ref('')
 
+// Avatar Cache
 const avatarCache = ref(new Map())
 
+// Comment Modal State
 const showComments = ref(false)
 const commentsForPostId = ref(null)
 const comments = ref([])
 const newComment = ref('')
 const editingComment = ref(null)
 const commentCounts = ref({})
+
+// Post Preview Modal State
 const showPreview = ref(false)
 const previewPost = ref(null)
+
+// Profile Modal State
 const showProfileModal = ref(false)
 const profileData = ref(null)
 const profilePosts = ref([])
 const profileLoading = ref(false)
 const profileError = ref('')
+
+// Remove Confirmation Modal State (Needed for profile modal)
 const showConfirmRemoveModal = ref(false)
 const userToRemove = ref(null)
 const removingFriend = ref(false)
 const awaitingPostId = ref(null)
 
+
+// Helper function to fetch avatars for a list of posts
 async function fetchAvatarsForPosts(posts) {
   if (!Array.isArray(posts) || posts.length === 0) return;
   const emailsToFetch = new Set();
@@ -75,15 +91,17 @@ async function fetchAvatarsForPosts(posts) {
   avatarCache.value = newCache;
 }
 
+// Comment Modal Functions
 async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
-    const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
-    comments.value = Array.isArray(response.data?.data) ? response.data.data : []
+    const res = await fetch(COMMENTS_EP.get, {
+      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ postid: String(postId) }),
+    })
+    const data = await res.json()
+    comments.value = Array.isArray(data?.data) ? data.data : []
     commentCounts.value[String(postId)] = comments.value.length
-  } catch { 
-    comments.value = [] 
-  }
+  } catch { comments.value = [] }
 }
 function onOpenComments({ postId }) {
   showComments.value = true
@@ -94,79 +112,50 @@ function closeComments() {
   commentsForPostId.value = null; editingComment.value = null;
 }
 async function submitComment() {
-  const postid = commentsForPostId.value
-  const comment = newComment.value?.trim()
-  if (!postid || !comment) return
-
-  // If currently editing an existing comment, save instead of creating
+  const postid = commentsForPostId.value; const comment = newComment.value?.trim();
+  if (!postid || !comment) return;
   if (editingComment.value) {
-    const item = editingComment.value
-    editingComment.value = null
-    newComment.value = ''
-    return editComment(item, comment)
+    const item = editingComment.value; editingComment.value = null; newComment.value = '';
+    return editComment(item, comment);
   }
-
-  const email = activeEmail.value
-  if (!email) return
-
-  // Otherwise, create a new comment (optimistic)
-  const draft = { commenter_email: email, comment }
-  comments.value = [...comments.value, draft]
-  newComment.value = ''
+  const email = activeEmail.value; if (!email) return;
+  const draft = { commenter_email: email, comment };
+  comments.value = [...comments.value, draft]; newComment.value = '';
   try {
-    await api.post(COMMENTS_EP.add, { 
-      commenter_email: email, 
-      postid: String(postid), 
-      comment 
-    })
-    await loadComments(postid)
-  } catch {
-    comments.value = comments.value.filter((c) => !(c === draft))
-  }
+    const res = await fetch(COMMENTS_EP.add, {
+      method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ commenter_email: email, postid: String(postid), comment }),
+    });
+    if (!res.ok) throw new Error('comment failed');
+    await loadComments(postid);
+  } catch { comments.value = comments.value.filter((c) => !(c === draft)); }
 }
 async function deleteComment(item) {
-  const postid = commentsForPostId.value
-  if (!postid) return
-  const prev = [...comments.value]
-  comments.value = comments.value.filter(
-    (c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment),
-  )
+  const postid = commentsForPostId.value; if (!postid) return;
+  const prev = [...comments.value];
+  comments.value = comments.value.filter((c) => !(c.commenter_email === item.commenter_email && c.comment === item.comment));
   try {
-    await api.delete(COMMENTS_EP.del, { 
-      data: {
-        postid: String(postid),
-        commenter_email: item.commenter_email,
-        comment: item.comment,
-      }
-    })
-    await loadComments(postid)
-  } catch {
-    comments.value = prev
-  }
+    const res = await fetch(COMMENTS_EP.del, {
+      method: 'DELETE', headers: JSON_HEADERS, body: JSON.stringify({ postid: String(postid), commenter_email: item.commenter_email, comment: item.comment }),
+    });
+    if (!res.ok) throw new Error('delete failed');
+    await loadComments(postid);
+  } catch { comments.value = prev; }
 }
 async function editComment(item, newText) {
-  const postid = commentsForPostId.value
-  const nextText = (newText ?? '').trim()
-  if (!postid || !nextText) return
-  const oldText = item.comment
-  if (nextText === oldText) return
-  
-  const prev = [...comments.value]
-  comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c))
-  
+  const postid = commentsForPostId.value; const nextText = (newText ?? '').trim();
+  if (!postid || !nextText) return; const oldText = item.comment; if (nextText === oldText) return;
+  const prev = [...comments.value];
+  comments.value = comments.value.map((c) => (c === item ? { ...c, comment: nextText } : c));
   try {
-    await api.patch(COMMENTS_EP.edit, {
-      postid: String(postid),
-      commenter_email: item.commenter_email,
-      old_comment: oldText,
-      new_comment: nextText,
-    })
-    await loadComments(postid)
-  } catch {
-    comments.value = prev
-  }
+    const res = await fetch(COMMENTS_EP.edit, {
+      method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ postid: String(postid), commenter_email: item.commenter_email, old_comment: oldText, new_comment: nextText }),
+    });
+    if (!res.ok) throw new Error('edit failed');
+    await loadComments(postid);
+  } catch { comments.value = prev; }
 }
 
+// PostCard Sync Function
 function applyPostPatch(patch) {
   if (!patch || (!patch.id && !patch.postid)) return
   const pid = String(patch.id ?? patch.postid)
@@ -199,8 +188,20 @@ function applyPostPatch(patch) {
       previewPost.value = next
     }
   }
+  
+  if (profileData.value) {
+    let j = Array.isArray(profilePosts.value) ? profilePosts.value.findIndex((p) => String(p?.id ?? p?.postid ?? '') === pid) : -1
+    if (j >= 0) {
+      const cur = profilePosts.value[j]
+      const next = { ...cur, ...patch, raw: { ...(cur?.raw || {}), ...(patch?.raw || {}) } }
+      if (patch.raw?.upvote_count !== undefined) next.likes = patch.raw.upvote_count
+      if (patch.raw?.user_has_upvoted !== undefined) next.user_has_upvoted = patch.raw.user_has_upvoted
+      profilePosts.value.splice(j, 1, next)
+    }
+  }
 }
 
+// Post Preview Modal Functions
 function onCardClick(e, post) {
   const t = e.target
   const container = e.currentTarget
@@ -257,9 +258,15 @@ async function getPostById(postId) {
   } catch (e) { console.warn('[ActivityView] getPostById failed', e); return null; }
 }
 
+
+// --- Profile Modal Functions (MOCKED FRIENDSHIP STATUS) ---
 async function viewProfile(user) {
   if (!user || !user.id) { console.warn('viewProfile called with invalid user object', user); return; }
-  if (user.id === activeEmail.value) { router.push('/profile'); return; }
+  // Don't open profile modal for yourself, navigate to profile page
+  if (user.id === activeEmail.value) {
+    router.push('/profile').catch(() => {});
+    return;
+  }
 
   showProfileModal.value = true
   profileLoading.value = true
@@ -267,29 +274,35 @@ async function viewProfile(user) {
   profilePosts.value = []
   
   try {
-    const userEmail = user.id;
+    const userEmail = user.id; // user.id from PostCard is poster_email
+    
+    // Call getPfpByEmail to get avatar
     const pfpPromise = api.post('/user/getPfpByEmail', { user_email: userEmail });
     
+    // We have to mock friendship status as we don't know it here.
+    // We only fetch public posts.
+    // NOTE: This means 'Add/Remove Friend' buttons in this modal are placeholders
     const pData = {
         email: userEmail,
         username: user.name || user.username,
         name: user.name || user.username,
         avatar: (await pfpPromise).data?.data || '/default-avatar.jpg',
-        isFriend: false, 
-        isPending: false, 
+        isFriend: false, // Cannot know this from ActivityView
+        isPending: false, // Cannot know this from ActivityView
     };
     profileData.value = pData;
     
-    await fetchProfilePosts(pData);
+    // Fetch only public posts for this user
+    await fetchProfilePosts(pData, false); // Force fetch public posts
     
   } catch (e) {
     console.error(`[ActivityView] viewProfile for ${user.id} failed`, e)
     profileError.value = 'Failed to load profile.'
-  } finally {
     profileLoading.value = false
   }
+  // loading is set to false inside fetchProfilePosts
 }
-async function fetchProfilePosts(user) {
+async function fetchProfilePosts(user, isFriend = false) { // Default to fetching public posts
   if (!user || !user.email) {
     profileError.value = 'User data is missing.'; profileLoading.value = false; return;
   }
@@ -297,10 +310,9 @@ async function fetchProfilePosts(user) {
   profilePosts.value = [];
   profileError.value = '';
   try {
-    const fetchFriendsPosts = user.isFriend === true;
     const r = await api.post('/user/getUserPosts', {
       user_email: user.email,
-      friends: fetchFriendsPosts,
+      friends: isFriend, // Use the passed-in status
     });
     profilePosts.value = (Array.isArray(r.data?.data) ? r.data.data : []).map(normalizePostData)
   } catch (e) {
@@ -318,9 +330,12 @@ function closeProfileModal() {
   }, 300);
 }
 
-async function sendFriendReq(user) { alert('Functionality pending: Please use Friends tab to manage requests.'); }
-function removeFriend(user) { alert('Functionality pending: Please use Friends tab to manage requests.'); }
+// Mocked friend actions for the profile modal
+function sendFriendReq(user) { alert('To add this user, please find them on the Friends page.'); }
+function removeFriend(user) { alert('To remove this user, please find them on the Friends page.'); }
 
+
+// --- Fetch User's Own Posts ---
 async function fetchMyPosts() {
   if (!activeEmail.value) {
     errorMyPosts.value = 'Please log in to see your posts.'
@@ -328,7 +343,7 @@ async function fetchMyPosts() {
   }
   loadingMyPosts.value = true; errorMyPosts.value = ''; myPosts.value = [];
   try {
-    const r = await api.post('/user/getUserPosts', { //
+    const r = await api.post('/user/getUserPosts', {
       user_email: activeEmail.value,
       friends: true, //
     })
@@ -342,6 +357,7 @@ async function fetchMyPosts() {
   }
 }
 
+// --- Fetch User's Liked Posts ---
 async function fetchLikedPosts() {
    if (!activeEmail.value) {
     errorLikedPosts.value = 'Please log in to see liked posts.'
@@ -362,6 +378,7 @@ async function fetchLikedPosts() {
   }
 }
 
+// --- Helper to resolve image URLs ---
 function resolveImageUrl(p) {
   if (!p) return null
   let s = String(p).trim().replace(/^['"]+|['"]+$/g, '')
@@ -370,6 +387,7 @@ function resolveImageUrl(p) {
   return IMAGE_BASE ? `${IMAGE_BASE}/${s}` : `/${s}`
 }
 
+// --- Normalize data for PostCard component ---
 function normalizePostData(post) {
   const lat = Number(post.lat)
   const lng = Number(post.long)
@@ -413,12 +431,14 @@ function normalizePostData(post) {
   }
 }
 
+// --- Navigation ---
 function viewOnMap(post) {
    const pid = String(post?.id ?? post?.postid ?? '');
    if (!pid) return;
    router.push({ path: '/map', query: { postId: pid } });
 }
 
+// --- Helper to init tooltips ---
 function initTooltips() {
   try {
     const Tooltip = window.bootstrap?.Tooltip
@@ -589,7 +609,68 @@ watch(activeEmail, async (newEmail, oldEmail) => {
     </section>
 
     <Modal :show="showComments" title="Comments" @close="closeComments" modal-class="comments-modal-on-top">
-      </Modal>
+      <div class="container py-2">
+        <div v-if="!comments.length" class="text-muted mb-2">No comments yet. Be the first!</div>
+        <ul class="list-unstyled mb-3">
+          <li
+            v-for="(c, idx) in comments"
+            :key="idx"
+            class="d-flex align-items-start gap-2 py-2 border-bottom"
+          >
+            <div class="flex-grow-1">
+              <div class="fw-semibold small">{{ c.commenter_email }}</div>
+              <div class="small">{{ c.comment }}</div>
+            </div>
+            <div class="d-flex gap-2">
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                :disabled="c.commenter_email !== activeEmail"
+                @click="
+                  () => {
+                    newComment = c.comment
+                    editingComment = c
+                  }
+                "
+              >
+                Edit
+              </button>
+              <button
+                class="btn btn-sm btn-outline-danger"
+                @click="deleteComment(c)"
+                :disabled="c.commenter_email !== activeEmail"
+              >
+                Delete
+              </button>
+            </div>
+          </li>
+        </ul>
+        <div v-if="editingComment" class="text-muted small mb-2">
+          Editing your comment…
+          <button
+            class="btn btn-link btn-sm p-0 ms-1"
+            @click="
+              () => {
+                editingComment = null
+                newComment = ''
+              }
+            "
+          >
+            cancel
+          </button>
+        </div>
+        <form class="d-flex gap-2" @submit.prevent="submitComment">
+          <input
+            v-model="newComment"
+            type="text"
+            class="form-control"
+            placeholder="Write a comment..."
+          />
+          <button class="btn btn-primary" type="submit" :disabled="!newComment.trim()">
+            {{ editingComment ? 'Save' : 'Send' }}
+          </button>
+        </form>
+      </div>
+    </Modal>
 
     <Modal :show="showPreview" title="Post Preview" @close="closePreview" size="lg" modal-class="preview-modal-on-top">
       <div class="preview-wrap">
