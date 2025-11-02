@@ -535,28 +535,28 @@ const THEME_KEY_CUISINE = 'fg_cuisine_theme'
 const THEME_KEY_BRAND = 'fg_theme_v2'
 const LEGACY_THEME_KEY = 'fg_theme_cuisine'
 
-// New canonical cuisine names
-const CUISINE_THEMES = ['Plum', 'Mint', 'Light', 'Lagoon']
+// New canonical cuisine names (food-centric)
+const CUISINE_THEMES = ['Taro', 'Matcha', 'Vanilla', 'Blueberry']
 
 // Mappings
 const BRAND_TO_CUISINE = {
-  'brand-plum': 'Plum',
-  'brand-mint': 'Mint',
-  light: 'Light',
-  'brand-lagoon': 'Lagoon',
+  'brand-plum': 'Taro',
+  'brand-mint': 'Matcha',
+  light: 'Vanilla',
+  'brand-lagoon': 'Blueberry',
 }
 const CUISINE_TO_BRAND = {
-  Plum: 'brand-plum',
-  Mint: 'brand-mint',
-  Light: 'light',
-  Lagoon: 'brand-lagoon',
+  Taro: 'brand-plum',
+  Matcha: 'brand-mint',
+  Vanilla: 'light',
+  Blueberry: 'brand-lagoon',
 }
 // Legacy cuisine values used previously in this view
 const LEGACY_TO_CUISINE = {
-  japanese: 'Plum',
-  italian: 'Mint',
-  french: 'Light',
-  chinese: 'Lagoon',
+  japanese: 'Taro',
+  italian: 'Matcha',
+  french: 'Vanilla',
+  chinese: 'Blueberry',
 }
 
 function resolveInitialCuisine() {
@@ -572,7 +572,7 @@ function resolveInitialCuisine() {
     const legacy = localStorage.getItem(LEGACY_THEME_KEY)
     if (legacy && LEGACY_TO_CUISINE[legacy]) return LEGACY_TO_CUISINE[legacy]
   } catch {}
-  return 'Plum'
+  return 'Taro'
 }
 
 const theme = ref(resolveInitialCuisine())
