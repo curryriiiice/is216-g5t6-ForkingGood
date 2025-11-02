@@ -667,3 +667,15 @@ textarea::placeholder {
   outline: 3px solid color-mix(in oklab, var(--sage-600) 45%, transparent);
   outline-offset: 2px;
 }
+
+/* Segmented control: make active state white text */
+.seg-btn.active {
+  background-color: var(--sage-600);
+  color: #fff;
+}
+.seg-btn.active .seg-label {
+  color: #fff !important;
+}
+.seg-btn .seg-label {
+  transition: color .15s ease;
+}

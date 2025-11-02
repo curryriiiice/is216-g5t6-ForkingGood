@@ -1,9 +1,8 @@
 <script setup>
 // ... (script content remains unchanged) ...
 import { ref, onMounted, nextTick, computed, watch } from 'vue'
-import axios from 'axios'
 import Modal from '@/components/Modal.vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import PostCard from '@/components/PostCard.vue'
 import { useAuthUser } from '@/lib/useAuthUser'
 import api from '@/lib/api.js'
@@ -22,6 +21,7 @@ const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
 
 const router = useRouter()
+const route = useRoute()
 
 const activeTab = ref('myPosts')
 const myPosts = ref([])
@@ -49,6 +49,7 @@ const profileError = ref('')
 const showConfirmRemoveModal = ref(false)
 const userToRemove = ref(null)
 const removingFriend = ref(false)
+const awaitingPostId = ref(null)
 
 async function fetchAvatarsForPosts(posts) {
   if (!Array.isArray(posts) || posts.length === 0) return;
@@ -215,6 +216,17 @@ function openPreview(p) {
   previewPost.value = p
   showPreview.value = true
   nextTick(() => initTooltips())
+}
+
+function tryOpenPostFromMyPosts(postId) {
+  const pid = String(postId || '')
+  if (!pid) return false
+  const list = Array.isArray(myPosts.value) ? myPosts.value : []
+  const found = list.find((p) => String(p?.id ?? p?.postid ?? '') === pid)
+  if (!found) return false
+  activeTab.value = 'myPosts'
+  openPreview(found)
+  return true
 }
 async function closePreview() {
   showPreview.value = false
@@ -419,6 +431,43 @@ function initTooltips() {
     }
   } catch {}
 }
+
+watch(
+  () => route.query?.postId,
+  (next) => {
+    const pid = next ? String(next) : null
+    awaitingPostId.value = pid
+    if (pid) {
+      if (tryOpenPostFromMyPosts(pid)) {
+        awaitingPostId.value = null
+      }
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => route.query?.tab,
+  (next) => {
+    const tab = next ? String(next) : null
+    if (!tab) return
+    if (tab === 'myPosts' || tab === 'likedPosts') {
+      activeTab.value = tab
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  [myPosts, awaitingPostId],
+  ([_posts, pid]) => {
+    if (!pid) return
+    if (tryOpenPostFromMyPosts(pid)) {
+      awaitingPostId.value = null
+    }
+  },
+  { flush: 'post' },
+)
 
 onMounted(async () => {
   await refreshAuthUser()

@@ -7,9 +7,10 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthUser } from '@/lib/useAuthUser'
 import api from '@/lib/api.js'
 
-
 // In dev, use relative paths so requests go through Vite proxy (no CORS)
-const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
+const IMAGE_BASE = import.meta.env.DEV
+  ? ''
+  : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
 
 function resolveImageUrl(p) {
   if (!p) return null
@@ -36,7 +37,7 @@ const engagementMemo = ref({})
 // Friends-prefixed comment endpoints
 const COMMENTS_EP = {
   get: '/friends/getCommentsbyPostId',
-  add: '/friends/commentPost', 
+  add: '/friends/commentPost',
   del: '/friends/deleteComment',
   edit: '/friends/editComment',
 }
@@ -119,7 +120,7 @@ async function loadComments(postId) {
   commentsForPostId.value = postId
   try {
     const response = await api.post(COMMENTS_EP.get, { postid: String(postId) })
-    
+
     const rawComments = Array.isArray(response.data?.data) ? response.data.data : []
     comments.value = await enrichCommentsWithProfiles(rawComments)
     setCommentCountForPost(postId, comments.value.length)
@@ -2169,9 +2170,14 @@ watch(
               aria-pressed="friendsOnly ? 'true' : 'false'"
               title="Friends only"
             >
-              <img src="/images/friends.png" alt="Friends" class="icon-20 me-1" />
+              <img
+                :src="friendsOnly ? '/images/friends_white.png' : '/images/friends.png'"
+                alt="Friends"
+                class="icon-20 me-1"
+              />
               <span class="seg-label">Friends</span>
             </button>
+
             <button
               type="button"
               class="seg-btn"
@@ -2180,7 +2186,11 @@ watch(
               aria-pressed="!friendsOnly ? 'true' : 'false'"
               title="Public"
             >
-              <img src="/images/everyone.png" alt="Public" class="icon-20 me-1" />
+              <img
+                :src="!friendsOnly ? '/images/everyone_white.png' : '/images/everyone.png'"
+                alt="Public"
+                class="icon-20 me-1"
+              />
               <span class="seg-label">Public</span>
             </button>
           </div>
@@ -2976,7 +2986,7 @@ img[alt='avatar'] {
 
 .fb-sticky-nav {
   position: sticky;
-  top: calc(56px + 21px); /* add 12px space below navbar */
+  top: calc(56px + 5px); /* add 12px space below navbar */
   z-index: 1000;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
   background: var(--surface, #fff);

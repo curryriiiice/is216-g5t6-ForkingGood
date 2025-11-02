@@ -2,7 +2,6 @@
 import { ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import axios from 'axios'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
 import Modal from '@/components/Modal.vue'
 import { useAuthUser } from '@/lib/useAuthUser'
@@ -11,6 +10,19 @@ import api from '@/lib/api.js'
 
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || API_BASE
+
+function resolveImageUrl(p) {
+  if (!p) return null
+  let s = String(p)
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
+  s = s.replace(/^[./]+/, '').replace(/^\/+/, '')
+  return IMAGE_BASE ? `${IMAGE_BASE}/${s}` : `/${s}`
+}
 
 // --- THEME PERSISTENCE ---
 // Apply theme from localStorage on mount
@@ -137,6 +149,79 @@ function normalizePriceIndex(v) {
   return null
 }
 
+function eqIgnoreCase(a, b) {
+  if (!a || !b) return false
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase()
+}
+
+function rowMatchesSelectedFilters(row) {
+  const areaFilter = selectedArea.value
+  if (areaFilter && areaFilter !== 'All') {
+    const rowArea =
+      row.area ||
+      row.location ||
+      row.loc ||
+      row.neighbourhood ||
+      row.neighborhood ||
+      inferArea(row.address || row.restaurant_address || row.restaurant?.address || '')
+    if (!eqIgnoreCase(rowArea, areaFilter)) return false
+  }
+
+  const cuisineFilter = selectedCuisine.value
+  if (cuisineFilter && cuisineFilter !== 'All') {
+    const rowCuisine = row.cuisine_type || row.cuisine || row.cuisineType || ''
+    if (!eqIgnoreCase(rowCuisine, cuisineFilter)) return false
+  }
+
+  const priceFilter = selectedPrice.value
+  if (priceFilter && priceFilter !== 'All') {
+    const want = priceSymbolToIndex(priceFilter)
+    if (want !== null) {
+      const cand = [row.price_range, row.price_level, row.price, row.price_symbol]
+      const hasMatch = cand.some((v) => {
+        const have = normalizePriceIndex(v)
+        return have !== null && have === want
+      })
+      if (!hasMatch) return false
+    }
+  }
+
+  return true
+}
+
+async function includeOwnPosts(rows, email) {
+  if (!email || !Array.isArray(rows)) return
+  const seen = new Set(
+    rows
+      .map((r) => r && (r.postid || r.post_id || r.id))
+      .filter(Boolean)
+      .map((id) => String(id)),
+  )
+
+  try {
+    const res = await api.post('/user/getUserPosts', {
+      user_email: email,
+      friends: false,
+    })
+    const mine = Array.isArray(res.data?.data) ? res.data.data : []
+    for (const row of mine) {
+      const pid = row?.postid || row?.post_id || row?.id
+      if (!pid) continue
+      const key = String(pid)
+      if (seen.has(key)) continue
+      if (!rowMatchesSelectedFilters(row)) continue
+      rows.push(row)
+      seen.add(key)
+    }
+  } catch (e) {
+    console.warn(
+      '[map] includeOwnPosts failed:',
+      e?.response?.status,
+      e?.response?.data || e?.message || e,
+    )
+  }
+}
+
 /** Cuisine options from backend */
 const cuisineOptions = computed(() => cuisines.value)
 
@@ -217,15 +302,17 @@ async function loadPinsFromFilters() {
     }
   }
 
-  const rows = await getFilteredPosts(payload)
-  console.log('[api] rows returned:', rows.length, rows[0])
+  const fetchedRows = await getFilteredPosts(payload)
+  const safeRows = Array.isArray(fetchedRows) ? [...fetchedRows] : []
+  await includeOwnPosts(safeRows, email)
+  console.log('[api] rows (with mine) returned:', safeRows.length, safeRows[0])
 
   // Strict FE price filter so $$$ and $$$$ are never grouped
-  let filteredRows = rows
+  let filteredRows = safeRows
   if (selectedPrice.value && selectedPrice.value !== 'All') {
     const want = priceSymbolToIndex(selectedPrice.value)
     if (want !== null) {
-      filteredRows = rows.filter((r) => {
+      filteredRows = safeRows.filter((r) => {
         const cand = [r.price_range, r.price_level, r.price, r.price_symbol]
         for (const v of cand) {
           const have = normalizePriceIndex(v)
@@ -247,6 +334,7 @@ async function loadPinsFromFilters() {
 
   // 1) Group rows by restaurant_id → postsByRestaurant
   const groups = new Map()
+  const allPosts = []
 
   for (const r of filteredRows) {
     const lat = Number(r.lat ?? r.latitude)
@@ -264,11 +352,22 @@ async function loadPinsFromFilters() {
       ? r.is_public
       : (typeof r.public === 'boolean')
         ? r.public
-        : (typeof r['public?'] === 'boolean')
-          ? r['public?']
-          : null
+          : (typeof r['public?'] === 'boolean')
+            ? r['public?']
+            : null
 
     // Normalize a post object for the drawer list
+    const posterEmail =
+      r.poster_email || r.user_email || r.owner_email || r.email || r.userEmail || null
+    const rawAvatar =
+      r.poster_avatar ||
+      r.avatar ||
+      r.profile_pic ||
+      r.user_avatar ||
+      r.avatar_url ||
+      r.poster_profile_pic ||
+      r.profile_image_url ||
+      null
     const post = {
       id: r.postid || r.post_id,
       rating: Number(r.rating ?? 0),
@@ -282,7 +381,8 @@ async function loadPinsFromFilters() {
         user_has_upvoted: r.user_has_upvoted ?? false,
         comments: r.comments ?? [],
       },
-      user: { id: r.poster_username, name: r.poster_username, username: r.poster_username },
+      poster_email: posterEmail,
+      user_email: posterEmail,
       restaurant: {
         id: restaurantId,
         name: restaurantName,
@@ -292,10 +392,19 @@ async function loadPinsFromFilters() {
         longitude: lng,
       },
     }
-
+  const baseAvatar = resolveImageUrl(rawAvatar)
+  post.user = {
+    id: r.poster_username || posterEmail,
+    name: r.poster_username || posterEmail,
+    username: r.poster_username || posterEmail,
+    email: posterEmail,
+    avatar: baseAvatar,
+  }
     if (!groups.has(restaurantId)) groups.set(restaurantId, [])
     groups.get(restaurantId).push(post)
+    allPosts.push(post)
   }
+
 
   // 2) Convert groups → unique pins (one per restaurant), using first post as the representative
   const nextPins = []
@@ -933,12 +1042,12 @@ function addPinsWith(GMarker) {
           console.warn('[infoWindow] view-post button not found for', id, pin)
           return
         }
-        btn.addEventListener('click', () => {
-          selected.value = pin
-          selectedPost.value = null
-          selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
-          infoWindow.value.close()
-        })
+        btn.addEventListener('click', async () => {
+        selected.value = pin
+        selectedPost.value = null
+        selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
+        infoWindow.value.close()
+      })
       })
     })
     ALL_MARKERS.add(marker)
@@ -946,7 +1055,7 @@ function addPinsWith(GMarker) {
   }
 }
 
-function focusRestaurant(restaurantId, { openDrawer = false } = {}) {
+async function focusRestaurant(restaurantId, { openDrawer = false } = {}) {
   const pin = pins.value.find((p) => String(p.restaurant_id) === String(restaurantId))
   if (!pin || !map.value) return
 
@@ -977,7 +1086,7 @@ function focusRestaurant(restaurantId, { openDrawer = false } = {}) {
   }
 }
 
-function openDrawerFor(restaurantId) {
+async function openDrawerFor(restaurantId) {
   const firstPin = pins.value.find((p) => String(p.restaurant_id) === String(restaurantId))
   if (firstPin) {
     selected.value = firstPin
@@ -1024,10 +1133,59 @@ function renderInfoWindow(pin) {
   `
 }
 
-function goToPost(postId) {
-  if (!postId) return
-  // Navigate to Dashboard with a query param the home page can use to highlight/scroll
-  router.push({ path: '/dashboard', query: { postId: String(postId) } })
+function findPostById(postId) {
+  const id = String(postId || '')
+  if (!id) return null
+
+  const groups = postsByRestaurant.value
+  if (!(groups instanceof Map)) return null
+
+  const rid = postIdToRestaurantId.value.get(id)
+  if (rid) {
+    const arr = groups.get(rid)
+    if (Array.isArray(arr)) {
+      const hit = arr.find((p) => String(p?.id ?? '') === id)
+      if (hit) return hit
+    }
+  }
+
+  for (const arr of groups.values()) {
+    if (!Array.isArray(arr)) continue
+    const hit = arr.find((p) => String(p?.id ?? '') === id)
+    if (hit) return hit
+  }
+  return null
+}
+
+function goToPost(postOrId) {
+  if (!postOrId) return
+
+  const post =
+    typeof postOrId === 'object' && postOrId !== null
+      ? postOrId
+      : findPostById(postOrId)
+
+  if (!post) return
+
+  const pid = String(post.id || post.postid || '')
+  if (!pid) return
+
+  const ownerEmail =
+    post.poster_email ||
+    post.user_email ||
+    post.owner_email ||
+    (post.user && post.user.email) ||
+    post.email ||
+    null
+
+  const isMine =
+    ownerEmail && activeEmail.value && eqIgnoreCase(ownerEmail, activeEmail.value)
+
+  if (isMine) {
+    router.push({ path: '/activity', query: { postId: pid, tab: 'myPosts' } })
+  } else {
+    router.push({ path: '/dashboard', query: { postId: pid } })
+  }
 }
 
 /* -----------------
@@ -1143,25 +1301,38 @@ function clearFilters() {
       <!-- Top scope + Filter pill toolbar -->
       <div class="d-flex align-items-center justify-content-between mb-2 filter-toolbar toolbar-container">
         <div class="segmented bg-white shadow-sm tool-left" role="tablist" aria-label="Feed scope">
+          <!-- Friends Only -->
           <button
             type="button"
             class="seg-btn"
             :class="{ active: feedScope === 'friends' }"
             @click="feedScope = 'friends'"
-            aria-pressed="feedScope === 'friends' ? 'true' : 'false'"
-            title="Friends only">
-            <span class="seg-ico" aria-hidden="true">👥</span>
-            <span class="seg-label">Friends</span>
+            :aria-pressed="feedScope === 'friends' ? 'true' : 'false'"
+            title="Friends only"
+          >
+            <img
+              :src="feedScope === 'friends' ? '/images/friends_white.png' : '/images/friends.png'"
+              alt="Friends"
+              class="icon-20 me-1"
+            />
+            <span class="seg-label">Friends Only</span>
           </button>
+
+          <!-- Everyone -->
           <button
             type="button"
             class="seg-btn"
             :class="{ active: feedScope === 'public' }"
             @click="feedScope = 'public'"
-            aria-pressed="feedScope === 'public' ? 'true' : 'false'"
-            title="Public">
-            <span class="seg-ico" aria-hidden="true">🌐</span>
-            <span class="seg-label">Public</span>
+            :aria-pressed="feedScope === 'public' ? 'true' : 'false'"
+            title="Public"
+          >
+            <img
+              :src="feedScope === 'public' ? '/images/everyone_white.png' : '/images/everyone.png'"
+              alt="Public"
+              class="icon-20 me-1"
+            />
+            <span class="seg-label">Everyone</span>
           </button>
         </div>
 
@@ -1431,22 +1602,15 @@ function clearFilters() {
               class="card mb-3 border-0 shadow-sm card-hover card-clickable"
               role="button"
               tabindex="0"
-              @click="goToPost(p.id)"
-              @keydown.enter="goToPost(p.id)"
+              @click="goToPost(p)"
+              @keydown.enter="goToPost(p)"
             >
               <div class="card-body">
                 <div class="d-flex align-items-center mb-2">
-                  <img
-                    :src="p.user?.avatar || '/images/avatar1.png'"
-                    class="rounded-circle me-2"
-                    style="width: 36px; height: 36px; object-fit: cover"
-                    alt=""
-                  />
-                  <div>
+                  <div class="flex-grow-1 me-2">
                     <div class="fw-bold text-dark">
                       {{ p.user?.name || p.user?.username || p.user?.id }}
                     </div>
-                    
                   </div>
                   <div class="ms-auto">
                     <div class="vis-badge" v-if="p.is_public !== null">
