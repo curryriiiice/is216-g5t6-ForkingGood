@@ -568,7 +568,10 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 
       <div>
         <div v-show="activeTab === 'myPosts'">
-          <div v-if="loadingMyPosts" class="text-center text-muted py-5">Loading your posts…</div>
+          <div v-if="loadingMyPosts" class="text-center text-muted py-5">
+              <div class="loading-fork mb-2">🍴</div>
+              <br></br>Loading your posts…
+          </div>
           <div v-else-if="errorMyPosts" class="alert alert-danger py-2">{{ errorMyPosts }}</div>
           <div
             v-else-if="!myPosts.length"
@@ -658,24 +661,24 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             </div>
             <div class="d-flex gap-2">
               <button
-                class="btn btn-sm btn-outline-secondary"
-                :disabled="c.commenter_email !== activeEmail"
-                @click="
-                  () => {
-                    newComment = c.comment
-                    editingComment = c
-                  }
-                "
-              >
-                Edit
-              </button>
-              <button
-                class="btn btn-sm btn-outline-danger"
-                @click="deleteComment(c)"
-                :disabled="c.commenter_email !== activeEmail"
-              >
-                Delete
-              </button>
+                  v-if="c.commenter_email === activeEmail"
+                  class="btn btn-sm btn-outline-secondary"
+                  @click="
+                    () => {
+                      newComment = c.comment
+                      editingComment = c
+                    }
+                  "
+                >
+                  Edit
+                </button>
+                <button
+                  v-if="c.commenter_email === activeEmail"
+                  class="btn btn-sm btn-outline-danger"
+                  @click="deleteComment(c)"
+                >
+                  Delete
+            </button>
             </div>
           </li>
         </ul>
@@ -809,6 +812,17 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 
 <style scoped>
 /* All styles rely on theme variables */
+.loading-fork {
+  animation: spin 1s linear infinite;
+  font-size: 50px;
+  display: inline-block;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .page {
   min-height: calc(100vh - 56px);
   padding: 18px 0 80px;

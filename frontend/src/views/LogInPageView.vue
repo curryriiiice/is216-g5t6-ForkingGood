@@ -13,7 +13,7 @@
             v-model.trim="identifier"
             type="text"
             class="input"
-            placeholder="you@example.com or @yourhandle"
+            placeholder="you@example.com"
             autocomplete="username"
             required
           />

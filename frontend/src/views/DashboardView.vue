@@ -2496,8 +2496,8 @@ watch(
           </div>
           <div class="d-flex gap-2">
             <button
+              v-if="c.commenter_email === activeEmail"
               class="btn btn-sm btn-outline-secondary"
-              :disabled="c.commenter_email !== activeEmail"
               @click="
                 () => {
                   newComment = c.comment
@@ -2508,9 +2508,9 @@ watch(
               Edit
             </button>
             <button
+              v-if="c.commenter_email === activeEmail"
               class="btn btn-sm btn-outline-danger"
               @click="deleteComment(c)"
-              :disabled="c.commenter_email !== activeEmail"
             >
               Delete
             </button>

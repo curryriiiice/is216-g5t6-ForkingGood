@@ -11,8 +11,7 @@ import api from '@/lib/api.js'
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || API_BASE
+const IMAGE_BASE = import.meta.env.DEV ? '' : import.meta.env.VITE_IMAGE_BASE_URL || api.defaults.baseURL
 
 function resolveImageUrl(p) {
   if (!p) return null
@@ -1531,7 +1530,12 @@ function clearFilters() {
     <div ref="mapEl" class="map sage-map" :class="{ 'map-compact': !filtersOpen }"></div>
 
     <!-- Overlays -->
-    <div v-if="loading" class="overlay">Loading map…</div>
+    <div v-if="loading" class="overlay">
+      <div class="text-center text-muted">
+        <div class="loading-compass mb-2">🧭</div><br></br>
+        Loading map...
+      </div>
+    </div>
     <!-- <div v-else-if="error" class="overlay error">{{ error }}</div> -->
     <div v-else-if="!loading && !error && !filteredPins.length" class="overlay">
       <div class="text-muted small bg-white rounded-3 px-3 py-2 shadow-sm">
@@ -1668,6 +1672,17 @@ function clearFilters() {
 </template>
 
 <style scoped>
+.loading-compass {
+  animation: spin 1s linear infinite;
+  font-size: 50px;
+  display: inline-block;
+}
+
+@keyframes spin-compass {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
 .page {
   position: relative;
   min-height: 100vh; /* allow for content to grow */
