@@ -1925,7 +1925,19 @@ function handleAdded() {
 function viewOnMap(post) {
   const pid = String(post?.id ?? post?.postid ?? '')
   const rid = String(post?.restaurant?.id ?? post?.restaurant_id ?? post?.restaurant?.name ?? '')
-  const scope = friendsOnly.value ? 'friends' : 'public'
+  const rawVis = post?.is_public ?? post?.raw?.public ?? null
+  let scope = null
+  if (rawVis !== null && rawVis !== undefined) {
+    const str = typeof rawVis === 'string' ? rawVis.trim().toLowerCase() : rawVis
+    if (str === false || str === 0 || str === '0' || str === 'false' || str === 'f' || str === 'friends' || str === 'friends_only' || str === 'private') {
+      scope = 'friends'
+    } else if (str === true || str === 1 || str === '1' || str === 'true' || str === 't' || str === 'public' || str === 'everyone') {
+      scope = 'public'
+    }
+  }
+  if (!scope) {
+    scope = friendsOnly.value ? 'friends' : 'public'
+  }
   const query = { feed: scope }
   if (pid) query.postId = pid
   if (rid) query.restaurant = rid
