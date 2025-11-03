@@ -919,7 +919,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                 {{ profileData.isFriend ? 'This user hasn\'t posted anything yet.' : 'This user hasn\'t made any public posts yet.' }}
             </div>
             <div v-else class="row g-2 profile-posts-grid"> 
-              <div v-for="post in profilePosts" :key="post.id" class="col-12 col-md-6 col-lg-4">
+              <div v-for="post in profilePosts" :key="post.id" class="col-12 col-md-6 col-lg-6 col-xl-4">
                     <div
                         class="h-100 card-clickable"
                         @click="onCardClick($event, post)"
@@ -1171,6 +1171,17 @@ watch(activeEmail, async (newEmail, oldEmail) => {
   max-width: min(1200px, 96vw);
   margin: 0 auto;
 }
+:deep(.preview-modal-on-top .modal-body) {
+  padding: 1rem 1.25rem;
+}
+:deep(.preview-card .author) {
+  gap: 0 !important;
+  cursor: default !important;
+}
+:deep(.preview-card .author .name) {
+  margin-left: 0 !important;
+  display: inline-block;
+}
 :deep(.modal .modal-content) {
   max-height: 96vh;
   overflow: auto;
@@ -1222,5 +1233,19 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 
 .col-12:first-child .section-divider {
   margin-top: 0;
+}
+
+@media (max-width: 575.98px) {
+  .preview-card {
+    max-width: 100vw;
+    margin: 0;
+    border-radius: 0;
+  }
+  .preview-wrap {
+    padding: 0;
+  }
+  :deep(.preview-modal-on-top .modal-body) {
+    padding: 0;
+  }
 }
 </style>

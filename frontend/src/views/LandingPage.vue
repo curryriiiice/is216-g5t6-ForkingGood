@@ -17,8 +17,8 @@
 
         <!-- Right: auth CTAs -->
         <div class="right">
-          <router-link to="/signup" class="btn-solid" data-animate="fadeInRight" data-delay=".05s">Sign Up</router-link>
-
+          
+          <router-link to="/login" class="btn-ghost" data-animate="fadeInRight" data-delay=".15s">Log In</router-link>
           <!-- Hamburger (mobile) -->
           <button
             type="button"
@@ -35,7 +35,7 @@
               <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
             </svg>
           </button>
-          <router-link to="/login" class="btn-ghost" data-animate="fadeInRight" data-delay=".15s">Log In</router-link>
+          
         </div>
       </div>
     </nav>
@@ -43,14 +43,21 @@
     <!-- Mobile overlay menu -->
     <transition name="mm-fade">
       <div v-if="showMobileMenu" class="mm-overlay" @click="showMobileMenu = false">
-        <div id="lp-mobile-menu" class="mm-panel" @click.stop>
+        <div id="lp-mobile-menu" class="mm-panel position-relative" @click.stop>
+          <button
+            type="button"
+            class="mm-close"
+            aria-label="Close menu"
+            @click="showMobileMenu = false"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+
           <a href="#features" class="mm-link" @click="showMobileMenu = false">Features</a>
           <a href="#how" class="mm-link" @click="showMobileMenu = false">How it works</a>
           <hr class="mm-sep" />
-          <div class="d-flex gap-2">
-            <router-link to="/login" class="btn-ghost w-100" @click="showMobileMenu = false">Log In</router-link>
-            <router-link to="/signup" class="btn-solid w-100" @click="showMobileMenu = false">Sign Up</router-link>
-          </div>
         </div>
       </div>
     </transition>
@@ -193,19 +200,11 @@
         <p class="small text-muted mb-0">
           © {{ new Date().getFullYear() }} ForkingGood. Built with ❤️ in SG.
         </p>
-        <div class="d-flex gap-3 small">
-          <router-link to="/privacy" class="link-secondary text-decoration-none"
-            >Privacy</router-link
-          >
-          <router-link to="/terms" class="link-secondary text-decoration-none">Terms</router-link>
-        </div>
+        
       </div>
     </footer>
 
-    <!-- Floating mobile CTA -->
-    <router-link to="/login" class="btn btn-outline-secondary btn-lg d-md-none cta-fab animate__animated animate__fadeInUp" style="animation-delay: .4s;">
-      Log In
-    </router-link>
+    
   </div>
 </template>
 
@@ -440,4 +439,17 @@ h4 {
 /* Animate.css scroll-reveal helpers */
 .reveal { opacity: 0; transform: translateY(6px); }
 .reveal.show { opacity: 1; transform: none; }
+
+/* Close (X) button for mobile menu */
+.mm-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #111827;
+  padding: 4px;
+}
+.mm-close svg { display: block; }
 </style>
