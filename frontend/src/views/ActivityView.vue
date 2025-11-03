@@ -896,20 +896,107 @@ watch(activeTab, () => {
       />
     </Modal>
 
-    <Modal :show="showConfirmDelete" title="Delete Post" @close="closeDeleteConfirm" modal-class="comments-modal-on-top">
-        <div v-if="postToDelete" class="p-2">
-            <p>Are you sure you want to permanently delete your post for <strong>{{ postToDelete.restaurant?.name || 'this post' }}</strong>?</p>
-            <div class="d-flex justify-content-end gap-2 mt-4">
-                 <button class="btn btn-outline-secondary" @click="closeDeleteConfirm" :disabled="isDeleting">Cancel</button>
-                 <button class="btn btn-danger" @click="confirmDeletePost" :disabled="isDeleting">
-                    <span v-if="isDeleting" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                    {{ isDeleting ? 'Deleting...' : 'Confirm Delete' }}
-                 </button>
+    <Modal :show="showPreview" title="Post Preview" @close="closePreview" size="lg" modal-class="modal-level-2">
+      <div class="preview-wrap">
+        <div class="card themed-card position-relative preview-card" v-if="previewPost">
+          <PostCard
+            :post="previewPost"
+            :feed="previewPost?.is_public ? 'public' : 'friends'"
+            :controls="true"
+            :caption-max-lines="0"
+            :current-user-email="activeEmail"
+            :external-comment-count="commentCounts[previewPost?.id] ?? commentCounts[previewPost?.postid] ?? (previewPost?.raw?.comments?.length || 0)"
+            :show-owner-menu="previewPost?.user?.id === activeEmail"
+            @open-comments="onOpenComments"
+            @open-profile="viewProfile"
+            @view-on-map="viewOnMap"
+            @updated="applyPostPatch"
+            @post-updated="applyPostPatch"
+            @liked="applyPostPatch"
+            @unliked="applyPostPatch"
+            @edit-post="onEditPost"
+            @delete-post="onDeletePost"
+          />
+        </div>
+      </div>
+    </Modal>
+   
+    <Modal :show="showProfileModal" :title="`${profileData?.name || 'User Profile'}`" @close="closeProfileModal" size="lg" modal-class="modal-level-1">
+        <div v-if="profileData" class="profile-modal-content">
+            <div class="profile-header d-flex align-items-center gap-3 mb-4 p-3 bg-light rounded border">
+                 <img
+                    :src="profileData.avatar"
+                    alt="Avatar"
+                    class="rounded-circle flex-shrink-0"
+                    style="width: 80px; height: 80px; object-fit: cover; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+                    @error="$event.target.src='/default-avatar.jpg'"
+                 />
+                 <div class="flex-grow-1" style="min-width: 0">
+                    <div class="fw-bold h5 mb-0 text-truncate">{{ profileData.name }}</div>
+                    <div class="text-muted small text-truncate">{{ profileData.email }}</div>
+                 </div>
+                 <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
+                    <button v-if="profileData.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(profileData)"> Remove </button>
+                    <button v-else-if="profileData.isPending" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
+                    <button v-else-if="profileData.email !== activeEmail" class="btn btn-sm btn-fit" @click="sendFriendReq(profileData)"> Add </button>
+                 </div>
+            </div>
+
+            <h6 class="fw-semibold mb-3 ps-1 section-sub-title">
+              Posts {{ profileData.isFriend ? '' : '(Public Only)' }}
+            </h6>
+            <div v-if="profileLoading" class="text-center text-muted py-4">
+              <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Loading...</span></div>
+              <span class="ms-2">Loading posts...</span>
+            </div>
+            <div v-else-if="profileError" class="alert alert-warning py-2 small">{{ profileError }}</div>
+            <div v-else-if="!profilePosts.length" class="text-center text-muted py-4 small profile-empty-posts">
+                {{ profileData.isFriend ? "This user hasn't posted anything yet." : "This user hasn't made any public posts yet." }}
+            </div>
+            <div v-else class="row g-2 profile-posts-grid">
+                 <div v-for="post in profilePosts" :key="post.id" class="col-6">
+                    <div
+                        class="card post-card h-100 border-0 card-clickable profile-post-card"
+                        @click="onCardClick($event, post)"
+                        role="button"
+                        tabindex="0"
+                        :title="`View post for ${post.restaurant?.name || 'post'}`"
+                    >
+                        <PostCard
+                          :post="post"
+                          :controls="false"
+                          :current-user-email="activeEmail"
+                          :external-comment-count="commentCounts[post.id] ?? 0"
+                          @open-comments="onOpenComments"
+                          @open-profile="viewProfile"
+                          @view-on-map="viewOnMap"
+                          @updated="applyPostPatch"
+                          @post-updated="applyPostPatch"
+                          @liked="applyPostPatch"
+                          @unliked="applyPostPatch"
+                          class="h-100"
+                        />
+                    </div>
+                 </div>
             </div>
         </div>
+        <div v-else class="text-center text-muted py-5">Loading profile...</div>
     </Modal>
 
-    <Modal :show="showComments" title="Comments" @close="closeComments" modal-class="comments-modal-on-top">
+    <Modal :show="showConfirmDelete" title="Delete Post" @close="closeDeleteConfirm" modal-class="modal-level-3">
+      <div v-if="postToDelete" class="p-2">
+        <p>Are you sure you want to permanently delete your post for <strong>{{ postToDelete.restaurant?.name || 'this post' }}</strong>?</p>
+          <div class="d-flex justify-content-end gap-2 mt-4">
+            <button class="btn btn-outline-secondary" @click="closeDeleteConfirm" :disabled="isDeleting">Cancel</button>
+            <button class="btn btn-danger" @click="confirmDeletePost" :disabled="isDeleting">
+            <span v-if="isDeleting" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+            {{ isDeleting ? 'Deleting...' : 'Confirm Delete' }}
+            </button>
+          </div>
+      </div>
+    </Modal>
+
+    <Modal :show="showComments" title="Comments" @close="closeComments" modal-class="modal-level-3">
       <div class="container py-2">
         <div v-if="!comments.length" class="text-muted mb-2">No comments yet. Be the first!</div>
         <ul class="list-unstyled mb-3">
@@ -980,105 +1067,6 @@ watch(activeTab, () => {
       </div>
     </Modal>
 
-    <Modal :show="showPreview" title="Post Preview" @close="closePreview" size="lg" modal-class="preview-modal-on-top">
-      <div class="preview-wrap">
-        <div class="card themed-card position-relative preview-card" v-if="previewPost">
-          <PostCard
-            :post="previewPost"
-            :feed="previewPost?.is_public ? 'public' : 'friends'"
-            :controls="true"
-            :caption-max-lines="0"
-            :current-user-email="activeEmail"
-            :external-comment-count="commentCounts[previewPost?.id] ?? commentCounts[previewPost?.postid] ?? (previewPost?.raw?.comments?.length || 0)"
-            :show-owner-menu="previewPost?.user?.id === activeEmail"
-            @open-comments="onOpenComments"
-            @open-profile="viewProfile"
-            @view-on-map="viewOnMap"
-            @updated="applyPostPatch"
-            @post-updated="applyPostPatch"
-            @liked="applyPostPatch"
-            @unliked="applyPostPatch"
-            @edit-post="onEditPost"
-            @delete-post="onDeletePost"
-          />
-        </div>
-      </div>
-    </Modal>
-    
-    <Modal :show="showProfileModal" :title="`${profileData?.name || 'User Profile'}`" @close="closeProfileModal" size="lg" modal-class="comments-modal-on-top">
-        <div v-if="profileData" class="profile-modal-content">
-            <div class="profile-header d-flex align-items-center gap-3 mb-4 p-3 bg-light rounded border">
-                 <img
-                    :src="profileData.avatar"
-                    alt="Avatar"
-                    class="rounded-circle flex-shrink-0"
-                    style="width: 80px; height: 80px; object-fit: cover; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
-                    @error="$event.target.src='/default-avatar.jpg'"
-                 />
-                 <div class="flex-grow-1" style="min-width: 0">
-                    <div class="fw-bold h5 mb-0 text-truncate">{{ profileData.name }}</div>
-                    <div class="text-muted small text-truncate">{{ profileData.email }}</div>
-                 </div>
-                 <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
-                    <button v-if="profileData.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(profileData)"> Remove </button>
-                    <button v-else-if="profileData.isPending" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
-                    <button v-else-if="profileData.email !== activeEmail" class="btn btn-sm btn-fit" @click="sendFriendReq(profileData)"> Add </button>
-                 </div>
-            </div>
-
-            <h6 class="fw-semibold mb-3 ps-1 section-sub-title">
-              Posts {{ profileData.isFriend ? '' : '(Public Only)' }}
-            </h6>
-            <div v-if="profileLoading" class="text-center text-muted py-4">
-              <div class="spinner-border spinner-border-sm text-secondary" role="status"><span class="visually-hidden">Loading...</span></div>
-              <span class="ms-2">Loading posts...</span>
-            </div>
-            <div v-else-if="profileError" class="alert alert-warning py-2 small">{{ profileError }}</div>
-            <div v-else-if="!profilePosts.length" class="text-center text-muted py-4 small profile-empty-posts">
-                {{ profileData.isFriend ? "This user hasn't posted anything yet." : "This user hasn't made any public posts yet." }}
-            </div>
-            <div v-else class="row g-2 profile-posts-grid">
-                 <div v-for="post in profilePosts" :key="post.id" class="col-6">
-                    <div
-                        class="card post-card h-100 border-0 card-clickable profile-post-card"
-                        @click="onCardClick($event, post)"
-                        role="button"
-                        tabindex="0"
-                        :title="`View post for ${post.restaurant?.name || 'post'}`"
-                    >
-                        <PostCard
-                          :post="post"
-                          :controls="false"
-                          :current-user-email="activeEmail"
-                          :external-comment-count="commentCounts[post.id] ?? 0"
-                          @open-comments="onOpenComments"
-                          @open-profile="viewProfile"
-                          @view-on-map="viewOnMap"
-                          @updated="applyPostPatch"
-                          @post-updated="applyPostPatch"
-                          @liked="applyPostPatch"
-                          @unliked="applyPostPatch"
-                          class="h-100"
-                        />
-                    </div>
-                 </div>
-            </div>
-        </div>
-        <div v-else class="text-center text-muted py-5">Loading profile...</div>
-    </Modal>
-
-    <Modal :show="showConfirmRemoveModal" title="Remove Friend" @close="cancelRemove" modal-class="comments-modal-on-top">
-        <div v-if="userToRemove" class="p-2">
-            <p>Are you sure you want to remove <strong>{{ userToRemove.name || userToRemove.email }}</strong> from your friends list?</p>
-            <div class="d-flex justify-content-end gap-2 mt-4">
-                 <button class="btn btn-outline-secondary" @click="cancelRemove" :disabled="removingFriend">Cancel</button>
-                 <button class="btn btn-danger" @click="confirmRemove" :disabled="removingFriend">
-                    <span v-if="removingFriend" class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                    {{ removingFriend ? 'Removing...' : 'Confirm Remove' }}
-                 </button>
-            </div>
-        </div>
-    </Modal>
 
   </div>
 </template>
@@ -1277,10 +1265,14 @@ watch(activeTab, () => {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
-:deep(.preview-modal-on-top .modal-overlay) { z-index: 1060; }
-:deep(.preview-modal-on-top .modal-dialog) { z-index: 1061; }
-:deep(.comments-modal-on-top .modal-overlay) { z-index: 1070; }
-:deep(.comments-modal-on-top .modal-dialog) { z-index: 1071; }
+.modal-level-1 .modal-overlay { z-index: 1060 !important; }
+.modal-level-1 .modal-dialog { z-index: 1061 !important; }
+
+.modal-level-2 .modal-overlay { z-index: 1070 !important; }
+.modal-level-2 .modal-dialog { z-index: 1071 !important; }
+
+.modal-level-3 .modal-overlay { z-index: 1080 !important; }
+.modal-level-3 .modal-dialog { z-index: 1081 !important; }
 
 .preview-wrap { position: relative; }
 .preview-card { max-width: min(1200px, 96vw); margin: 0 auto; }
