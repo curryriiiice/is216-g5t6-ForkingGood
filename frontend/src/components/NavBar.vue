@@ -6,6 +6,7 @@
         <img src="/images/forkinggood-logo.png" alt="ForkingGood" class="brand-logo" />
       </RouterLink>
       <button
+        v-if="!isMobile"
         type="button"
         class="rev-btn with-icon"
         @click="openReversePopup"
@@ -198,6 +199,11 @@
         @click.self="closeMobileMenu"
       >
         <div class="mm-panel" role="menu">
+          <button type="button" class="mm-close" aria-label="Close menu" @click="closeMobileMenu">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 6l12 12M18 6l-12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
           <RouterLink to="/dashboard" class="mm-link" role="menuitem" @click="closeMobileMenu">Home</RouterLink>
           <RouterLink to="/map" class="mm-link" role="menuitem" @click="closeMobileMenu">Map</RouterLink>
           <RouterLink to="/activity" class="mm-link" role="menuitem" @click="closeMobileMenu">Activity</RouterLink>
@@ -215,8 +221,8 @@
             class="rev-btn with-icon mm-rev"
             @click="() => { closeMobileMenu(); openReversePopup(); }"
           >
-            <img src="/images/Search.png" alt="" aria-hidden="true" class="btn-icon" />
-            <span>Image Search</span>
+            <img src="/images/Upload.png" alt="" aria-hidden="true" class="btn-icon" />
+            <span class="rev-text">Image Search</span>
           </button>
         </div>
       </div>
@@ -262,6 +268,25 @@ const showAvatarMenu = ref(false)
 function toggleAvatarMenu() {
   showAvatarMenu.value = !showAvatarMenu.value
 }
+
+const isMobile = ref(false)
+function updateIsMobile() {
+  if (typeof window === 'undefined') return
+  try {
+    isMobile.value = window.matchMedia('(max-width: 767px)').matches
+  } catch {
+    isMobile.value = window.innerWidth < 768
+  }
+}
+updateIsMobile()
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', updateIsMobile)
+}
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', updateIsMobile)
+  }
+})
 
 /* === Reverse Image Search (single file + cropper) === */
 const showReversePopup = ref(false)
@@ -693,6 +718,7 @@ watch(
 
 /* Lifecycle */
 onMounted(async () => {
+  updateIsMobile()
   bindInteractionListeners()
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
@@ -995,11 +1021,26 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(2px);
 }
 .mm-panel {
-  position: absolute; left: 0; right: 0; top: 0;
+  position: relative;
+  width: 100%;
   background: #ffffff;
   border-bottom-left-radius: 14px; border-bottom-right-radius: 14px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.15);
-  padding: 14px 18px 18px;
+  padding: 46px 18px 18px;
+}
+.mm-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  padding: 6px;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #111827;
+}
+.mm-close:hover {
+  background: #f3f4f6;
 }
 .mm-link {
   display: block; padding: 12px 8px; margin: 2px 0;

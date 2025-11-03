@@ -561,7 +561,16 @@ function normalizePostData(post) {
 function viewOnMap(post) {
    const pid = String(post?.id ?? post?.postid ?? '');
    if (!pid) return;
-   router.push({ path: '/map', query: { postId: pid } });
+   const vis = post?.is_public ?? post?.raw?.public ?? null;
+   const str = typeof vis === 'string' ? vis.trim().toLowerCase() : vis;
+   let isPublic = true;
+   if (str === false || str === 0 || str === '0' || str === 'false' || str === 'f' || str === 'friends' || str === 'friends_only' || str === 'private') {
+     isPublic = false;
+   } else if (str === true || str === 1 || str === '1' || str === 'true' || str === 't' || str === 'public' || str === 'everyone') {
+     isPublic = true;
+   }
+   const query = { postId: pid, feed: isPublic ? 'public' : 'friends' }
+   router.push({ path: '/map', query });
 }
 
 function handleAdded() {
