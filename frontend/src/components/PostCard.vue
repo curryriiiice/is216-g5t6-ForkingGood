@@ -85,6 +85,7 @@ function onImgError(e, original) {
 function onAvatarError(e) {
   e.target.onerror = null
   e.target.src = DEFAULT_AVATAR
+  authorPfpUrl.value = DEFAULT_AVATAR
 }
 
 // ---- Image handling (relative GET, no credentials) ----
@@ -213,6 +214,12 @@ function sanitizeUsername(value) {
   return trimmed
 }
 
+function sanitizeName(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed || null
+}
+
 function sanitizeEmail(value) {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -232,6 +239,32 @@ const authorUsername = computed(() => {
 })
 
 const normalizedAuthorEmail = computed(() => sanitizeEmail(authorEmail.value))
+
+const authorDisplayName = computed(() => {
+  const p = props.post || {}
+  const nameFromEmail = normalizedAuthorEmail.value
+    ? normalizedAuthorEmail.value.split('@')[0]
+    : null
+  return (
+    sanitizeName(p.user?.name) ||
+    sanitizeName(p.user?.full_name) ||
+    sanitizeName(p.user?.display_name) ||
+    sanitizeName(p.poster_name) ||
+    sanitizeName(p.poster_full_name) ||
+    sanitizeName(p.owner_name) ||
+    sanitizeName(p.raw?.user?.name) ||
+    sanitizeName(p.raw?.poster?.name) ||
+    sanitizeName(p.raw?.owner?.name) ||
+    sanitizeUsername(p.user?.username) ||
+    sanitizeUsername(p.poster_username) ||
+    sanitizeUsername(p.username) ||
+    sanitizeUsername(p.raw?.user?.username) ||
+    sanitizeUsername(p.raw?.poster?.username) ||
+    sanitizeUsername(p.raw?.owner?.username) ||
+    nameFromEmail ||
+    'Unknown user'
+  )
+})
 
 const authorPfpUrl = ref(null)
 
@@ -290,7 +323,8 @@ async function fetchPfpByUsername(username) {
   if (cached) return cached
   try {
     const response = await api.post(ENDPOINTS.getPfpByUsername, { username: clean })
-    const rawUrl = response.data?.data || null
+    const rawPayload = response.data
+    const rawUrl = extractAvatarFromResponse(rawPayload?.data ?? rawPayload) || null
     const url = rawUrl ? resolveImageUrl(rawUrl) : null
     if (url) writeCachedAvatar(cacheKey, url)
     return url
@@ -307,7 +341,8 @@ async function fetchPfpByEmail(email) {
   if (cached) return cached
   try {
     const response = await api.post(ENDPOINTS.getPfpByEmail, { user_email: clean })
-    const rawUrl = response.data?.data || null
+    const rawPayload = response.data
+    const rawUrl = extractAvatarFromResponse(rawPayload?.data ?? rawPayload) || null
     const url = rawUrl ? resolveImageUrl(rawUrl) : null
     if (url) writeCachedAvatar(cacheKey, url)
     return url
@@ -446,6 +481,47 @@ const router = useRouter()
 const hasMapTarget = computed(() => {
   const p = props.post || {}
   return Boolean(p.id || p.postid)
+})
+
+const authorAvatarUrl = computed(() => {
+  if (authorPfpUrl.value) return authorPfpUrl.value
+  const p = props.post || {}
+  const candidates = [
+    p.user?.avatar,
+    p.user?.profile_pic,
+    p.user?.profile_image_url,
+    p.user?.profileImageUrl,
+    p.user?.picture,
+    p.user?.photo,
+    p.user?.pfp,
+    p.user?.image,
+    p.user?.avatar_url,
+    p.poster_avatar,
+    p.poster_avatar_url,
+    p.poster_profile_pic,
+    p.poster_profile_image_url,
+    p.posterProfileImageUrl,
+    p.posterAvatar,
+    p.avatar,
+    p.profile_image_url,
+    p.profileImageUrl,
+    p.raw?.user?.avatar,
+    p.raw?.user?.profile_image_url,
+    p.raw?.user?.profileImageUrl,
+    p.raw?.poster?.avatar,
+    p.raw?.poster?.profile_image_url,
+    p.raw?.poster?.profileImageUrl,
+    p.raw?.owner?.avatar,
+    p.raw?.owner?.profile_image_url,
+    p.poster_profile_image,
+    p.posterImage,
+    p.poster?.avatar,
+  ]
+  for (const cand of candidates) {
+    const resolved = resolveImageUrl(cand)
+    if (resolved) return resolved
+  }
+  return DEFAULT_AVATAR
 })
 
 function viewOnMap(p) {
@@ -685,6 +761,17 @@ function openComments() {
   emit('open-comments', { postId })
 }
 
+function openProfile() {
+  const post = props.post || {}
+  const payloadUser =
+    post.user || {
+      email: normalizedAuthorEmail.value,
+      username: authorUsername.value,
+      name: authorDisplayName.value,
+    }
+  emit('open-profile', { post, user: payloadUser })
+}
+
 const resolvedCaptionLines = computed(() => {
   const raw = props.captionMaxLines
   if (raw == null) return 0
@@ -694,10 +781,59 @@ const resolvedCaptionLines = computed(() => {
   return Math.max(1, Math.floor(num))
 })
 
-const isCaptionClamped = computed(() => resolvedCaptionLines.value > 0)
+const isCompactScreen = ref(false)
+let compactMql = null
+let compactMqlListener = null
+
+function setupCompactScreenListener() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    isCompactScreen.value = false
+    return
+  }
+  compactMql = window.matchMedia('(max-width: 575.98px)')
+  isCompactScreen.value = compactMql.matches
+  compactMqlListener = (event) => {
+    isCompactScreen.value = event.matches
+  }
+  if (typeof compactMql.addEventListener === 'function') {
+    compactMql.addEventListener('change', compactMqlListener)
+  } else if (typeof compactMql.addListener === 'function') {
+    compactMql.addListener(compactMqlListener)
+  }
+}
+
+function teardownCompactScreenListener() {
+  if (!compactMql) return
+  if (compactMqlListener) {
+    if (typeof compactMql.removeEventListener === 'function') {
+      compactMql.removeEventListener('change', compactMqlListener)
+    } else if (typeof compactMql.removeListener === 'function') {
+      compactMql.removeListener(compactMqlListener)
+    }
+  }
+  compactMql = null
+  compactMqlListener = null
+}
+
+onMounted(() => {
+  setupCompactScreenListener()
+})
+
+onBeforeUnmount(() => {
+  teardownCompactScreenListener()
+})
+
+const effectiveCaptionLines = computed(() => {
+  const base = resolvedCaptionLines.value
+  if (!base) return 0
+  if (!isCompactScreen.value) return base
+  return Math.max(1, Math.min(base, 3))
+})
+
+const isCaptionClamped = computed(() => effectiveCaptionLines.value > 0)
 
 const captionClampInlineStyle = computed(() => {
-  const lines = resolvedCaptionLines.value
+  const lines = effectiveCaptionLines.value
   if (!lines) return {}
   return {
     display: '-webkit-box',
@@ -876,9 +1012,9 @@ const captionClampInlineStyle = computed(() => {
           </button>
         </div>
 
-        <div class="author" v-if="post.user" style="min-width: 0;" @click.stop="openProfile" role="button" data-stop-preview>
+        <div class="author" v-if="authorDisplayName" style="min-width: 0;" @click.stop="openProfile" role="button" data-stop-preview>
           <img
-            :src="authorPfpUrl || resolveImageUrl(post.user?.avatar) || DEFAULT_AVATAR"
+            :src="authorAvatarUrl"
             class="avatar"
             alt="User avatar"
             width="24"
@@ -886,7 +1022,7 @@ const captionClampInlineStyle = computed(() => {
             crossorigin="anonymous"
             @error="onAvatarError"
           />
-          <span class="name text-truncate">{{ post.user?.name }}</span>
+          <span class="name text-truncate">{{ authorDisplayName }}</span>
         </div>
 
         <button v-if="hasMapTarget" class="map-btn" @click.stop="viewOnMap(post)" title="View on map" data-stop-preview>
@@ -1014,16 +1150,19 @@ const captionClampInlineStyle = computed(() => {
 .meta {
   margin-top: auto; /* This is the key change */
   padding-top: 8px; /* Add some space above the meta block */
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
 .stats {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 12px;
   color: #6b7280;
   font-size: 13px;
+  flex: 1 1 160px;
+  min-width: 0;
 }
 .stat {
   display: inline-flex;
@@ -1035,12 +1174,12 @@ const captionClampInlineStyle = computed(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer; /* Make author clickable */
+  cursor: default;
   min-width: 0; /* Allow text-truncate to work */
+  flex: 1 1 auto;
+  overflow: hidden;
 }
-.author:hover .name {
-  color: var(--accent, #ca6b4f); /* Add hover effect */
-}
+
 .avatar {
   width: 24px;
   height: 24px;
@@ -1054,6 +1193,10 @@ const captionClampInlineStyle = computed(() => {
   font-size: 13px;
   color: #4b5563;
   font-weight: 600; /* Make name slightly bolder */
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .map-btn {
@@ -1065,6 +1208,10 @@ const captionClampInlineStyle = computed(() => {
   font-size: 13px;
   text-decoration: none;
   border: 1px solid #e5e7eb;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 .map-btn:hover {
   background: #e0e7ff;
@@ -1073,6 +1220,8 @@ const captionClampInlineStyle = computed(() => {
 .map-btn.disabled {
   pointer-events: none;
   opacity: 0.6;
+  display: inline-flex;
+  align-items: center;
 }
 
 .icon-btn {
@@ -1170,6 +1319,42 @@ const captionClampInlineStyle = computed(() => {
     height: clamp(200px, 28vw, 260px);
   }
 }
+
+/* --- Default (dashboard/feed) cards: stats | author | map --- */
+@media (min-width: 576px) {
+  :not(.preview-modal) > .card .meta,
+  .card:not(.preview-modal .card) .meta {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'stats author map'
+      'date  date   date';
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+  }
+  :not(.preview-modal) > .card .stats,
+  .card:not(.preview-modal .card) .stats {
+    grid-area: stats; flex: 0 0 auto; width: auto; gap: 10px;
+  }
+  :not(.preview-modal) > .card .author,
+  .card:not(.preview-modal .card) .author {
+    grid-area: author; flex: 0 1 auto; min-width: 0; justify-self: end; text-align: right;
+  }
+  :not(.preview-modal) > .card .map-btn,
+  .card:not(.preview-modal .card) .map-btn {
+    grid-area: map; margin-left: 0; justify-self: end;
+  }
+  :not(.preview-modal) > .card .map-btn.disabled,
+  .card:not(.preview-modal .card) .map-btn.disabled {
+    grid-area: map; margin-left: 0; justify-self: end;
+  }
+  :not(.preview-modal) > .card .date-text,
+  .card:not(.preview-modal .card) .date-text {
+    grid-area: date; width: 100%;
+  }
+  .author .name { max-width: 100%; display: inline-block; }
+}
 @media (min-width: 768px) {
   /* md */
   .hero img {
@@ -1207,18 +1392,27 @@ const captionClampInlineStyle = computed(() => {
 
 /* Make the meta section adapt on small screens */
 @media (max-width: 575.98px) {
+  .body {
+    padding: 12px 12px 10px;
+  }
   .meta {
-    grid-template-columns: 1fr auto; /* two columns: text and actions */
-    row-gap: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'stats stats'
+      'author map'
+      'date date';
     align-items: center;
+    column-gap: 8px;
+    row-gap: 6px;
+    width: 100%;
   }
-  .author,
-  .date-text {
-    grid-column: 1 / -1; /* full width rows */
-  }
-  .map-btn,
-  .icon-btn {
-    justify-self: end;
+  .stats {
+    grid-area: stats;
+    flex: 0 0 auto;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
   }
   .chip {
     font-size: 11px;
@@ -1245,32 +1439,34 @@ const captionClampInlineStyle = computed(() => {
   .title { flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .rating { flex: 0 0 auto; margin-left: 4px; }
 
-  /* Ensure the meta grid is stable and readable */
-  .stats {
-    order: 1;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  /* Author should be directly below stats on the left, with avatar + name side by side */
+  .stats { flex-wrap: wrap; }
   .author {
-    order: 2;
-    grid-column: 1 / 2;
-    display: grid;
-    grid-template-columns: 24px 1fr; /* avatar | name */
+    grid-area: author;
+    display: flex;
     align-items: center;
-    column-gap: 8px;
+    gap: 8px;
     min-width: 0; /* allow long names to wrap */
+    flex: 1 1 auto;
+    justify-self: start;
   }
   .author .name { min-width: 0; }
   /* Map button stays on the right column */
   .map-btn {
-    order: 3;
-    grid-column: 2 / 3;
+    grid-area: map;
+    margin-left: 0;
+    font-size: 12px;
+    padding: 5px 10px;
+    justify-self: end;
+  }
+  .map-btn.disabled {
+    grid-area: map;
+    margin-left: 0;
     justify-self: end;
   }
   .date-text {
-    order: 4;
-    grid-column: 1 / -1;
+    grid-area: date;
+    width: 100%;
+    padding-top: 2px;
   }
 
   /* Prevent overflow from long addresses/titles */
@@ -1278,11 +1474,9 @@ const captionClampInlineStyle = computed(() => {
 
   /* Clamp long author names to two lines in preview */
   .author .name {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    word-break: break-word;
+    display: block;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -1291,6 +1485,57 @@ const captionClampInlineStyle = computed(() => {
   .map-btn {
     font-size: 14px;
     padding: 6px 14px;
+  }
+}
+
+@media (min-width: 992px) {
+  .author {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    flex: 0 0 auto;
+    min-width: 0;
+    cursor: default;
+  }
+  .author .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 28px;
+  }
+  .author .name {
+    margin-left: 4px !important;
+    display: inline-block;
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+  }
+  /* Ensure modal preview version also aligns */
+  .preview-modal .card .author {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    cursor: default;
+  }
+  .preview-modal .card .author .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+  .preview-modal .card .author .name {
+    margin-left: 4px !important;
+    display: inline-block;
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
   }
 }
 
@@ -1402,4 +1647,28 @@ const captionClampInlineStyle = computed(() => {
   color: #fff !important;
   background-color: #dc3545;
 }
+
+
+/* === Preview modal: compact author + map on mobile (≤767.98px) === */
+@media (max-width: 767.98px) {
+  .preview-modal .card .meta {
+    display: grid;
+    grid-template-columns: auto auto 1fr;
+    grid-template-areas:
+      'stats stats stats'
+      'author map map'
+      'date date date';
+    column-gap: 6px;
+    row-gap: 6px;
+    align-items: center;
+    width: 100%;
+  }
+  .preview-modal .card .stats { grid-area: stats; justify-content: flex-start; gap: 8px; width: 100%; }
+  .preview-modal .card .author { grid-area: author; display: inline-flex; align-items: center; gap: 8px; min-width: 0; justify-self: start; cursor: default; }
+  .preview-modal .card .author .name { min-width: 0; margin-left: 0 !important; }
+  .preview-modal .card .map-btn { grid-area: map; justify-self: start; margin-left: 8px; font-size: 12px; padding: 5px 10px; display: inline-flex; align-items: center; }
+  .preview-modal .card .map-btn.disabled { grid-area: map; justify-self: start; margin-left: 8px; }
+  .preview-modal .card .date-text { grid-area: date; width: 100%; padding-top: 2px; }
+}
+
 </style>

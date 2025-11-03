@@ -1,4 +1,4 @@
-<!-- src/App.vue -->
+﻿<!-- src/App.vue -->
 <script setup>
 import { ref, onMounted, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
