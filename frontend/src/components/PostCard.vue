@@ -568,7 +568,7 @@ function emitEngagementPatch({ nextLikes, nextLikedFlag, nextCommentCount }) {
   const pid = post.id || post.postid
   if (!pid) return
 
-  const id = String(pid)
+  const id = String(pid) 
   const raw = {}
   const patch = { id, postid: id }
   let dirty = false
