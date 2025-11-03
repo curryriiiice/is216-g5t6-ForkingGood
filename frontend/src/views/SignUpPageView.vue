@@ -21,6 +21,7 @@
             autocapitalize="off"
             spellcheck="false"
             inputmode="text"
+            @blur="checkUsernameAvailability"
             required
           />
           <small class="hint-small">
@@ -28,6 +29,7 @@
           </small>
           <br>
           <small v-if="usernameError" class="hint-small error-text" aria-live="polite">{{ usernameError }}</small>
+          <small v-else-if="usernameStatusMsg" class="hint-small" :class="usernameStatusClass" aria-live="polite">{{ usernameStatusMsg }}</small>
         </div>
 
         <!-- Email -->
@@ -127,9 +129,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createClient } from '@supabase/supabase-js'
+import api from '@/lib/api'
 
 const router = useRouter()
 
@@ -155,13 +158,75 @@ const USERNAME_RE = /^@([A-Za-z0-9_]{3,20})$/      // must start with '@'
 const PASSWORD_RE = /^(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{8,}$/ // ≥8, 1 uppercase, 1 special
 
 /** Field-level error helpers for inline messages */
+const usernameTaken = ref(null) // null=unknown, true=taken, false=free
+const checkingUsername = ref(false)
+
 const usernameError = computed(() => {
   if (!username.value) return ''
   if (!USERNAME_RE.test(username.value)) {
     if (!username.value.startsWith('@')) return 'Username must start with @.'
     return 'Use 3–20 letters, numbers, or underscores after @.'
   }
+  if (usernameTaken.value === true) return 'Username already exists.'
   return ''
+})
+
+watch(username, () => { usernameTaken.value = null })
+
+// Debounced availability check like Profile page
+let usernameDebounce = null
+watch(username, (val) => {
+  clearTimeout(usernameDebounce)
+  if (!val || !USERNAME_RE.test(val)) { return }
+  usernameDebounce = setTimeout(() => { checkUsernameAvailability() }, 500)
+})
+
+async function checkUsernameAvailability() {
+  // Only check if format is valid
+  if (!USERNAME_RE.test(username.value)) { usernameTaken.value = null; return false }
+  try {
+    checkingUsername.value = true
+    const res = await api.get('/user/getAllUsernames')
+    const list = Array.isArray(res?.data?.data) ? res.data.data : res?.data || []
+    const want = String(username.value).toLowerCase()
+    const exists = list.some((row) => {
+      const u = typeof row === 'string' ? row : row?.username
+      return String(u || '').toLowerCase() === want
+    })
+    usernameTaken.value = exists
+    return exists
+  } catch (e) {
+    // On API failure, don't block signup; treat as unknown
+    usernameTaken.value = null
+    return false
+  } finally {
+    checkingUsername.value = false
+  }
+}
+
+// Status line and classes similar to Profile page
+const usernameStatus = computed(() => {
+  if (!username.value) return ''
+  if (!USERNAME_RE.test(username.value)) return 'invalid'
+  if (checkingUsername.value) return 'checking'
+  if (usernameTaken.value === true) return 'taken'
+  if (usernameTaken.value === false) return 'ok'
+  return ''
+})
+const usernameStatusMsg = computed(() => {
+  switch (usernameStatus.value) {
+    case 'checking': return 'Checking availability.'
+    case 'ok': return 'Username is available.'
+    case 'taken': return 'Username already exists.'
+    default: return ''
+  }
+})
+const usernameStatusClass = computed(() => {
+  return {
+    'text-success': usernameStatus.value === 'ok',
+    'error-text': usernameStatus.value === 'taken' || usernameStatus.value === 'invalid',
+    'text-muted': usernameStatus.value === 'checking',
+  }
 })
 
 const emailError = computed(() => {
@@ -207,6 +272,13 @@ async function onSubmit() {
 
   const v = validate()
   if (v) { error.value = v; return }
+
+  // Check username availability just before submitting
+  const taken = await checkUsernameAvailability()
+  if (taken) {
+    error.value = 'That username is already taken. Please choose another.'
+    return
+  }
 
   loading.value = true
   try {
@@ -420,6 +492,8 @@ async function resendCode() {
   color: #dc2626;
   font-weight: 700;
 }
+.hint-small.text-success { color: #16a34a; font-weight: 800; }
+.hint-small.text-muted { color: #6b7280; }
 
 /* Inputs */
 .input {
