@@ -2098,6 +2098,37 @@ watch(
     display: block;
   }
 }
+/* === Feed toolbar responsive fix: keep Filter pill inside on mobile === */
+.feed-shell .filter-toolbar {
+  display: flex;            /* reinforce flex in case utility classes change */
+  flex-wrap: wrap;          /* allow wrapping on small screens */
+  gap: 0.75rem;             /* breathing room between segments and filter pill */
+}
+
+/* Keep the Filter pill from shrinking and right-align on wide screens */
+.feed-shell .filter-toolbar .filter-pill {
+  flex-shrink: 0;
+  margin-left: auto;        /* pushes Filter pill to the right in the same row */
+}
+
+/* Mobile: stack vertically and make Filter pill full-width so it never overflows */
+@media (max-width: 575.98px) {
+  .feed-shell .filter-toolbar {
+    flex-direction: column;
+    align-items: stretch;   /* full width children */
+  }
+  .feed-shell .filter-toolbar .segmented {
+    width: auto;              /* don't stretch full width */
+    align-self: center;       /* center the segmented group within the column */
+    display: inline-flex;     /* ensure content sizes to its intrinsic width */
+    justify-content: center;  /* center the inner buttons */
+    gap: 0.5rem;              /* keep slight spacing between buttons if needed */
+  }
+  .feed-shell .filter-toolbar .filter-pill {
+    width: 100%;            /* button fills width */
+    margin-left: 0;         /* reset auto margin */
+  }
+}
 </style>
 
 <style>
