@@ -15,6 +15,12 @@ const router = useRouter()
 const route = useRoute()
 const loading = ref(true)
 
+// Global visibility-change handler (defined at module scope so we can remove it)
+// Refresh when the tab becomes visible again (avoid interfering with navigation)
+function onVisChange() {
+  try { if (document.visibilityState === 'visible') window.location.reload() } catch {}
+}
+
 /** Hide navbar on routes with meta.hideNavbar (e.g. /login, /signup) */
 const hideNavbar = computed(() => !!route.meta?.hideNavbar)
 
@@ -166,6 +172,9 @@ function toggleCollapse() {
    Boot: restore state + load user
    ========================= */
 onMounted(async () => {
+  // Hard-refresh when the tab becomes hidden (user switches away)
+  document.addEventListener('visibilitychange', onVisChange)
+
   // Restore panel state/position
   try {
     const saved = JSON.parse(localStorage.getItem(SWITCHER_POS_KEY) || 'null')
@@ -197,6 +206,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('pointermove', onDrag)
   document.removeEventListener('pointerup', endDrag)
+  document.removeEventListener('visibilitychange', onVisChange)
 })
 
 /* =========================
@@ -342,4 +352,3 @@ html, body, #app { height: 100%; margin: 0; }
 }
 .switcher-mini:active { cursor: grabbing; }
 </style>
-
