@@ -35,9 +35,10 @@ const cropStates = ref([]) // per-index { zoom, x, y } for restoring edits
 // Target fixed output size (3:2 landscape)
 const CROP_W = 1200; // px
 const CROP_H = 800;  // px
-// Preview box dimensions used by the in-app cropper (3:2)
-const PREV_W = 540;
-const PREV_H = 360;
+const PREVIEW_BASE_W = 540;
+const PREVIEW_MIN_W = 200;
+const PREVIEW_MARGIN = 64;
+const PREVIEW_RATIO = CROP_H / CROP_W;
 const cropOpen = ref(false);
 const cropIndex = ref(-1);
 const cropSrc = ref('');
@@ -47,6 +48,8 @@ const cropY = ref(0);
 const cropDragging = ref(false);
 const dragStart = ref({ x: 0, y: 0 });
 const imgNatural = ref({ w: 0, h: 0 });
+const previewWidth = ref(PREVIEW_BASE_W);
+const previewHeight = computed(() => Math.round(previewWidth.value * PREVIEW_RATIO));
 
 // Zoom controls
 const ZOOM_MIN = 1
@@ -59,11 +62,11 @@ function zoomBy(delta) {
 function zoomIn() { zoomBy(ZOOM_STEP) }
 function zoomOut() { zoomBy(-ZOOM_STEP) }
 
-// Live preview sizing to match confirmCrop math (contain into PREV_W x PREV_H, then apply zoom + offsets)
+// Live preview sizing to match confirmCrop math (contain into responsive preview box, then apply zoom + offsets)
 const baseScale = computed(() => {
   const w = imgNatural.value.w || 1
   const h = imgNatural.value.h || 1
-  return Math.max(PREV_W / w, PREV_H / h)
+  return Math.max(previewWidth.value / w, previewHeight.value / h)
 })
 const displayW = computed(() => (imgNatural.value.w || 0) * baseScale.value * cropZoom.value)
 const displayH = computed(() => (imgNatural.value.h || 0) * baseScale.value * cropZoom.value)
@@ -81,6 +84,25 @@ const imgStyle = computed(() => ({
   userSelect: 'none',
   pointerEvents: 'none',
 }))
+
+function updatePreviewSize() {
+  if (typeof window === 'undefined') return
+  const viewportW = window.innerWidth || PREVIEW_BASE_W
+  const margin = viewportW < 640 ? 32 : PREVIEW_MARGIN
+  const available = Math.max(PREVIEW_MIN_W, viewportW - margin)
+  previewWidth.value = Math.min(PREVIEW_BASE_W, available)
+}
+
+watch(cropOpen, (open) => {
+  if (open) nextTick(() => updatePreviewSize())
+})
+
+onMounted(() => {
+  updatePreviewSize()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', updatePreviewSize)
+  }
+})
 
 function resetCrop() {
   cropZoom.value = 1
@@ -152,15 +174,17 @@ function confirmCrop() {
 
   const img = new Image()
   img.onload = () => {
-    const scaleBase = Math.max(PREV_W / img.width, PREV_H / img.height)
+    const boxW = previewWidth.value || PREVIEW_BASE_W
+    const boxH = previewHeight.value || Math.round(PREVIEW_BASE_W * PREVIEW_RATIO)
+    const scaleBase = Math.max(boxW / img.width, boxH / img.height)
     const displayW = img.width * scaleBase * cropZoom.value
     const displayH = img.height * scaleBase * cropZoom.value
 
-    const scaleToCanvasX = CROP_W / PREV_W
-    const scaleToCanvasY = CROP_H / PREV_H
+    const scaleToCanvasX = CROP_W / boxW
+    const scaleToCanvasY = CROP_H / boxH
 
-    const drawX = (PREV_W / 2 - displayW / 2 + cropX.value) * scaleToCanvasX
-    const drawY = (PREV_H / 2 - displayH / 2 + cropY.value) * scaleToCanvasY
+    const drawX = (boxW / 2 - displayW / 2 + cropX.value) * scaleToCanvasX
+    const drawY = (boxH / 2 - displayH / 2 + cropY.value) * scaleToCanvasY
 
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, CROP_W, CROP_H)
@@ -965,6 +989,9 @@ onMounted(() => nextTick(() => initTooltipsLocal()))
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocClick)
   document.removeEventListener('keydown', onEscKey)
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', updatePreviewSize)
+  }
   destroyTooltipsLocal()
 })
 </script>
@@ -1198,7 +1225,7 @@ onBeforeUnmount(() => {
         <div
           class="crop-preview"
           :class="{ dragging: cropDragging }"
-          :style="{ width: PREV_W + 'px', height: PREV_H + 'px' }"
+          :style="{ width: previewWidth + 'px', height: previewHeight + 'px' }"
           @wheel.prevent="onCropWheel"
           @mousedown="startDrag"
           @mousemove="onDrag"
@@ -1622,13 +1649,58 @@ onBeforeUnmount(() => {
 }
 
 /* Cropper modal */
-.cropper-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: grid; place-items: center; z-index: 4000; }
-.cropper-panel { background: #fff; border-radius: var(--radius-md); padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,0.25); }
-:root[data-theme='dark'] .rec-form .cropper-panel { background: #0e141b; }
-.crop-preview { position: relative; overflow: hidden; border-radius: var(--radius-sm); border: 2px dashed rgba(139,157,131,0.5); background: #faf9f6; user-select: none; transition: border-width 0.12s ease, border-color 0.12s ease; }
-.crop-preview.dragging { border-width: 3px; border-color: rgba(139,157,131,0.85); }
-.crop-preview img { width: auto; height: 100%; display: block; }
-.crop-ctrls { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+.cropper-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 4000;
+}
+.cropper-panel {
+  background: #fff;
+  border-radius: var(--radius-md);
+  padding: 16px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+  width: min(92vw, 680px);
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+:root[data-theme='dark'] .rec-form .cropper-panel {
+  background: #0e141b;
+}
+.crop-preview {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  border: 2px dashed rgba(139, 157, 131, 0.5);
+  background: #faf9f6;
+  user-select: none;
+  transition: border-width 0.12s ease, border-color 0.12s ease;
+  max-width: 100%;
+}
+.crop-preview.dragging {
+  border-width: 3px;
+  border-color: rgba(139, 157, 131, 0.85);
+}
+.crop-preview img {
+  width: auto;
+  height: 100%;
+  display: block;
+  max-width: none;
+}
+.crop-ctrls {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
 
 /* Carousel */
 .carousel-wrap { margin: 12px auto; max-width: 720px; }
@@ -1647,18 +1719,49 @@ onBeforeUnmount(() => {
 
 
 /* Zoom controls */
-.zoom-ctrls { display: inline-flex; align-items: center; gap: 8px; margin-right: auto; }
+.zoom-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  flex-wrap: wrap;
+  justify-content: center;
+}
 .zoom-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); border: 2px solid var(--line-200); background: #fff; font-weight: 900; font-size: 18px; cursor: pointer; }
 .zoom-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 :root[data-theme='dark'] .rec-form .zoom-btn { background: #0e141b; color: #e9eef6; border-color: #2a3a52; }
 .zoom-readout { min-width: 52px; text-align: center; font-weight: 800; color: var(--ink-400); }
-.act-ctrls { display: inline-flex; gap: 10px; }
+.act-ctrls {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
 
 /* Ensure crop-preview positions absolutely placed image */
 .crop-preview { position: relative; }
 .zoom-btn.reset { font-size: 16px; }
 
 .carousel-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+
+@media (max-width: 600px) {
+  .crop-ctrls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+  .zoom-ctrls {
+    margin-right: 0;
+    width: 100%;
+  }
+  .act-ctrls {
+    width: 100%;
+    justify-content: center;
+  }
+  .act-ctrls .btn {
+    flex: 1 1 auto;
+  }
+}
 
 /* Segmented visibility toggle */
 .segmented {
