@@ -600,9 +600,9 @@ async function save() {
         detail: { email: meOriginal.email, avatar_url: meOriginal.avatar_url }
       }))
     } catch {}
-    statusTitle.value = 'Profile Updated'
-    statusMessage.value = 'Your profile has been updated successfully.'
-    showStatus.value = true
+    // Hard refresh instead of showing a status modal
+    window.location.reload()
+    return
   } catch (e) {
     console.error('editProfile failed:', e?.response?.status, e?.response?.data || e);
     const msg = e?.response?.data?.message || e?.message || 'Failed to save profile.';
