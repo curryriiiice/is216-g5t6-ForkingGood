@@ -137,6 +137,22 @@ function clearRestaurantQuery() {
   router.replace({ query: q })
 }
 
+function parseFeedScope(input, fallback = 'public') {
+  if (input === null || input === undefined) return fallback
+  if (typeof input === 'string') {
+    const t = input.trim().toLowerCase()
+    if (!t) return fallback
+    if (['friends', 'friend', 'friends_only', 'friends-only', 'private'].includes(t)) return 'friends'
+    if (['public', 'everyone', 'all'].includes(t)) return 'public'
+    if (['true', '1', 't', 'yes', 'y'].includes(t)) return 'public'
+    if (['false', '0', 'f', 'no', 'n'].includes(t)) return 'friends'
+    return fallback
+  }
+  if (typeof input === 'boolean') return input ? 'public' : 'friends'
+  if (typeof input === 'number') return input === 0 ? 'friends' : 'public'
+  return fallback
+}
+
 // --- FILTERS --- //
 
 // Master options (populated from backend endpoints)
@@ -147,7 +163,7 @@ const areas = ref(['All'])
 const selectedCuisine = ref('All')
 const selectedArea = ref('All')
 const selectedPrice = ref('All') // 'All' | '$' | '$$' | '$$$' | '$$$$'
-const feedScope = ref('public') // 'friends' | 'public'
+const feedScope = ref(parseFeedScope(route.query.feed ?? route.query.scope ?? null, 'public')) // 'friends' | 'public'
 
 // Lock UI when a drawer is open
 const uiLocked = computed(() => !!(selected.value || showAdd.value))
@@ -216,6 +232,44 @@ function eqIgnoreCase(a, b) {
   return String(a).trim().toLowerCase() === String(b).trim().toLowerCase()
 }
 
+function normalizeVisibilityFlag(value) {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') {
+    const t = value.trim().toLowerCase()
+    if (!t) return null
+    if (['true', '1', 't', 'public', 'everyone', 'yes', 'y', 'all'].includes(t)) return true
+    if (['false', '0', 'f', 'friends', 'friends_only', 'private', 'no', 'n'].includes(t)) return false
+  }
+  return null
+}
+
+function extractVisibilityFlag(obj) {
+  if (!obj || typeof obj !== 'object') return null
+  const candidates = [
+    obj.is_public,
+    obj.public,
+    obj.visibility,
+    obj.visible_to_everyone,
+    obj['public?'],
+    obj.scope,
+  ]
+  for (const v of candidates) {
+    const flag = normalizeVisibilityFlag(v)
+    if (flag !== null) return flag
+  }
+  return null
+}
+
+function derivePostVisibility(post) {
+  return (
+    extractVisibilityFlag(post) ??
+    extractVisibilityFlag(post?.raw) ??
+    null
+  )
+}
+
 function rowMatchesSelectedFilters(row) {
   const areaFilter = selectedArea.value
   if (areaFilter && areaFilter !== 'All') {
@@ -251,8 +305,9 @@ function rowMatchesSelectedFilters(row) {
   return true
 }
 
-async function includeOwnPosts(rows, email) {
+async function includeOwnPosts(rows, email, scope = 'public') {
   if (!email || !Array.isArray(rows)) return
+
   const seen = new Set(
     rows
       .map((r) => r && (r.postid || r.post_id || r.id))
@@ -261,9 +316,10 @@ async function includeOwnPosts(rows, email) {
   )
 
   try {
+    const wantFriendScope = scope === 'friends'
     const res = await api.post('/user/getUserPosts', {
       user_email: email,
-      friends: false,
+      friends: wantFriendScope,
     })
     const mine = Array.isArray(res.data?.data) ? res.data.data : []
     for (const row of mine) {
@@ -272,6 +328,8 @@ async function includeOwnPosts(rows, email) {
       const key = String(pid)
       if (seen.has(key)) continue
       if (!rowMatchesSelectedFilters(row)) continue
+      const vis = derivePostVisibility(row)
+      if (scope === 'public' && vis === false) continue
       rows.push(row)
       seen.add(key)
     }
@@ -366,7 +424,7 @@ async function loadPinsFromFilters() {
 
   const fetchedRows = await getFilteredPosts(payload)
   const safeRows = Array.isArray(fetchedRows) ? [...fetchedRows] : []
-  await includeOwnPosts(safeRows, email)
+  await includeOwnPosts(safeRows, email, feedScope.value)
   console.log('[api] rows (with mine) returned:', safeRows.length, safeRows[0])
 
   // Strict FE price filter so $$$ and $$$$ are never grouped
@@ -410,13 +468,8 @@ async function loadPinsFromFilters() {
     const cuisine = r.cuisine_type || 'Unknown'
 
     // Normalize visibility field across backends
-    const isPublic = (typeof r.is_public === 'boolean')
-      ? r.is_public
-      : (typeof r.public === 'boolean')
-        ? r.public
-          : (typeof r['public?'] === 'boolean')
-            ? r['public?']
-            : null
+    const visibilityFlag = derivePostVisibility(r)
+    const isPublic = visibilityFlag === null ? true : visibilityFlag
 
     // Normalize a post object for the drawer list
     const posterEmail =
@@ -634,6 +687,32 @@ const taArea = ref({
 // Track filter panel open/closed state
 const filtersOpen = ref(false)
 
+// Mobile filter sheet behavior
+const isMobile = ref(false)
+function updateIsMobile() {
+  try {
+    isMobile.value = window.matchMedia('(max-width: 576px)').matches
+  } catch {
+    isMobile.value = window.innerWidth <= 576
+  }
+}
+onMounted(() => updateIsMobile())
+window.addEventListener('resize', updateIsMobile)
+
+watch(
+  () => filtersOpen.value,
+  (open) => {
+    // Prevent background scroll when mobile sheet is open
+    if (isMobile.value) {
+      document.body.style.overflow = open ? 'hidden' : ''
+    }
+  },
+)
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateIsMobile)
+  document.body.style.overflow = ''
+})
+
 // Caches of all options for "show all when empty"
 const allCuisineList = ref([])
 const allAreaList = ref([])
@@ -789,6 +868,17 @@ onMounted(() => {
 onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
 
 watch(
+  () => route.query.feed || route.query.scope,
+  (next) => {
+    const desired = parseFeedScope(next, null)
+    if (desired && feedScope.value !== desired) {
+      feedScope.value = desired
+    }
+  },
+  { immediate: true },
+)
+
+watch(
   () => route.query.restaurant,
   async (rid) => {
     if (!rid) return
@@ -809,31 +899,62 @@ watch(
   () => route.query.postId,
   async (newId) => {
     if (!newId) return
-    
+
+    const pid = String(newId)
+    const { changed: scopeChanged } = await ensureFeedScopeForPost(pid)
+
     // Wait for map to be initialized
     let tries = 0
-    while ((!map.value || !pins.value.length) && tries < 30) {
+    while (!map.value && tries < 30) {
       await new Promise((r) => setTimeout(r, 100)) // ~3s max
       tries++
     }
-    
     if (!map.value) return
-    
-    // Check if post is in current filters - if not, temporarily clear filters
-    const postExists = postIdToRestaurantId.value.has(String(newId))
-    
+
+    // Allow existing data (or scope change) to populate the index
+    let postExists = postIdToRestaurantId.value.has(pid)
+    if (!postExists) {
+      const budget = scopeChanged ? 8 : 4
+      let waitCycles = 0
+      while (!postExists && waitCycles < budget) {
+        await new Promise((r) => setTimeout(r, 120))
+        postExists = postIdToRestaurantId.value.has(pid)
+        waitCycles++
+      }
+    }
+
     if (!postExists) {
       // Clear filters to ensure the post loads
-      selectedCuisine.value = 'All'
-      selectedArea.value = 'All'
-      selectedPrice.value = 'All'
-      
+      const resetCuisine = selectedCuisine.value !== 'All'
+      const resetArea = selectedArea.value !== 'All'
+      const resetPrice = selectedPrice.value !== 'All'
+
+      if (resetCuisine) selectedCuisine.value = 'All'
+      if (resetArea) selectedArea.value = 'All'
+      if (resetPrice) selectedPrice.value = 'All'
+
+      if (resetCuisine || resetArea || resetPrice) {
+        await nextTick()
+      }
+
       // Wait for pins to reload
       await loadPinsFromFilters()
+      await nextTick()
+      postExists = postIdToRestaurantId.value.has(pid)
     }
-    
+
+    if (!postExists) {
+      // Final short wait in case the index updates slightly later
+      let attempts = 0
+      while (!postExists && attempts < 5) {
+        await new Promise((r) => setTimeout(r, 120))
+        postExists = postIdToRestaurantId.value.has(pid)
+        attempts++
+      }
+    }
+
     // Try to focus on the post
-    await focusPostOnMap(String(newId), { openDrawer: true })
+    await focusPostOnMap(pid, { openDrawer: true })
 
     // Don't clear query param - let the drawer handle it when closed
     // This ensures back/forward navigation works properly
@@ -1016,7 +1137,12 @@ async function init() {
     selectedCuisine.value = 'All'
     selectedArea.value = 'All'
     selectedPrice.value = 'All'
-    feedScope.value = 'public'
+    const explicitScopeProvided =
+      route.query?.feed !== undefined && route.query?.feed !== null ||
+      route.query?.scope !== undefined && route.query?.scope !== null
+    if (!explicitScopeProvided) {
+      feedScope.value = 'public'
+    }
 
     // prime inputs
     taCuisine.value.q = ''
@@ -1229,6 +1355,49 @@ function findPostById(postId) {
   return null
 }
 
+async function ensureFeedScopeForPost(postId) {
+  const pid = String(postId || '')
+  if (!pid) return { post: null, scope: null, changed: false }
+
+  const originalScope = feedScope.value
+  let post = findPostById(pid)
+
+  if (!post) {
+    try {
+      post = await getPostById(pid)
+    } catch (e) {
+      console.warn('[map] ensureFeedScopeForPost: lookup failed', e)
+    }
+  }
+  if (!post) return { post: null, scope: null, changed: false }
+
+  const routeScope = parseFeedScope(route.query.feed ?? route.query.scope ?? null, null)
+  if (routeScope) {
+    const changedFromRoute = feedScope.value !== routeScope
+    if (changedFromRoute) {
+      feedScope.value = routeScope
+    }
+    return { post, scope: routeScope, changed: changedFromRoute }
+  }
+
+  const visibility = derivePostVisibility(post)
+  if (visibility === null) return { post, scope: null, changed: false }
+
+  const desiredScope = visibility ? 'public' : 'friends'
+  const changed = feedScope.value !== desiredScope
+  if (changed) {
+    feedScope.value = desiredScope
+    try {
+      const nextQuery = { ...route.query, feed: desiredScope }
+      router.replace({ query: nextQuery })
+    } catch (err) {
+      console.warn('[map] ensureFeedScopeForPost: failed to sync query feed', err)
+    }
+  }
+
+  return { post, scope: desiredScope, changed: desiredScope !== originalScope }
+}
+
 function goToPost(postOrId) {
   if (!postOrId) return
 
@@ -1256,7 +1425,10 @@ function goToPost(postOrId) {
   if (isMine) {
     router.push({ path: '/activity', query: { postId: pid, tab: 'myPosts' } })
   } else {
-    router.push({ path: '/dashboard', query: { postId: pid } })
+    const visibility = derivePostVisibility(post)
+    const scope = visibility === false ? 'friends' : 'public'
+    const query = { postId: pid, feed: scope }
+    router.push({ path: '/dashboard', query })
   }
 }
 
@@ -1369,7 +1541,7 @@ function clearFilters() {
 <template>
   <div class="page sage-bg">
     <!-- Filter Bar (static, above map) -->
-    <div class="filter-bar w-100 d-flex flex-column align-items-center">
+    <div class="filter-bar w-100 d-flex flex-column align-items-center" :class="{ 'has-open-filters': filtersOpen && !isMobile }">
       <!-- Top scope + Filter pill toolbar -->
       <div class="d-flex align-items-center justify-content-between mb-2 filter-toolbar toolbar-container">
         <div class="segmented bg-white shadow-sm tool-left" role="tablist" aria-label="Feed scope">
@@ -1418,7 +1590,207 @@ function clearFilters() {
           Filter
         </button>
       </div>
-      <div id="mapFiltersCollapse" :class="['collapse', { show: filtersOpen }]" style="width: 100%; max-width: 1400px;">
+      <!-- Mobile filter sheet (does not push the map) -->
+      <transition name="fade">
+        <div
+          v-if="isMobile && filtersOpen"
+          class="filter-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="filterTitle"
+          @click.self="filtersOpen = false"
+        >
+          <div class="filter-panel" @click.stop>
+            <div class="filter-header">
+              <h3 id="filterTitle" class="m-0">Filters</h3>
+              <button class="btn-close" type="button" aria-label="Close" @click="filtersOpen = false"></button>
+            </div>
+
+            <div
+              :class="[
+                'card',
+                { 'pe-none': uiLocked, 'opacity-75': uiLocked },
+              ]"
+            >
+              <div class="card-body py-3 px-3 px-md-4">
+                <!-- Filters Grid: Cuisine | Area | Price (duplicated for sheet) -->
+                <div class="filters-grid">
+                  <!-- Cuisine typeahead -->
+                  <div class="f-item" ref="cuisineBox">
+                    <label class="form-label mb-1 small fw-semibold text-secondary">Cuisine</label>
+                    <input
+                      class="form-control form-control-sm text-start"
+                      placeholder="Type to search (e.g. Japanese)"
+                      v-model="taCuisine.q"
+                      ref="cuisineInput"
+                      @focus="taCuisine.open = true; fetchCuisineHints()"
+                      :disabled="uiLocked"
+                      :aria-disabled="uiLocked ? 'true' : null"
+                      @input="taCuisine.open = true"
+                    />
+                    <ul
+                      v-if="taCuisine.open"
+                      class="dropdown-menu show w-100 shadow-sm filter-list"
+                      style="z-index: 1200"
+                    >
+                      <li>
+                        <button
+                          type="button"
+                          class="dropdown-item text-muted"
+                          @mousedown.prevent
+                          @click="chooseCuisine('All')"
+                        >
+                          Show all cuisines
+                        </button>
+                      </li>
+                      <li v-if="taCuisine.loading" class="dropdown-item disabled">Loading…</li>
+                      <li v-for="(c, i) in taCuisine.items" :key="'mc-' + i">
+                        <button
+                          type="button"
+                          class="dropdown-item"
+                          @mousedown.prevent
+                          @click="chooseCuisine(c.name || c.cuisine || c)"
+                        >
+                          {{ c.name || c.cuisine || c }}
+                        </button>
+                      </li>
+                      <li v-if="taCuisine.noMatch" class="dropdown-item disabled text-muted">No match</li>
+                    </ul>
+                  </div>
+
+                  <!-- Area typeahead -->
+                  <div class="f-item" ref="areaBox">
+                    <label class="form-label mb-1 small fw-semibold text-secondary">Area</label>
+                    <input
+                      class="form-control form-control-sm text-start"
+                      placeholder="Type to search (e.g. Bugis)"
+                      v-model="taArea.q"
+                      ref="areaInput"
+                      @focus="taArea.open = true; fetchAreaHints()"
+                      :disabled="uiLocked"
+                      :aria-disabled="uiLocked ? 'true' : null"
+                      @input="taArea.open = true"
+                    />
+                    <ul
+                      v-if="taArea.open"
+                      class="dropdown-menu show w-100 shadow-sm filter-list"
+                      style="z-index: 1200"
+                    >
+                      <li>
+                        <button type="button" class="dropdown-item text-muted" @mousedown.prevent @click="chooseArea('All')">
+                          Show all areas
+                        </button>
+                      </li>
+                      <li v-if="taArea.loading" class="dropdown-item disabled">Loading…</li>
+                      <li v-for="(a, i) in taArea.items" :key="'ma-' + i">
+                        <button
+                          type="button"
+                          class="dropdown-item"
+                          @mousedown.prevent
+                          @click="chooseArea(a.name || a.area || a)"
+                        >
+                          {{ a.name || a.area || a }}
+                        </button>
+                      </li>
+                      <li v-if="taArea.noMatch" class="dropdown-item disabled text-muted">No match</li>
+                    </ul>
+                  </div>
+
+                  <!-- Price chips -->
+                  <div class="f-item">
+                    <label class="form-label mb-1 small fw-semibold text-secondary">Price Range</label>
+                    <div class="chips-wrap">
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                        :class="{ active: selectedPrice === '$' }"
+                        @click="selectedPrice = '$'"
+                        :disabled="uiLocked"
+                        data-tooltip="Inexpensive"
+                      >
+                        $
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                        :class="{ active: selectedPrice === '$$' }"
+                        @click="selectedPrice = '$$'"
+                        :disabled="uiLocked"
+                        data-tooltip="Moderate"
+                      >
+                        $$
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                        :class="{ active: selectedPrice === '$$$' }"
+                        @click="selectedPrice = '$$$'"
+                        :disabled="uiLocked"
+                        data-tooltip="Expensive"
+                      >
+                        $$$
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                        :class="{ active: selectedPrice === '$$$$' }"
+                        @click="selectedPrice = '$$$$'"
+                        :disabled="uiLocked"
+                        data-tooltip="Very Expensive"
+                      >
+                        $$$$
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary price-chip price-tooltip all-chip"
+                        :class="{ active: selectedPrice === '' || selectedPrice === 'All' }"
+                        @click="selectedPrice = 'All'"
+                        :disabled="uiLocked"
+                        data-tooltip="Show all prices"
+                      >
+                        All
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="row g-3 align-items-center mt-2 px-3 px-md-4 pb-3">
+                <div class="col-12 d-flex justify-content-between">
+                  <div class="d-inline-flex gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-clear px-3"
+                      @click="clearFilters"
+                      :disabled="uiLocked"
+                      :aria-disabled="uiLocked ? 'true' : null"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-primary px-3 btn-fit"
+                      @click="fitMapToFilteredPins"
+                      title="Fit to filtered pins"
+                      :disabled="uiLocked"
+                      :aria-disabled="uiLocked ? 'true' : null"
+                    >
+                      Fit
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
+      <div
+        v-if="!isMobile"
+        id="mapFiltersCollapse"
+        :class="['collapse', { show: filtersOpen }]"
+        style="width: 100%; max-width: 1400px;"
+      >
         <div
           :class="[
             'card',
@@ -1511,7 +1883,7 @@ function clearFilters() {
             </div>
 
             <!-- Price chips -->
-            <div class="f-item">
+            <div class="f-item price-item">
               <label class="form-label mb-1 small fw-semibold text-secondary">Price Range</label>
               <div class="chips-wrap">
                 <button
@@ -1556,7 +1928,7 @@ function clearFilters() {
                 </button>
                 <button
                   type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip all-chip"
                   :class="{ active: selectedPrice === '' || selectedPrice === 'All' }"
                   @click="selectedPrice = 'All'"
                   :disabled="uiLocked"
@@ -1566,12 +1938,10 @@ function clearFilters() {
                 </button>
               </div>
             </div>
-          </div>
-</div>
-          <!-- Row 2: Actions -->
-          <div class="row g-3 align-items-center mt-2">
-            <div class="col-12 text-md-end">
-              <div class="d-inline-flex gap-2">
+
+            <!-- Actions inline (desktop only) -->
+            <div class="f-actions">
+              <div class="d-inline-flex gap-2 ms-auto">
                 <button
                   type="button"
                   class="btn btn-sm btn-clear px-3"
@@ -1594,9 +1964,9 @@ function clearFilters() {
               </div>
             </div>
           </div>
-
-        </div>
       </div>
+      </div>
+            </div>
     </div> <!-- /#mapFiltersCollapse -->
 
     <!-- Map -->
@@ -1788,6 +2158,12 @@ function clearFilters() {
   height: calc(100vh - 160px); /* fill screen dynamically minus toolbar/navbar */
   margin: 0 auto; /* center horizontally */
   transition: height 0.3s ease;
+}
+
+/* Add slight spacing below filters when open */
+.collapse.show + .map,
+#mapFiltersCollapse.show + .map {
+  margin-top: 12px;
 }
 
 .map-compact {
@@ -2011,6 +2387,11 @@ aside.side.clicking {
   padding: 0;
 }
 
+/* Add spacing between filter bar and map when desktop filters are open */
+.filter-bar.has-open-filters {
+  margin-bottom: 12px;
+}
+
 /* Filter bar card styling to match dashboard */
 .filter-bar .card {
   border: 0;
@@ -2153,12 +2534,16 @@ aside.side.clicking {
   gap: 8px;
   line-height: 1;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
-.segmented .seg-btn:hover { background: #f4f6f8; }
+.segmented .seg-btn:hover {
+  background: var(--sage-100);
+  color: var(--charcoal);
+}
 .segmented .seg-btn.active {
-  background: var(--charcoal);
+  background: var(--sage-600);
   color: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,.15) inset;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) inset;
 }
 .segmented .seg-ico { display: inline-block; width: 18px; text-align: center; }
 .filter-pill {
@@ -2193,7 +2578,7 @@ aside.side.clicking {
 }
 
 /* Slight size tuning so the segmented looks balanced */
-.segmented .seg-btn { padding: 8px 14px; }
+.segmented .seg-btn { padding: 6px 12px; }
 .filter-pill { padding: 10px 18px; }
 
 /* --- Filters grid layout --- */
@@ -2212,14 +2597,62 @@ aside.side.clicking {
   .filters-grid .f-item { grid-column: span 4; }
 }
 
+@media (min-width: 992px) {
+  /* 3 filter columns + 1 actions column pinned to the right */
+  .filters-grid {
+    grid-template-columns: 1fr 1fr 2fr auto;
+    align-items: end; /* align contents by bottoms */
+  }
+  /* ensure every cell sits on the same baseline */
+  .filters-grid > * { align-self: end; }
+  .filters-grid .f-item { grid-column: auto; }
+  .filters-grid .f-actions {
+    grid-column: auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+}
+
+/* Tablet layout: 768–991px
+   Row 1: Cuisine (6) | Area (6)
+   Row 2: Price (9) | Actions (3, right-aligned)
+*/
+@media (min-width: 768px) and (max-width: 991.98px) {
+  .filters-grid {
+    grid-template-columns: repeat(12, 1fr);
+    align-items: end; /* align labels/controls baseline */
+  }
+  .filters-grid .f-item { grid-column: span 6; }      /* Cuisine & Area */
+  .filters-grid .price-item { grid-column: span 9; }  /* Price wider */
+  .filters-grid .f-actions {
+    grid-column: span 3;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end; /* push Clear/Fit to right */
+    gap: 8px;
+  }
+
+  /* Keep price chips to one line on tablets too */
+  .chips-wrap { flex-wrap: nowrap; }
+  .chips-wrap .all-chip { margin-left: 0; } /* All sits right beside $$$$ */
+}
+
 /* Keep inputs and chips aligned visually */
 .filters-grid .form-label { margin-bottom: 6px; }
-.chips-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
+ .chips-wrap {
+   display: flex;
+   flex-wrap: wrap;
+   gap: 8px;
+   align-items: center;
+ }
+ /* On desktop, keep chips on one line and keep 'All' directly next to $$$$ (no push to far right) */
+ @media (min-width: 992px) {
+   .chips-wrap { flex-wrap: nowrap; }
+   /* Keep 'All' directly next to $$$$ (no push to far right) */
+   .chips-wrap .all-chip { margin-left: 0; }
+ }
 
 /* Ensure dropdown menus never overflow the card */
 .filters-grid .dropdown-menu.filter-list {
@@ -2242,4 +2675,52 @@ aside.side.clicking {
   word-break: break-word;
 }
 .drawer-right { flex-shrink: 0; white-space: nowrap; }
+
+
+/* --- Mobile filter sheet --- */
+.filter-sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 5200; /* above backdrop & drawers */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 60px; /* distance from top */
+}
+.filter-panel {
+  width: 100%;
+  max-width: 700px;
+  background: #fff;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -6px 24px rgba(0,0,0,.15);
+  max-height: 85vh;
+  overflow: auto;
+  padding: 10px 12px 16px;
+  margin-top: 0;
+  animation: sheet-fade 180ms ease-out;
+}
+.filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 10px;
+  border-bottom: 1px solid var(--line-200, #e5e7eb);
+  margin-bottom: 8px;
+}
+
+@keyframes sheet-fade {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Fade for backdrop */
+.fade-enter-active, .fade-leave-active { transition: opacity .16s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Ensure desktop collapse never shows on mobile */
+@media (max-width: 576px) {
+  #mapFiltersCollapse { display: none !important; }
+}
 </style>

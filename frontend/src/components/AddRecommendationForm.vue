@@ -845,10 +845,13 @@ async function createPost() {
 
     const restaurantId =
       payload?.restaurantid || payload?.restaurantId || placeId.value || crypto.randomUUID()
-    const postId = payload?.postId
+    const postId = payload?.postId || payload?.postid || null
 
     emit('added', { restaurantId, postId })
-    router.push({ path: '/map', query: { restaurant: restaurantId } })
+
+    const query = { tab: 'myPosts' }
+    if (postId) query.postId = String(postId)
+    router.push({ path: '/activity', query })
   } catch (err) {
     console.error('Error creating post:', err)
     const msg = err?.response?.data?.message || err.message || 'Failed to create post.'
@@ -1660,30 +1663,43 @@ onBeforeUnmount(() => {
 /* Segmented visibility toggle */
 .segmented {
   display: inline-flex;
-  gap: 6px;
+  gap: 2px;
   padding: 4px;
-  border: 2px solid var(--line-200);
-  border-radius: 999px;
-  margin-top: 6px; /* ensure it renders below the label with spacing */
+  border-radius: 16px;
+  border: 1px solid var(--line-200);
+  background: #fff;
+  margin-top: 6px;
 }
 .seg-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  color: var(--charcoal);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: 0;
-  background: #fff;
-  color: #111827;
-  border-radius: 999px;
-  font-weight: 800;
+  gap: 8px;
+  line-height: 1;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+.seg-btn:hover {
+  background: var(--sage-100);
+  color: var(--charcoal);
 }
 .seg-btn.active {
   background: var(--sage-600);
   color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15) inset;
 }
-/* Smaller icons + tighter segmented buttons */
-.seg-btn { padding: 6px 10px; gap: 6px; }
 .seg-label { font-size: 13px; }
-.seg-btn .icon-20 { width: 20px !important; height: 20px !important; vertical-align: -1px; display: inline-block; flex: 0 0 12px; }
+.seg-btn .icon-20 {
+  width: 20px !important;
+  height: 20px !important;
+  vertical-align: -1px;
+  display: inline-block;
+  flex: 0 0 12px;
+}
 </style>
