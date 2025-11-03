@@ -22,6 +22,104 @@ const COMMENTS_EP = {
   edit: '/friends/editComment',
 }
 
+const DEFAULT_COMMENT_AVATAR = '/images/default-avatar.jpg'
+const commentProfileCache = ref(new Map())
+const pendingCommentProfiles = new Map()
+
+function cacheCommentProfile(email, profile) {
+  const next = new Map(commentProfileCache.value)
+  next.set(email, profile)
+  commentProfileCache.value = next
+  return profile
+}
+
+function deriveNameFromEmail(email) {
+  if (!email) return 'Anonymous'
+  const [name] = String(email).split('@')
+  return name || email
+}
+
+// This function is needed by resolveCommentAvatar
+function resolveImageUrl(p) {
+  if (!p) return null
+  let s = String(p).trim().replace(/^['"]+|['"]+$/g, '')
+  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
+  s = s.replace(/^[./]+/, '').replace(/^\/+/, '')
+  return IMAGE_BASE ? `${IMAGE_BASE}/${s}` : `/${s}`
+}
+
+function resolveCommentAvatar(raw) {
+  if (!raw) return DEFAULT_COMMENT_AVATAR
+  return resolveImageUrl(raw) || DEFAULT_COMMENT_AVATAR 
+}
+
+async function ensureProfileForCommenter(email) {
+  if (!email) return null
+  const cached = commentProfileCache.value.get(email)
+  if (cached) return cached
+
+  if (pendingCommentProfiles.has(email)) {
+    return pendingCommentProfiles.get(email)
+  }
+
+  const request = api
+    .post('/user/getProfile', { user_email: email })
+    .then((res) => {
+      const info = res.data?.data || {}
+      return cacheCommentProfile(email, {
+        displayName: (info?.username || '').trim() || deriveNameFromEmail(email),
+        avatar: resolveCommentAvatar(info?.profile_image_url),
+      })
+    })
+    .catch(() =>
+      cacheCommentProfile(email, {
+        displayName: deriveNameFromEmail(email),
+        avatar: DEFAULT_COMMENT_AVATAR,
+      }),
+    )
+    .finally(() => {
+      pendingCommentProfiles.delete(email)
+    })
+
+  pendingCommentProfiles.set(email, request)
+  return request
+}
+
+async function enrichCommentsWithProfiles(list) {
+  if (!Array.isArray(list) || list.length === 0) return []
+  const uniqueEmails = [...new Set(list.map((row) => row.commenter_email).filter(Boolean))]
+  await Promise.all(uniqueEmails.map((email) => ensureProfileForCommenter(email)))
+  return list.map((row) => {
+    const profile = commentProfileCache.value.get(row.commenter_email)
+    return {
+      ...row,
+      commenter_name: profile?.displayName ?? deriveNameFromEmail(row.commenter_email),
+      commenter_avatar: profile?.avatar ?? DEFAULT_COMMENT_AVATAR,
+    }
+  })
+}
+
+function onCommentAvatarError(event) {
+  if (event?.target) {
+    event.target.src = DEFAULT_COMMENT_AVATAR
+  }
+}
+
+function setCommentCountForPost(postId, count) {
+  const key = String(postId ?? '')
+  if (!key) return
+  const safeCount = Number.isFinite(Number(count)) ? Math.max(0, Number(count)) : 0
+  const prevMap = commentCounts.value || {}
+  if (prevMap[key] !== safeCount) {
+    commentCounts.value = { ...prevMap, [key]: safeCount }
+  }
+  applyPostPatch({
+    id: key,
+    postid: key,
+    raw: { comments_count: safeCount },
+  })
+}
+
 // Auth User setup
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
@@ -38,8 +136,6 @@ const searchError = ref('')
 const allUsersCache = ref([])
 // NEW: Cache for profile pictures (for post authors)
 const avatarCache = ref(new Map())
-
-// State for Pending Friend Requests Modal - REMOVED
 
 // State for Profile Popup Modal
 const showProfileModal = ref(false)
@@ -441,14 +537,6 @@ function closeConfirmRemoveModal() {
     }, 300);
 }
 
-
-// Load incoming pending requests (ONLY for badge count)
-// This function is no longer used for the main list, but can be kept for a badge
-// For now, it's removed to avoid confusion. The main `fetchAllUsers` handles all statuses.
-// async function loadPendingRequests() { ... } 
-// async function openPendingModal() { ... } 
-
-
 // Accept an incoming friend request (from the card)
 async function acceptFriendReq(user) {
    if (!activeEmail.value) return;
@@ -654,7 +742,6 @@ function initTooltips() {
   } catch {}
 }
 
-// --- NEW: Helper functions for section headers ---
 function getHeader(user) {
   switch (user.statusScore) {
     case 1: return 'Received Requests';
@@ -665,11 +752,9 @@ function getHeader(user) {
   }
 }
 function shouldShowHeader(user, index) {
-  // Always show header for the first item in the list
   if (index === 0) return true;
   
   const prevUser = searchResults.value[index - 1];
-  // Show header if the status score is different from the previous user
   return user.statusScore !== prevUser.statusScore;
 }
 
@@ -741,12 +826,12 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                 </div>
                 <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
                   <div v-if="user.isPendingIncoming" class="d-flex gap-2">
-                     <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(user)"> Reject </button>
-                     <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(user)"> Accept </button>
+                     <button class="btn btn-sm btn-solid btn-danger" @click="rejectFriendReq(user)"> Reject </button>
+                     <button class="btn btn-sm btn-solid btn-success" @click="acceptFriendReq(user)"> Accept </button>
                   </div>
-                  <button v-else-if="user.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(user)"> Remove </button>
-                  <button v-else-if="user.isPendingOutgoing" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
-                  <button v-else class="btn btn-sm btn-fit" @click="sendFriendReq(user)"> Add </button>
+                  <button v-else-if="user.isFriend" class="btn btn-sm btn-solid btn-danger" @click="removeFriend(user)"> Remove </button>
+                  <button v-else-if="user.isPendingOutgoing" class="btn btn-sm btn-solid btn-secondary" disabled> Pending </button>
+                  <button v-else class="btn btn-sm btn-solid btn-add" @click="sendFriendReq(user)"> Add </button>
                 </div>
               </div>
             </div>
@@ -771,12 +856,12 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                  </div>
                  <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
                     <div v-if="profileData.isPendingIncoming" class="d-flex gap-2">
-                       <button class="btn btn-sm btn-outline-danger" @click="rejectFriendReq(profileData)"> Reject </button>
-                       <button class="btn btn-sm btn-outline-success" @click="acceptFriendReq(profileData)"> Accept </button>
+                       <button class="btn btn-sm btn-solid btn-danger" @click="rejectFriendReq(profileData)"> Reject </button>
+                       <button class="btn btn-sm btn-solid btn-success" @click="acceptFriendReq(profileData)"> Accept </button>
                     </div>
-                    <button v-else-if="profileData.isFriend" class="btn btn-sm btn-outline-danger" @click="removeFriend(profileData)"> Remove </button>
-                    <button v-else-if="profileData.isPendingOutgoing" class="btn btn-sm btn-outline-secondary" disabled> Pending </button>
-                    <button v-else class="btn btn-sm btn-fit" @click="sendFriendReq(profileData)"> Add </button>
+                    <button v-else-if="profileData.isFriend" class="btn btn-sm btn-solid btn-danger" @click="removeFriend(profileData)"> Remove </button>
+                    <button v-else-if="profileData.isPendingOutgoing" class="btn btn-sm btn-solid btn-secondary" disabled> Pending </button>
+                    <button v-else class="btn btn-sm btn-solid btn-add" @click="sendFriendReq(profileData)"> Add </button>
                  </div>
             </div>
 
@@ -793,8 +878,7 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             <div v-else-if="!profilePosts.length" class="text-center text-muted py-4 small profile-empty-posts">
                 {{ profileData.isFriend ? 'This user hasn\'t posted anything yet.' : 'This user hasn\'t made any public posts yet.' }}
             </div>
-            <div v-else class="row g-3 profile-posts-grid">
-                 <div v-for="post in profilePosts" :key="post.id" class="col-12 col-md-6">
+            <div v-else class="row g-2 profile-posts-grid"> <div v-for="post in profilePosts" :key="post.id" class="col-12 col-md-6 col-lg-4">
                     <div
                         class="card post-card h-100 border-0 card-clickable profile-post-card"
                         @click="onCardClick($event, post)"
@@ -871,8 +955,15 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             :key="idx"
             class="d-flex align-items-start gap-2 py-2 border-bottom"
           >
+            <img
+              :src="c.commenter_avatar"
+              alt="avatar"
+              class="rounded-circle me-2"
+              style="width: 32px; height: 32px; object-fit: cover"
+              @error="onCommentAvatarError"
+            />
             <div class="flex-grow-1">
-              <div class="fw-semibold small">{{ c.commenter_email }}</div>
+              <div class="fw-semibold small">{{ c.commenter_name || c.commenter_email }}</div>
               <div class="small">{{ c.comment }}</div>
             </div>
             <div class="d-flex gap-2">
@@ -920,8 +1011,53 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 .page { min-height: calc(100vh - 56px); padding: 18px 0 80px; }
 .section-title { font-weight: 800; color: var(--charcoal); margin: 0; }
 .empty { text-align: center; color: var(--ink-400); font-weight: 500; }
-.btn-fit { background: var(--accent, var(--terra-500, #ca6b4f)); color: #fff; border: 0; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12); }
-.btn-fit:disabled { opacity: 0.6; }
+
+.btn-solid {
+  border-radius: 999px;
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  line-height: 1.5;
+}
+.btn-solid:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+.btn-solid:disabled {
+  opacity: 0.65;
+}
+
+/* Color variations */
+.btn-solid.btn-add {
+  background: var(--accent, var(--terra-500, #ca6b4f));
+}
+.btn-solid.btn-add:hover {
+   background-color: #0b5ed7; /* Darker Blue */
+}
+
+.btn-solid.btn-success {
+  background-color: #198754; /* Green */
+}
+.btn-solid.btn-success:not(:disabled):hover {
+  background-color: #157347;
+}
+
+.btn-solid.btn-danger {
+  background-color: #dc3545; /* Red */
+}
+.btn-solid.btn-danger:not(:disabled):hover {
+  background-color: #bb2d3b;
+}
+
+.btn-solid.btn-secondary {
+  background-color: #6c757d; /* Gray */
+}
+.btn-solid.btn-secondary:not(:disabled):hover {
+  background-color: #5c636a;
+}
 
 .profile-link:hover .text-dark { color: var(--accent, #ca6b4f) !important; }
 .profile-link:hover .text-muted { color: var(--accent, #ca6b4f) !important; opacity: 0.8; }
@@ -968,8 +1104,6 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 :deep(.modal .btn-danger:hover) { background-color: #bb2d3b; border-color: #b02a37; }
 :deep(.modal .btn-success) { background-color: #198754; border-color: #198754; color: #fff; }
 :deep(.modal .btn-success:hover) { background-color: #157347; border-color: #146c43; }
-.btn-outline-success { color: #198754; border-color: #198754; }
-.btn-outline-success:hover { background-color: #198754; color: #fff; }
 
 
 :deep(.modal .form-label),
@@ -1032,13 +1166,6 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 }
 :deep(.comments-modal-on-top .modal-dialog) {
   z-index: 1071;
-}
-
-:deep(.modal .btn-fit) {
-  background: var(--accent, var(--terra-500, #ca6b4f));
-  color: #fff;
-  border: 0;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 .section-divider {
