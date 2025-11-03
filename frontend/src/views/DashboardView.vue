@@ -1600,6 +1600,25 @@ function desiredLevelsForSymbol(sym) {
 function rowToPostRandom(row) {
   const lat = Number(row.lat)
   const lng = Number(row.long ?? row.lng)
+  const posterEmail =
+    row.poster_email || row.posterEmail || row.poster?.email || row.owner_email || null
+  const posterUsername =
+    row.poster_username || row.posterUsername || row.poster?.username || row.owner_username || null
+  const posterId = posterEmail || posterUsername || row.poster_id || row.user_id || null
+  const posterName = row.poster_name || posterUsername || posterEmail || '@user'
+  const rawAvatar =
+    row.poster_avatar ||
+    row.poster_avatar_url ||
+    row.poster_profile_pic ||
+    row.poster_profile_image ||
+    row.poster_profile_image_url ||
+    row.poster?.avatar ||
+    row.poster?.profile_image ||
+    row.poster?.profile_image_url ||
+    row.avatar ||
+    row.profile_image_url ||
+    null
+  const resolvedAvatar = rawAvatar ? resolveImageUrl(rawAvatar) : null
   return {
     id: row.postid || row.post_id,
     text: row.review || '',
@@ -1609,11 +1628,15 @@ function rowToPostRandom(row) {
     is_public: Boolean(row.is_public),
     photos: Array.isArray(row.pictures) ? row.pictures.map(resolveImageUrl).filter(Boolean) : [],
     pictures: Array.isArray(row.pictures) ? row.pictures.map(resolveImageUrl).filter(Boolean) : [],
+    poster_email: posterEmail,
+    poster_username: posterUsername,
+    user_email: posterEmail,
     user: {
-      id: row.poster_email || row.poster_username,
-      name: row.poster_username || row.poster_email || '@user',
-      username: row.poster_username || row.poster_email || '@user',
-      avatar: '/images/avatar1.png',
+      id: posterId,
+      email: posterEmail || null,
+      name: posterName,
+      username: posterUsername || posterEmail || '@user',
+      avatar: resolvedAvatar || '/images/avatar1.png',
     },
     restaurant: {
       id: row.restaurant_name,
@@ -1835,6 +1858,48 @@ async function getPostById(postId) {
 function rowToPost(row) {
   const lat = Number(row.lat ?? row.latitude)
   const lng = Number(row.long ?? row.lng ?? row.longitude ?? row.longtitude)
+  const posterEmail =
+    row.poster_email ||
+    row.posterEmail ||
+    row.poster?.email ||
+    row.owner_email ||
+    row.user_email ||
+    null
+  const posterUsername =
+    row.poster_username ||
+    row.posterUsername ||
+    row.poster?.username ||
+    row.owner_username ||
+    row.username ||
+    null
+  const posterId =
+    posterEmail ||
+    posterUsername ||
+    row.poster_id ||
+    row.user_id ||
+    row.owner_id ||
+    null
+  const posterName =
+    row.poster_name ||
+    row.poster?.name ||
+    row.owner_name ||
+    posterUsername ||
+    posterEmail ||
+    '@user'
+  const rawAvatar =
+    row.poster_avatar ||
+    row.poster_avatar_url ||
+    row.poster_profile_pic ||
+    row.poster_profile_image ||
+    row.poster_profile_image_url ||
+    row.poster?.avatar ||
+    row.poster?.profile_image ||
+    row.poster?.profile_image_url ||
+    row.avatar ||
+    row.profile_image_url ||
+    row.user_avatar ||
+    null
+  const resolvedAvatar = rawAvatar ? resolveImageUrl(rawAvatar) : null
   function coerceBool(x) {
     if (x === null || x === undefined) return null
     if (typeof x === 'boolean') return x
@@ -1865,11 +1930,15 @@ function rowToPost(row) {
     is_public: derivedIsPublic,
     photos: Array.isArray(row.pictures) ? row.pictures.map(resolveImageUrl).filter(Boolean) : [],
     pictures: Array.isArray(row.pictures) ? row.pictures.map(resolveImageUrl).filter(Boolean) : [],
+    poster_email: posterEmail,
+    poster_username: posterUsername,
+    user_email: posterEmail,
     user: {
-      id: row.poster_email || row.poster_username,
-      name: row.poster_username || row.poster_email || '@user',
-      username: row.poster_username || row.poster_email || '@user',
-      avatar: '/images/avatar1.png',
+      id: posterId,
+      email: posterEmail || null,
+      name: posterName,
+      username: posterUsername || posterEmail || '@user',
+      avatar: resolvedAvatar || '/images/avatar1.png',
     },
     restaurant: {
       id: row.restaurant_id,
@@ -1969,6 +2038,7 @@ watch(
 )
 </script>
 
+
 <style>
 /* --- Smooth reveal performance hints --- */
 [data-animate] { will-change: opacity, transform; backface-visibility: hidden; -webkit-font-smoothing: antialiased; }
@@ -2030,6 +2100,70 @@ watch(
 }
 </style>
 
+<style>
+/* === Preview modal: unify PostCard sizing + mobile meta layout === */
+@media (max-width: 575.98px) {
+  /* Make the modal behave like a full-screen card on mobile */
+  .preview-modal .modal-dialog { margin: 0; max-width: 100% !important; }
+  .preview-modal .modal-content { border-radius: 0; }
+  .preview-modal .modal-body { padding: 0; }
+
+  /* Ensure the inner PostCard fills width without odd gaps */
+  .preview-modal .card.themed-card { border-radius: 0; box-shadow: none; }
+  .preview-modal .card .body { padding: 12px 12px 10px; }
+
+  /* Meta row → same rules as PostCard mobile: 1) stats on top, 2) author left + map right, 3) date below */
+  .preview-modal .card .meta { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .preview-modal .card .stats { order: 1; flex: 1 1 100%; gap: 8px; justify-content: flex-start; flex-wrap: wrap; }
+  /* Row 2: Author at far-left, Map button at far-right */
+  .preview-modal .card .author {
+    order: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    flex: 1 1 0;   /* take remaining space to push map button to the edge */
+    min-width: 0;
+    cursor: default;
+  }
+  .preview-modal .card .author .name { min-width: 0; }
+
+  .preview-modal .card .map-btn {
+    order: 2;
+    margin-left: auto;  /* pin to the right edge of the same row */
+    flex: 0 0 auto;
+    font-size: 12px;
+    padding: 5px 10px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .preview-modal .card .map-btn.disabled { order: 2; margin-left: auto; }
+
+  /* Ensure no other meta children sit between author and map on that row */
+  .preview-modal .card .meta > *:not(.stats):not(.author):not(.map-btn):not(.date-text) {
+    order: 98;        /* push below the author/map line if any exist */
+    width: 100%;
+  }
+  .preview-modal .card .date-text { order: 3; width: 100%; padding-top: 2px; }
+
+  /* Keep avatar + name glued; constrain avatar */
+  .preview-modal .card .author img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+  /* Preview mobile: ensure username does not slide to the right */
+  .preview-modal .card .author .name,
+  .preview-modal .card .author .username,
+  .preview-modal .card .author [class*="handle"],
+  .preview-modal .card .author [class*="user"],
+  .preview-modal .card .author [class*="name"] {
+    margin-left: 0 !important;
+  }
+}
+
+/* Desktop/tablet: keep the PostCard width tidy inside the modal */
+@media (min-width: 576px) {
+  .preview-modal .card.themed-card { border-radius: 12px; }
+}
+</style>
+
 
 <template>
   <div class="page sage-bg">
@@ -2052,17 +2186,6 @@ watch(
         <p class="hero-sub">Find and share the best bites.</p>
       </div>
     </section>
-
-    <!-- Sticky section nav (template-style) -->
-
-    <nav id="skinStickyNav" class="fb-sticky-nav text-center">
-      <div class="container d-flex justify-content-center">
-        <ul class="nav gap-2 justify-content-center">
-          <li class="nav-item"><a href="#section-randomise" class="nav-link">Randomise</a></li>
-          <li class="nav-item"><a href="#section-posts" class="nav-link">Posts</a></li>
-        </ul>
-      </div>
-    </nav>
 
     <!-- Posts Feed -->
     <section class="feed container">
@@ -2306,6 +2429,7 @@ watch(
               (randomPost?.raw?.comments?.length || 0)
             "
             @open-comments="onOpenComments"
+            @open-profile="handleOpenProfile"
             @updated="applyPostPatch"
             @post-updated="applyPostPatch"
             @liked="applyPostPatch"
@@ -2316,7 +2440,7 @@ watch(
         <div v-else-if="showRandomiseAnim"></div>
         <!-- Before first click: invite user to randomise -->
         <div v-else-if="!hasRandomised" class="empty" data-animate="fadeIn" data-delay=".1s">
-          Click “Get randomised post”
+          Click “Randomise”
         </div>
         <!-- After a click but no results: show empty state -->
         <div v-else class="empty" data-animate="fadeIn" data-delay=".1s">
@@ -2572,6 +2696,7 @@ watch(
                     (p?.raw?.comments?.length || 0)
                   "
                   @open-comments="onOpenComments"
+                  @open-profile="handleOpenProfile"
                   @updated="applyPostPatch"
                   @post-updated="applyPostPatch"
                   @liked="applyPostPatch"
@@ -2597,14 +2722,7 @@ watch(
       <img src="/images/CreatePost_White.png" alt="Create Post" class="fab-icon" />
     </button>
 
-    <!-- Bottom social bar -->
-    <footer class="bottom-bar fixed-bottom d-flex align-items-center px-3">
-      <div class="left d-flex align-items-center gap-2">
-        <img src="/images/x.png" alt="X" class="icon" />
-        <img src="/images/ig.png" alt="Instagram" class="icon" />
-        <span class="handle">@forkinggood.sg</span>
-      </div>
-    </footer>
+    
   </div>
 
   <!-- Modal -->
@@ -2628,6 +2746,7 @@ watch(
             (previewPost?.raw?.comments?.length || 0)
           "
           @open-comments="onOpenComments"
+          @open-profile="handleOpenProfile"
           @updated="applyPostPatch"
           @post-updated="applyPostPatch"
           @liked="applyPostPatch"
@@ -3157,39 +3276,7 @@ img[alt='avatar'] {
   letter-spacing: 0.2px;
 }
 
-.fb-sticky-nav {
-  position: sticky;
-  top: calc(56px + 5px); /* add 12px space below navbar */
-  z-index: 1000;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
-  background: var(--surface, #fff);
-}
-.fb-sticky-nav .nav-link {
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-  color: var(--charcoal);
-  position: relative;
-}
-.fb-sticky-nav .nav-link::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -6px;
-  height: 2px;
-  background: transparent;
-  transform: scaleX(0);
-  transition:
-    background 0.18s ease,
-    transform 0.18s ease;
-}
-.fb-sticky-nav .nav-link:hover::after {
-  background: var(--terra-500, #d4816f);
-  transform: scaleX(1);
-}
-
-/* Ensure titles are visible when jumping to anchors under sticky bars */
+/* Ensure titles are visible when jumping to anchors under the main navbar */
 #section-randomise,
 #section-posts {
   scroll-margin-top: 132px;
@@ -3197,10 +3284,6 @@ img[alt='avatar'] {
 </style>
 
 <style>
-/* Make sure the Sticky section nav never covers the top navbar dropdowns */
-.fb-sticky-nav {
-  z-index: 10 !important; /* lower than Bootstrap dropdowns (1000) */
-}
 .randomise-pill .icon-20 {
   width: 20px;
   height: 20px;

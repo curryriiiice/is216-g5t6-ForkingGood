@@ -382,6 +382,7 @@ async function fetchAllUsers() {
         email: u.email,
         username: u.username,
         name: u.username || u.email.split('@')[0],
+        bio: u.bio || '-',
         avatar: u.profile_image_url || '/default-avatar.jpg',
         isFriend: u.friendship_status === 'friend',
         isPendingIncoming: u.friendship_status === 'incoming_request', // Assumes backend sends this
@@ -604,32 +605,69 @@ async function rejectFriendReq(user) {
 
 // Open profile modal
 async function viewProfile(user) {
-  // Handle profile clicks from PostCard (user object is minimal)
-  if (user && !user.hasOwnProperty('isFriend') && !user.hasOwnProperty('isPendingIncoming')) {
-    const fullUser = allUsersCache.value.find(u => u.email === user.id)
-    if (fullUser) {
-      profileData.value = fullUser;
+  // 1. Set loading state and open modal
+  showProfileModal.value = true;
+  profileLoading.value = true;
+  profileError.value = '';
+  profilePosts.value = [];
+  
+  // 2. Determine email and base data (friendship status)
+  let emailToFetch = '';
+  let baseData = {}; // This will hold friendship status
+
+  if (user && user.hasOwnProperty('isFriend')) {
+    // Click from Friends List
+    emailToFetch = user.email;
+    baseData = { ...user }; // We have all friendship data
+  } else if (user && user.id) {
+    // Click from PostCard (user.id is the poster_email)
+    emailToFetch = user.id;
+    // Try to find friendship data from cache
+    const cachedUser = allUsersCache.value.find(u => u.email === emailToFetch);
+    if (cachedUser) {
+      baseData = { ...cachedUser };
     } else {
-      // Fallback if user isn't in cache
-      profileData.value = {
-        email: user.id, name: user.name, username: user.username, 
-        avatar: user.avatar || '/default-avatar.jpg',
-        isFriend: user.id === activeEmail.value,
+      // Fallback for user not in cache (e.g., self-post)
+      baseData = {
+        email: emailToFetch,
+        name: user.name || user.username,
+        avatar: user.avatar,
+        isFriend: emailToFetch === activeEmail.value,
         isPendingOutgoing: false,
         isPendingIncoming: false,
-        statusScore: user.id === activeEmail.value ? 3 : 4,
-      }
+      };
     }
   } else {
-    // Click came from main friend list
-    profileData.value = user
+    profileError.value = "Could not identify user to load profile.";
+    profileLoading.value = false;
+    return;
   }
-  
-  profilePosts.value = []
-  profileError.value = ''
-  profileLoading.value = true
-  showProfileModal.value = true
-  await fetchProfilePosts(profileData.value)
+
+  // 3. Fetch full profile details (including bio) from the endpoint
+  try {
+    const res = await api.post('/user/getProfile', { user_email: emailToFetch });
+    const profileApiData = res.data?.data || {}; // This is { username, profile_image_url, bio }
+    
+    // 4. Merge base data (friendship) with fresh API data (bio, pfp)
+    profileData.value = {
+      ...baseData, // Friendship status, email
+      name: profileApiData.username || baseData.name, // Prefer fresh username
+      avatar: resolveImageUrl(profileApiData.profile_image_url) || baseData.avatar, // Prefer fresh pfp
+      bio: profileApiData.bio || null, // The new bio field
+    };
+    
+    // 5. Now fetch posts
+    await fetchProfilePosts(profileData.value);
+    
+  } catch (err) {
+    console.error(`[friends] getProfile for ${emailToFetch} failed`, err);
+    profileError.value = "Failed to load profile details.";
+    // Still show base data if fetch fails
+    profileData.value = { ...baseData, bio: null }; 
+  } finally {
+    // Post loading is handled in fetchProfilePosts, so we're done loading the profile itself
+    profileLoading.value = false;
+  }
 }
 
 // Fetch posts for profile modal
@@ -821,13 +859,13 @@ watch(activeEmail, async (newEmail, oldEmail) => {
                 <div class="flex-grow-1" style="min-width: 0">
                    <a href="#" @click.prevent="viewProfile(user)" class="text-decoration-none profile-link" :title="`View ${user.name}'s profile`">
                     <div class="fw-bold text-truncate text-dark">{{ user.name }}</div>
-                    <div class="text-muted small text-truncate">{{ user.email }}</div>
+                    <div v-if="user.bio" class="text-muted small text-truncate" :title="user.bio">{{ user.bio }}</div>
                   </a>
                 </div>
                 <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
                   <div v-if="user.isPendingIncoming" class="d-flex gap-2">
-                     <button class="btn btn-sm btn-solid btn-danger" @click="rejectFriendReq(user)"> Reject </button>
-                     <button class="btn btn-sm btn-solid btn-success" @click="acceptFriendReq(user)"> Accept </button>
+                    <button class="btn btn-sm btn-solid btn-success" @click="acceptFriendReq(user)"> Accept </button>
+                    <button class="btn btn-sm btn-solid btn-danger" @click="rejectFriendReq(user)"> Reject </button>
                   </div>
                   <button v-else-if="user.isFriend" class="btn btn-sm btn-solid btn-danger" @click="removeFriend(user)"> Remove </button>
                   <button v-else-if="user.isPendingOutgoing" class="btn btn-sm btn-solid btn-secondary" disabled> Pending </button>
@@ -842,22 +880,24 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 
     <Modal :show="showProfileModal" :title="`${profileData?.name || 'User Profile'}`" @close="closeProfileModal" size="lg">
         <div v-if="profileData" class="profile-modal-content">
-            <div class="profile-header d-flex align-items-center gap-3 mb-4 p-3 bg-light rounded border">
+            <div class="profile-header d-flex align-items-center gap-3 mb-3 p-2 bg-light rounded border">
                  <img
                     :src="profileData.avatar"
                     alt="Avatar"
                     class="rounded-circle flex-shrink-0"
-                    style="width: 80px; height: 80px; object-fit: cover; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+                    style="width: 50px; height: 50px; object-fit: cover; border: 2px solid #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
                     @error="$event.target.src='/default-avatar.jpg'"
                  />
                  <div class="flex-grow-1" style="min-width: 0">
-                    <div class="fw-bold h5 mb-0 text-truncate">{{ profileData.name }}</div>
-                    <div class="text-muted small text-truncate">{{ profileData.email }}</div>
+                    <div class="fw-bold h6 mb-0 text-truncate">{{ profileData.name }}</div>
+                    <div v-if="profileData.bio" class="text-muted small text-truncate mt-1" :title="profileData.bio">
+                      {{ profileData.bio }}
+                    </div>
                  </div>
                  <div class="d-flex flex-column align-items-end gap-2 flex-shrink-0">
                     <div v-if="profileData.isPendingIncoming" class="d-flex gap-2">
-                       <button class="btn btn-sm btn-solid btn-danger" @click="rejectFriendReq(profileData)"> Reject </button>
-                       <button class="btn btn-sm btn-solid btn-success" @click="acceptFriendReq(profileData)"> Accept </button>
+                      <button class="btn btn-sm btn-solid btn-success" @click="acceptFriendReq(profileData)"> Accept </button>
+                      <button class="btn btn-sm btn-solid btn-danger" @click="rejectFriendReq(profileData)"> Reject </button>
                     </div>
                     <button v-else-if="profileData.isFriend" class="btn btn-sm btn-solid btn-danger" @click="removeFriend(profileData)"> Remove </button>
                     <button v-else-if="profileData.isPendingOutgoing" class="btn btn-sm btn-solid btn-secondary" disabled> Pending </button>
@@ -878,13 +918,14 @@ watch(activeEmail, async (newEmail, oldEmail) => {
             <div v-else-if="!profilePosts.length" class="text-center text-muted py-4 small profile-empty-posts">
                 {{ profileData.isFriend ? 'This user hasn\'t posted anything yet.' : 'This user hasn\'t made any public posts yet.' }}
             </div>
-            <div v-else class="row g-2 profile-posts-grid"> <div v-for="post in profilePosts" :key="post.id" class="col-12 col-md-6 col-lg-4">
+            <div v-else class="row g-2 profile-posts-grid"> 
+              <div v-for="post in profilePosts" :key="post.id" class="col-12 col-md-6 col-lg-6 col-xl-4">
                     <div
-                        class="card post-card h-100 border-0 card-clickable profile-post-card"
+                        class="h-100 card-clickable"
                         @click="onCardClick($event, post)"
                         role="button"
                         tabindex="0"
-                        :title="`View post for ${post.restaurant_name}`"
+                        :title="`View post for ${post.restaurant?.name || 'post'}`"
                     >
                       <PostCard
                         :post="post"
@@ -1069,7 +1110,8 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 .profile-header { border-bottom: 1px solid var(--line-100, #eee); background-color: var(--surface-hover, #f8f9fa) !important; }
 .section-sub-title { color: var(--ink-700); }
 .profile-posts-grid {
-    max-height: calc(75vh - 200px);
+    /* Made the grid taller: 85vh (was 75vh) and adjusted pixel subtraction */
+    max-height: calc(87vh - 180px); 
     overflow-y: auto;
     padding: 0 0.5rem 0.5rem;
     margin-right: -8px;
@@ -1077,12 +1119,11 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 }
 .profile-empty-posts { font-style: italic; }
 
-.profile-post-card .post-image-wrapper { padding-top: 100%; position: relative; }
-.profile-post-card .post-image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-.profile-post-card .rating-badge { position: absolute; top: 4px; right: 4px; font-size: 0.65rem; padding: 1px 4px; background-color: rgba(0,0,0,0.7); color: #fff; border-radius: 4px; }
-.profile-post-card.card-clickable:hover {
-    transform: none; box-shadow: none;
-    outline: 2px solid var(--accent, #ca6b4f); outline-offset: 1px;
+.card-clickable:hover :deep(.card) {
+    transform: none; 
+    box-shadow: none;
+    outline: 2px solid var(--accent, #ca6b4f); 
+    outline-offset: 1px;
 }
 .card-clickable {
     cursor: pointer;
@@ -1129,6 +1170,17 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 .preview-card {
   max-width: min(1200px, 96vw);
   margin: 0 auto;
+}
+:deep(.preview-modal-on-top .modal-body) {
+  padding: 1rem 1.25rem;
+}
+:deep(.preview-card .author) {
+  gap: 0 !important;
+  cursor: default !important;
+}
+:deep(.preview-card .author .name) {
+  margin-left: 0 !important;
+  display: inline-block;
 }
 :deep(.modal .modal-content) {
   max-height: 96vh;
@@ -1181,5 +1233,19 @@ watch(activeEmail, async (newEmail, oldEmail) => {
 
 .col-12:first-child .section-divider {
   margin-top: 0;
+}
+
+@media (max-width: 575.98px) {
+  .preview-card {
+    max-width: 100vw;
+    margin: 0;
+    border-radius: 0;
+  }
+  .preview-wrap {
+    padding: 0;
+  }
+  :deep(.preview-modal-on-top .modal-body) {
+    padding: 0;
+  }
 }
 </style>

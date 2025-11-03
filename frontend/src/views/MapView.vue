@@ -730,6 +730,12 @@ function normalizeList(arr) {
   return out
 }
 
+function closeFiltersOnMobile() {
+  if (isMobile.value) {
+    filtersOpen.value = false
+  }
+}
+
 function chooseCuisine(v) {
   selectedCuisine.value = v
   // For "All", clear the input box; otherwise show the picked string
@@ -740,6 +746,7 @@ function chooseCuisine(v) {
   requestAnimationFrame(() => cuisineInput.value && cuisineInput.value.blur())
   // Reload pins based on new filters
   loadPinsFromFilters()
+  closeFiltersOnMobile()
 }
 function chooseArea(v) {
   selectedArea.value = v
@@ -748,6 +755,12 @@ function chooseArea(v) {
   taArea.value.open = false
   requestAnimationFrame(() => areaInput.value && areaInput.value.blur())
   loadPinsFromFilters()
+  closeFiltersOnMobile()
+}
+
+function selectPrice(symbol) {
+  selectedPrice.value = symbol
+  closeFiltersOnMobile()
 }
 
 // Debounced fetchers
@@ -1534,6 +1547,8 @@ function clearFilters() {
   taArea.value.open = false
   // watchers will consume suppressOpen and set it back to false
 
+  closeFiltersOnMobile()
+
   rebuildMarkers().then(() => fitMapToFilteredPins())
 }
 </script>
@@ -1704,7 +1719,7 @@ function clearFilters() {
                         type="button"
                         class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                         :class="{ active: selectedPrice === '$' }"
-                        @click="selectedPrice = '$'"
+                        @click="selectPrice('$')"
                         :disabled="uiLocked"
                         data-tooltip="Inexpensive"
                       >
@@ -1714,7 +1729,7 @@ function clearFilters() {
                         type="button"
                         class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                         :class="{ active: selectedPrice === '$$' }"
-                        @click="selectedPrice = '$$'"
+                        @click="selectPrice('$$')"
                         :disabled="uiLocked"
                         data-tooltip="Moderate"
                       >
@@ -1724,7 +1739,7 @@ function clearFilters() {
                         type="button"
                         class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                         :class="{ active: selectedPrice === '$$$' }"
-                        @click="selectedPrice = '$$$'"
+                        @click="selectPrice('$$$')"
                         :disabled="uiLocked"
                         data-tooltip="Expensive"
                       >
@@ -1734,7 +1749,7 @@ function clearFilters() {
                         type="button"
                         class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
                         :class="{ active: selectedPrice === '$$$$' }"
-                        @click="selectedPrice = '$$$$'"
+                        @click="selectPrice('$$$$')"
                         :disabled="uiLocked"
                         data-tooltip="Very Expensive"
                       >
@@ -1744,7 +1759,7 @@ function clearFilters() {
                         type="button"
                         class="btn btn-sm btn-outline-secondary price-chip price-tooltip all-chip"
                         :class="{ active: selectedPrice === '' || selectedPrice === 'All' }"
-                        @click="selectedPrice = 'All'"
+                        @click="selectPrice('All')"
                         :disabled="uiLocked"
                         data-tooltip="Show all prices"
                       >
@@ -1886,54 +1901,54 @@ function clearFilters() {
             <div class="f-item price-item">
               <label class="form-label mb-1 small fw-semibold text-secondary">Price Range</label>
               <div class="chips-wrap">
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
-                  :class="{ active: selectedPrice === '$' }"
-                  @click="selectedPrice = '$'"
-                  :disabled="uiLocked"
-                  data-tooltip="Inexpensive"
-                >
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                    :class="{ active: selectedPrice === '$' }"
+                    @click="selectPrice('$')"
+                    :disabled="uiLocked"
+                    data-tooltip="Inexpensive"
+                  >
                   $
                 </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
-                  :class="{ active: selectedPrice === '$$' }"
-                  @click="selectedPrice = '$$'"
-                  :disabled="uiLocked"
-                  data-tooltip="Moderate"
-                >
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                    :class="{ active: selectedPrice === '$$' }"
+                    @click="selectPrice('$$')"
+                    :disabled="uiLocked"
+                    data-tooltip="Moderate"
+                  >
                   $$
                 </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
-                  :class="{ active: selectedPrice === '$$$' }"
-                  @click="selectedPrice = '$$$'"
-                  :disabled="uiLocked"
-                  data-tooltip="Expensive"
-                >
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                    :class="{ active: selectedPrice === '$$$' }"
+                    @click="selectPrice('$$$')"
+                    :disabled="uiLocked"
+                    data-tooltip="Expensive"
+                  >
                   $$$
                 </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
-                  :class="{ active: selectedPrice === '$$$$' }"
-                  @click="selectedPrice = '$$$$'"
-                  :disabled="uiLocked"
-                  data-tooltip="Very Expensive"
-                >
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip price-tooltip"
+                    :class="{ active: selectedPrice === '$$$$' }"
+                    @click="selectPrice('$$$$')"
+                    :disabled="uiLocked"
+                    data-tooltip="Very Expensive"
+                  >
                   $$$$
                 </button>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary price-chip price-tooltip all-chip"
-                  :class="{ active: selectedPrice === '' || selectedPrice === 'All' }"
-                  @click="selectedPrice = 'All'"
-                  :disabled="uiLocked"
-                  data-tooltip="Show all prices"
-                >
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary price-chip price-tooltip all-chip"
+                    :class="{ active: selectedPrice === '' || selectedPrice === 'All' }"
+                    @click="selectPrice('All')"
+                    :disabled="uiLocked"
+                    data-tooltip="Show all prices"
+                  >
                   All
                 </button>
               </div>
@@ -2053,7 +2068,7 @@ function clearFilters() {
               @keydown.enter="goToPost(p)"
             >
               <div class="card-body">
-                <div class="d-flex align-items-start mb-2 drawer-row">
+                <div class="d-flex align-items-center mb-2 drawer-row">
                   <img
                     :src="p.user?.avatar || DEFAULT_AVATAR"
                     class="drawer-avatar me-2"
@@ -2068,7 +2083,7 @@ function clearFilters() {
                       {{ p.user?.name || p.user?.username || p.user?.id }}
                     </div>
                   </div>
-                  <div class="ms-auto d-flex align-items-start gap-2 drawer-right">
+                  <div class="ms-auto d-flex align-items-center gap-2 drawer-right">
                     <template v-if="p.is_public !== null">
                       <div class="vis-badge">
                         <span
@@ -2664,16 +2679,30 @@ aside.side.clicking {
 /* Drawer row: allow name to wrap while keeping right pills fixed-aligned */
 .drawer-row { gap: 8px; }
 .min-w-0 { min-width: 0; }
+
 .drawer-username {
   font-weight: 700;
   color: var(--charcoal);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
+
+  /* Multi-line clamp */
+  display: -webkit-box;          /* WebKit implementation */
   -webkit-box-orient: vertical;
+  /* stylelint-disable-next-line property-no-vendor-prefix */
+  -webkit-line-clamp: 2;         /* Chrome/Safari/Edge */
+  line-clamp: 2;                 /* Standard property for VS Code warning */
+
+  /* Fallback for engines without line-clamp */
   overflow: hidden;
   line-height: 1.2;
+  max-height: calc(1.2em * 2);
   word-break: break-word;
 }
+
+/* If standard line-clamp is supported, drop the max-height fallback */
+@supports (line-clamp: 2) {
+  .drawer-username { max-height: none; }
+}
+
 .drawer-right { flex-shrink: 0; white-space: nowrap; }
 
 
@@ -2722,5 +2751,40 @@ aside.side.clicking {
 /* Ensure desktop collapse never shows on mobile */
 @media (max-width: 576px) {
   #mapFiltersCollapse { display: none !important; }
+}
+/* Safe multi-line truncation with standard + WebKit + fallback */
+.truncate-2,
+.truncate-3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;          /* required for older WebKit impls */
+  -webkit-box-orient: vertical;
+}
+
+.truncate-2 {
+  /* Fallback for non-supporting engines */
+  line-height: 1.5;
+  max-height: calc(1.5em * 2);
+
+  /* Standard property */
+  line-clamp: 2;
+  /* stylelint-disable-next-line property-no-vendor-prefix */
+  -webkit-line-clamp: 2;
+}
+
+.truncate-3 {
+  line-height: 1.5;
+  max-height: calc(1.5em * 3);
+
+  /* Standard property */
+  line-clamp: 3;
+  /* stylelint-disable-next-line property-no-vendor-prefix */
+  -webkit-line-clamp: 3;
+}
+
+/* If the standard property is supported, drop the max-height fallback */
+@supports (line-clamp: 2) {
+  .truncate-2 { max-height: none; }
+  .truncate-3 { max-height: none; }
 }
 </style>
