@@ -2316,7 +2316,7 @@ watch(
         <div v-else-if="showRandomiseAnim"></div>
         <!-- Before first click: invite user to randomise -->
         <div v-else-if="!hasRandomised" class="empty" data-animate="fadeIn" data-delay=".1s">
-          Click “Get randomised post”
+          Click “Randomise”
         </div>
         <!-- After a click but no results: show empty state -->
         <div v-else class="empty" data-animate="fadeIn" data-delay=".1s">
