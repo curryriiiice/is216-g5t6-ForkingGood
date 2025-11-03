@@ -35,6 +35,7 @@ const ENDPOINTS = {
     deleteComment: '/friends/deleteComment',
     editComment: '/friends/editComment',
     getPfpByEmail: '/user/getPfpByEmail',
+    getPfpByUsername: '/user/getPfpByUsername',
 }
 
 function resolveImageUrl(p) {
@@ -201,6 +202,34 @@ const authorEmail = computed(() => {
   return p.user?.email || p.poster_email || p.user_email || p.owner_email || p.email || null
 })
 
+function sanitizeUsername(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (trimmed.toLowerCase() === '@user') return null
+  return trimmed
+}
+
+function sanitizeEmail(value) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (!trimmed.includes('@')) return null
+  return trimmed
+}
+
+const authorUsername = computed(() => {
+  const p = props.post || {}
+  return (
+    sanitizeUsername(p.user?.username) ||
+    sanitizeUsername(p.poster_username) ||
+    sanitizeUsername(p.username) ||
+    null
+  )
+})
+
+const normalizedAuthorEmail = computed(() => sanitizeEmail(authorEmail.value))
+
 const authorPfpUrl = ref(null)
 
 function extractAvatarFromResponse(payload) {
@@ -234,20 +263,50 @@ function extractAvatarFromResponse(payload) {
   return null
 }
 
-async function fetchPfpByEmail(email) {
-  if (!email) return null
-  if (pfpCache.has(email)) {
-    const cached = pfpCache.get(email)
-    if (cached && !isDefaultAvatarUrl(cached)) {
-      return cached
-    }
-    pfpCache.delete(email)
+function readCachedAvatar(key) {
+  if (!key) return null
+  if (!pfpCache.has(key)) return null
+  const cached = pfpCache.get(key)
+  if (cached && !isDefaultAvatarUrl(cached)) {
+    return cached
   }
+  pfpCache.delete(key)
+  return null
+}
+
+function writeCachedAvatar(key, url) {
+  if (!key || !url) return
+  pfpCache.set(key, url)
+}
+
+async function fetchPfpByUsername(username) {
+  const clean = sanitizeUsername(username)
+  if (!clean) return null
+  const cacheKey = `username:${clean}`
+  const cached = readCachedAvatar(cacheKey)
+  if (cached) return cached
   try {
-    const response = await api.post(ENDPOINTS.getPfpByEmail, { email })
+    const response = await api.post(ENDPOINTS.getPfpByUsername, { username: clean })
     const rawUrl = response.data?.data || null
     const url = rawUrl ? resolveImageUrl(rawUrl) : null
-    if (url) pfpCache.set(email, url)
+    if (url) writeCachedAvatar(cacheKey, url)
+    return url
+  } catch (e) {
+    return null
+  }
+}
+
+async function fetchPfpByEmail(email) {
+  const clean = sanitizeEmail(email)
+  if (!clean) return null
+  const cacheKey = `email:${clean}`
+  const cached = readCachedAvatar(cacheKey)
+  if (cached) return cached
+  try {
+    const response = await api.post(ENDPOINTS.getPfpByEmail, { user_email: clean })
+    const rawUrl = response.data?.data || null
+    const url = rawUrl ? resolveImageUrl(rawUrl) : null
+    if (url) writeCachedAvatar(cacheKey, url)
     return url
   } catch (e) {
     return null
@@ -255,17 +314,22 @@ async function fetchPfpByEmail(email) {
 }
 
 async function loadAuthorPfp() {
-  const email = authorEmail.value
-  if (!email) {
-    authorPfpUrl.value = null
-    return
+  let url = null
+  const username = authorUsername.value
+  if (username) {
+    url = await fetchPfpByUsername(username)
   }
-  const url = await fetchPfpByEmail(email)
+  if (!url) {
+    const email = normalizedAuthorEmail.value
+    if (email) {
+      url = await fetchPfpByEmail(email)
+    }
+  }
   authorPfpUrl.value = url
 }
 
 watch(
-  authorEmail,
+  [authorUsername, normalizedAuthorEmail],
   () => {
     loadAuthorPfp()
   },
@@ -861,11 +925,14 @@ const captionClampInlineStyle = computed(() => {
   font-size: 18px;
   font-weight: 700;
   color: #111827;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .rating {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: 0 0 auto;
 }
 .star {
   color: #f59e0b;
@@ -952,6 +1019,9 @@ const captionClampInlineStyle = computed(() => {
   font-size: 13px;
   text-decoration: none;
   border: 1px solid #e5e7eb;
+  display: inline-flex;      /* ensure horizontal icon + text */
+  align-items: center;
+  gap: 6px;
 }
 .map-btn:hover {
   background: #e0e7ff;
@@ -960,6 +1030,9 @@ const captionClampInlineStyle = computed(() => {
 .map-btn.disabled {
   pointer-events: none;
   opacity: 0.6;
+  display: inline-flex;      /* keep icon left of text when disabled */
+  align-items: center;
+  gap: 6px;
 }
 
 .icon-btn {
@@ -1125,6 +1198,51 @@ const captionClampInlineStyle = computed(() => {
   .dot {
     width: 6px;
     height: 6px;
+  }
+
+  /* --- Mobile preview layout fixes --- */
+  .title-row { align-items: flex-start; gap: 8px; }
+  .title { flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rating { flex: 0 0 auto; margin-left: 4px; }
+
+  /* Ensure the meta grid is stable and readable */
+  .stats {
+    order: 1;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  /* Author should be directly below stats on the left, with avatar + name side by side */
+  .author {
+    order: 2;
+    grid-column: 1 / 2;
+    display: grid;
+    grid-template-columns: 24px 1fr; /* avatar | name */
+    align-items: center;
+    column-gap: 8px;
+    min-width: 0; /* allow long names to wrap */
+  }
+  .author .name { min-width: 0; }
+  /* Map button stays on the right column */
+  .map-btn {
+    order: 3;
+    grid-column: 2 / 3;
+    justify-self: end;
+  }
+  .date-text {
+    order: 4;
+    grid-column: 1 / -1;
+  }
+
+  /* Prevent overflow from long addresses/titles */
+  .address { overflow-wrap: anywhere; word-break: break-word; }
+
+  /* Clamp long author names to two lines in preview */
+  .author .name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
   }
 }
 
