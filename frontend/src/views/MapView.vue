@@ -950,7 +950,7 @@ watch(
 
     // Wait for BOTH map AND markers to be ready
     let tries = 0
-    while ((!map.value || !markers.value.length) && tries < 50) {
+    while ((!map.value || !markers.value.length) && tries < 500) {
       await new Promise((r) => setTimeout(r, 100))
       tries++
       // console.log(`⏳ Waiting for map/markers... (attempt ${tries})`)
