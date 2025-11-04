@@ -547,7 +547,7 @@ async function loadPinsFromFilters() {
       post_id: first.id, // representative post for the View button id
       name: first.restaurant.name || String(restaurantId),
       address: first.restaurant.address || '',
-      // ✅ derive area from the representative post's address
+      // derive area from the representative post's address
       area: inferArea(first.restaurant.address || ''),
       cuisine: first.restaurant.cuisine_type || 'Unknown',
       position: { lat: Number(first.restaurant.latitude), lng: Number(first.restaurant.longitude) },
@@ -587,9 +587,9 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
   const id = String(postId || '')
   if (!id) return
 
-  console.log('🎯 [focusPostOnMap] Looking for post:', id)
-  console.log('📍 Available markers:', markers.value.length)
-  console.log('📍 Marker post IDs:', markers.value.map(m => m.post?.id))
+  // console.log('🎯 [focusPostOnMap] Looking for post:', id)
+  // console.log('📍 Available markers:', markers.value.length)
+  // console.log('📍 Marker post IDs:', markers.value.map(m => m.post?.id))
 
   let restaurantId = postIdToRestaurantId.value.get(id)
 
@@ -607,7 +607,7 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
     return
   }
 
-  console.log('✅ [focusPostOnMap] Found restaurant:', restaurantId)
+  // console.log('✅ [focusPostOnMap] Found restaurant:', restaurantId)
 
   // NEW: Try to find and highlight the marker first
   const targetMarker = markers.value.find(marker => {
@@ -617,7 +617,7 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
   })
 
   if (targetMarker) {
-    console.log('✅ [focusPostOnMap] Found marker to highlight')
+    // console.log('✅ [focusPostOnMap] Found marker to highlight')
     
     // Center map on this marker
     const position = targetMarker.getPosition()
@@ -627,7 +627,7 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
     // Optional: Add visual highlighting (change marker color, add animation, etc.)
     // You can add this later if you want visual feedback
   } else {
-    console.log('❌ [focusPostOnMap] Marker not found, will center on restaurant')
+    // console.log('❌ [focusPostOnMap] Marker not found, will center on restaurant')
   }
 
   // Delegate to focusRestaurant to pan/zoom + open UI
@@ -939,12 +939,12 @@ watch(
 watch(
   () => route.query.postId,
   async (newId) => {
-    console.log('🔄 [Route Watcher] postId changed to:', newId)
+    // console.log('🔄 [Route Watcher] postId changed to:', newId)
     
     if (!newId) return
 
     const pid = String(newId)
-    console.log('🔍 [Route Watcher] Processing postId:', pid)
+    // console.log('🔍 [Route Watcher] Processing postId:', pid)
 
     const { changed: scopeChanged } = await ensureFeedScopeForPost(pid)
 
@@ -957,23 +957,23 @@ watch(
     }
     
     if (!map.value) {
-      console.log('❌ [Route Watcher] Map not initialized after waiting')
+      // console.log('❌ [Route Watcher] Map not initialized after waiting')
       return
     }
     
     if (!markers.value.length) {
-      console.log('❌ [Route Watcher] No markers created after waiting')
+      // console.log('❌ [Route Watcher] No markers created after waiting')
       return
     }
 
-    console.log('✅ [Route Watcher] Map and markers ready!')
-    console.log('📍 Current markers count:', markers.value.length)
-    console.log('📍 Marker post IDs:', markers.value.map(m => m.post?.id))
+    // console.log('✅ [Route Watcher] Map and markers ready!')
+    // console.log('📍 Current markers count:', markers.value.length)
+    // console.log('📍 Marker post IDs:', markers.value.map(m => m.post?.id))
 
     // Try to focus on the post
     await focusPostOnMap(pid, { openDrawer: true })
     
-    console.log('✅ [Route Watcher] focusPostOnMap completed')
+    // console.log('✅ [Route Watcher] focusPostOnMap completed')
   },
   { immediate: true }
 )
@@ -984,7 +984,7 @@ watch(
   (newCount, oldCount) => {
     const postId = route.query.postId
     if (postId && newCount > 0 && oldCount === 0) {
-      console.log('🔄 [Marker Watcher] Markers created, retrying highlight for:', postId)
+      // console.log('🔄 [Marker Watcher] Markers created, retrying highlight for:', postId)
       // Small delay to ensure markers are fully ready
       setTimeout(() => {
         focusPostOnMap(postId, { openDrawer: true })
