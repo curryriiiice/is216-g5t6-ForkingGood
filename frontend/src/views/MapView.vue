@@ -612,7 +612,7 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
   // NEW: Try to find and highlight the marker first
   const targetMarker = markers.value.find(marker => {
     const markerPostId = marker.post?.id
-    console.log('🔍 Checking marker:', markerPostId, 'vs target:', id)
+    // console.log('🔍 Checking marker:', markerPostId, 'vs target:', id)
     return markerPostId && String(markerPostId) === id
   })
 
