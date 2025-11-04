@@ -1011,7 +1011,6 @@ onBeforeUnmount(() => {
   width: 38px; height: 38px;
   border: 1px solid #e5e7eb; border-radius: 10px;
   background: #fff; cursor: pointer;
-  color: #374151; /* Explicit color for SVG stroke */
 }
 .hamburger:hover { background: #f9fafb; }
 @media (min-width: 768px) { .hamburger { display: none; } }
