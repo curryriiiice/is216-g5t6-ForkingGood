@@ -114,7 +114,7 @@ async function getAllLocations(query = '') {
     return []
   }
 }
-
+ 
 // Unified filtered posts (friends/public + cuisine/area/price)
 async function getFilteredPosts(payload) {
   try {
