@@ -585,25 +585,56 @@ async function loadPinsFromFilters() {
 
 async function focusPostOnMap(postId, { openDrawer = true } = {}) {
   const id = String(postId || '')
-  if (!id) return
+  if (!id) {
+    console.warn('[focusPostOnMap] no postId provided')
+    return
+  }
+
+  console.log('[focusPostOnMap] starting with postId:', id)
+  console.log('[focusPostOnMap] postIdToRestaurantId size:', postIdToRestaurantId.value.size)
+  console.log('[focusPostOnMap] postsByRestaurant size:', postsByRestaurant.value?.size || 0)
+  console.log('[focusPostOnMap] pins count:', pins.value?.length || 0)
 
   let restaurantId = postIdToRestaurantId.value.get(id)
+  console.log('[focusPostOnMap] restaurantId from index:', restaurantId)
 
   if (!restaurantId && postsByRestaurant?.value instanceof Map) {
+    console.log('[focusPostOnMap] searching manually through', postsByRestaurant.value.size, 'restaurant groups')
     for (const [rKey, posts] of postsByRestaurant.value.entries()) {
       // Handle both array and proxy array structures
       const postsArray = Array.isArray(posts) ? posts : Array.from(posts || [])
-      if (postsArray.some((p) => String(p?.id || p?.postid) === id)) {
+      console.log('[focusPostOnMap] checking restaurant:', rKey, 'with', postsArray.length, 'posts')
+      if (postsArray.some((p) => {
+        const pId = String(p?.id || p?.postid || '')
+        const match = pId === id
+        if (match) console.log('[focusPostOnMap] FOUND MATCH in restaurant:', rKey)
+        return match
+      })) {
         restaurantId = rKey
         break
       }
     }
   }
+  
   if (!restaurantId) {
-    console.warn('[map] post not found in index:', id, 'Available restaurants:', Array.from(postsByRestaurant.value?.keys() || []))
+    console.warn('[focusPostOnMap] post not found in index:', id)
+    console.log('[focusPostOnMap] Available restaurant IDs:', Array.from(postsByRestaurant.value?.keys() || []))
+    // Try to get the first few post IDs from each restaurant for debugging
+    let samplePostIds = []
+    if (postsByRestaurant.value instanceof Map) {
+      for (const [rId, posts] of postsByRestaurant.value.entries()) {
+        const postsArray = Array.isArray(posts) ? posts : Array.from(posts || [])
+        const firstPost = postsArray[0]
+        if (firstPost) {
+          samplePostIds.push({ restaurantId: rId, postId: firstPost.id || firstPost.postid })
+        }
+      }
+    }
+    console.log('[focusPostOnMap] Sample post IDs:', samplePostIds.slice(0, 5))
     return
   }
 
+  console.log('[focusPostOnMap] calling focusRestaurant with:', String(restaurantId))
   // Delegate to focusRestaurant to pan/zoom + open UI
   focusRestaurant(String(restaurantId), { openDrawer })
 }
