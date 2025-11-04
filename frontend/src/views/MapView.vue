@@ -602,107 +602,8 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
     return
   }
 
-  // NEW: Highlight the marker before opening drawer
-  await highlightPostMarker(id)
-
   // Delegate to focusRestaurant to pan/zoom + open UI
   focusRestaurant(String(restaurantId), { openDrawer })
-}
-
-// Function to highlight a specific post marker
-async function highlightPostMarker(postId) {
-  console.log('🎯 [Map] highlightPostMarker called with:', postId)
-  
-  if (!postId) {
-    console.log('❌ [Map] No postId provided')
-    return
-  }
-
-  // Clear any existing highlight first
-  clearMarkerHighlights()
-
-  // Find the marker for this postId
-  const targetMarker = markers.value.find(marker => {
-    const markerPostId = marker.post?.id || marker.post?.postid
-    console.log('🔍 [Map] Checking marker:', markerPostId, 'vs target:', postId)
-    return markerPostId && String(markerPostId) === String(postId)
-  })
-
-  if (targetMarker) {
-    console.log('✅ [Map] Found marker to highlight')
-    
-    // Highlight the marker with animation and different icon
-    await highlightMarker(targetMarker)
-    
-    // Center map on this marker
-    if (map.value && targetMarker.getPosition()) {
-      const position = targetMarker.getPosition()
-      map.value.panTo(position)
-      map.value.setZoom(16) // Zoom in closer
-      console.log('🎯 [Map] Map centered on highlighted marker')
-    }
-  } else {
-    console.log('❌ [Map] Marker not found for postId:', postId)
-    console.log('📊 [Map] Available markers:', markers.value.map(m => m.post?.id || m.post?.postid))
-  }
-}
-
-// Function to clear all marker highlights
-function clearMarkerHighlights() {
-  markers.value.forEach(marker => {
-    // Reset to normal icon
-    if (marker.setIcon && marker.originalIcon) {
-      marker.setIcon(marker.originalIcon)
-    }
-    // Stop any animation
-    if (marker.setAnimation) {
-      marker.setAnimation(null)
-    }
-  })
-}
-
-// Function to highlight a specific marker
-async function highlightMarker(marker) {
-  // Store the original icon if not already stored
-  if (!marker.originalIcon) {
-    marker.originalIcon = marker.getIcon?.() || {
-      url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-        <svg width="30" height="30" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="15" cy="15" r="12" fill="#4285F4" stroke="#FFFFFF" stroke-width="2"/>
-        </svg>
-      `),
-      scaledSize: new google.maps.Size(30, 30),
-      anchor: new google.maps.Point(15, 15)
-    }
-  }
-
-  // Change to highlighted icon (red with white border)
-  const highlightedIcon = {
-    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-      <svg width="40" height="40" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="20" cy="20" r="15" fill="#FF0000" stroke="#FFFFFF" stroke-width="3"/>
-        <circle cx="20" cy="20" r="8" fill="#FFFFFF" opacity="0.8"/>
-      </svg>
-    `),
-    scaledSize: new google.maps.Size(40, 40),
-    anchor: new google.maps.Point(20, 20)
-  }
-
-  marker.setIcon(highlightedIcon)
-  
-  // Add bounce animation
-  if (marker.setAnimation) {
-    marker.setAnimation(google.maps.Animation.BOUNCE)
-    
-    // Stop animation after 3 seconds
-    setTimeout(() => {
-      if (marker.setAnimation) {
-        marker.setAnimation(null)
-      }
-    }, 3000)
-  }
-  
-  console.log('🌟 [Map] Marker highlighted with animation')
 }
 
 async function rebuildMarkers() {
@@ -1339,22 +1240,7 @@ function addPinsWith(GMarker) {
       position: pin.position,
       map: map.value,
       title: `${pin.name} • ${pin.cuisine}`,
-      // Use the default icon
-      icon: {
-        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
-          <svg width="30" height="30" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="15" cy="15" r="12" fill="#4285F4" stroke="#FFFFFF" stroke-width="2"/>
-          </svg>
-        `),
-        scaledSize: new google.maps.Size(30, 30),
-        anchor: new google.maps.Point(15, 15)
-      }
     })
-    
-    // ⭐ IMPORTANT: Attach the post data to the marker
-    // Use the representative post from the pin
-    marker.post = pin.post
-    
     marker.addListener('click', () => {
       const html = renderInfoWindow(pin)
       infoWindow.value.setContent(html)
@@ -1368,14 +1254,13 @@ function addPinsWith(GMarker) {
           return
         }
         btn.addEventListener('click', async () => {
-          selected.value = pin
-          selectedPost.value = null
-          selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
-          infoWindow.value.close()
-        })
+        selected.value = pin
+        selectedPost.value = null
+        selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
+        infoWindow.value.close()
+      })
       })
     })
-    
     ALL_MARKERS.add(marker)
     markers.value.push(marker)
   }
