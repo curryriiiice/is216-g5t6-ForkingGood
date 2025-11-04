@@ -948,18 +948,25 @@ watch(
 
     const { changed: scopeChanged } = await ensureFeedScopeForPost(pid)
 
-    // Wait for map to be initialized
+    // Wait for BOTH map AND markers to be ready
     let tries = 0
-    while (!map.value && tries < 30) {
+    while ((!map.value || !markers.value.length) && tries < 50) {
       await new Promise((r) => setTimeout(r, 100))
       tries++
+      console.log(`⏳ Waiting for map/markers... (attempt ${tries})`)
     }
+    
     if (!map.value) {
-      console.log('❌ [Route Watcher] Map not initialized')
+      console.log('❌ [Route Watcher] Map not initialized after waiting')
+      return
+    }
+    
+    if (!markers.value.length) {
+      console.log('❌ [Route Watcher] No markers created after waiting')
       return
     }
 
-    console.log('📍 [Route Watcher] Map ready, checking markers...')
+    console.log('✅ [Route Watcher] Map and markers ready!')
     console.log('📍 Current markers count:', markers.value.length)
     console.log('📍 Marker post IDs:', markers.value.map(m => m.post?.id))
 
@@ -969,6 +976,21 @@ watch(
     console.log('✅ [Route Watcher] focusPostOnMap completed')
   },
   { immediate: true }
+)
+
+// Watch for when markers are populated and retry highlighting
+watch(
+  () => markers.value.length,
+  (newCount, oldCount) => {
+    const postId = route.query.postId
+    if (postId && newCount > 0 && oldCount === 0) {
+      console.log('🔄 [Marker Watcher] Markers created, retrying highlight for:', postId)
+      // Small delay to ensure markers are fully ready
+      setTimeout(() => {
+        focusPostOnMap(postId, { openDrawer: true })
+      }, 500)
+    }
+  }
 )
 
 watch(
