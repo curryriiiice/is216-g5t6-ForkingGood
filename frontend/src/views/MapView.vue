@@ -547,7 +547,7 @@ async function loadPinsFromFilters() {
       post_id: first.id, // representative post for the View button id
       name: first.restaurant.name || String(restaurantId),
       address: first.restaurant.address || '',
-      // ✅ derive area from the representative post's address
+      // derive area from the representative post's address
       area: inferArea(first.restaurant.address || ''),
       cuisine: first.restaurant.cuisine_type || 'Unknown',
       position: { lat: Number(first.restaurant.latitude), lng: Number(first.restaurant.longitude) },
@@ -587,6 +587,10 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
   const id = String(postId || '')
   if (!id) return
 
+  // console.log('🎯 [focusPostOnMap] Looking for post:', id)
+  // console.log('📍 Available markers:', markers.value.length)
+  // console.log('📍 Marker post IDs:', markers.value.map(m => m.post?.id))
+
   let restaurantId = postIdToRestaurantId.value.get(id)
 
   if (!restaurantId && postsByRestaurant?.value instanceof Map) {
@@ -597,9 +601,33 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
       }
     }
   }
+  
   if (!restaurantId) {
     console.warn('[map] post not found in index:', id)
     return
+  }
+
+  // console.log('✅ [focusPostOnMap] Found restaurant:', restaurantId)
+
+  // NEW: Try to find and highlight the marker first
+  const targetMarker = markers.value.find(marker => {
+    const markerPostId = marker.post?.id
+    // console.log('🔍 Checking marker:', markerPostId, 'vs target:', id)
+    return markerPostId && String(markerPostId) === id
+  })
+
+  if (targetMarker) {
+    // console.log('✅ [focusPostOnMap] Found marker to highlight')
+    
+    // Center map on this marker
+    const position = targetMarker.getPosition()
+    map.value.panTo(position)
+    map.value.setZoom(16)
+    
+    // Optional: Add visual highlighting (change marker color, add animation, etc.)
+    // You can add this later if you want visual feedback
+  } else {
+    // console.log('❌ [focusPostOnMap] Marker not found, will center on restaurant')
   }
 
   // Delegate to focusRestaurant to pan/zoom + open UI
@@ -911,68 +939,58 @@ watch(
 watch(
   () => route.query.postId,
   async (newId) => {
+    // console.log('🔄 [Route Watcher] postId changed to:', newId)
+    
     if (!newId) return
 
     const pid = String(newId)
+    // console.log('🔍 [Route Watcher] Processing postId:', pid)
+
     const { changed: scopeChanged } = await ensureFeedScopeForPost(pid)
 
-    // Wait for map to be initialized
+    // Wait for BOTH map AND markers to be ready
     let tries = 0
-    while (!map.value && tries < 30) {
-      await new Promise((r) => setTimeout(r, 100)) // ~3s max
+    while ((!map.value || !markers.value.length) && tries < 500) {
+      await new Promise((r) => setTimeout(r, 100))
       tries++
+      // console.log(`⏳ Waiting for map/markers... (attempt ${tries})`)
     }
-    if (!map.value) return
-
-    // Allow existing data (or scope change) to populate the index
-    let postExists = postIdToRestaurantId.value.has(pid)
-    if (!postExists) {
-      const budget = scopeChanged ? 8 : 4
-      let waitCycles = 0
-      while (!postExists && waitCycles < budget) {
-        await new Promise((r) => setTimeout(r, 120))
-        postExists = postIdToRestaurantId.value.has(pid)
-        waitCycles++
-      }
+    
+    if (!map.value) {
+      // console.log('❌ [Route Watcher] Map not initialized after waiting')
+      return
+    }
+    
+    if (!markers.value.length) {
+      // console.log('❌ [Route Watcher] No markers created after waiting')
+      return
     }
 
-    if (!postExists) {
-      // Clear filters to ensure the post loads
-      const resetCuisine = selectedCuisine.value !== 'All'
-      const resetArea = selectedArea.value !== 'All'
-      const resetPrice = selectedPrice.value !== 'All'
-
-      if (resetCuisine) selectedCuisine.value = 'All'
-      if (resetArea) selectedArea.value = 'All'
-      if (resetPrice) selectedPrice.value = 'All'
-
-      if (resetCuisine || resetArea || resetPrice) {
-        await nextTick()
-      }
-
-      // Wait for pins to reload
-      await loadPinsFromFilters()
-      await nextTick()
-      postExists = postIdToRestaurantId.value.has(pid)
-    }
-
-    if (!postExists) {
-      // Final short wait in case the index updates slightly later
-      let attempts = 0
-      while (!postExists && attempts < 5) {
-        await new Promise((r) => setTimeout(r, 120))
-        postExists = postIdToRestaurantId.value.has(pid)
-        attempts++
-      }
-    }
+    // console.log('✅ [Route Watcher] Map and markers ready!')
+    // console.log('📍 Current markers count:', markers.value.length)
+    // console.log('📍 Marker post IDs:', markers.value.map(m => m.post?.id))
 
     // Try to focus on the post
     await focusPostOnMap(pid, { openDrawer: true })
-
-    // Don't clear query param - let the drawer handle it when closed
-    // This ensures back/forward navigation works properly
+    
+    // console.log('✅ [Route Watcher] focusPostOnMap completed')
   },
-  { immediate: true },
+  { immediate: true }
+)
+
+// Watch for when markers are populated and retry highlighting
+watch(
+  () => markers.value.length,
+  (newCount, oldCount) => {
+    const postId = route.query.postId
+    if (postId && newCount > 0 && oldCount === 0) {
+      // console.log('🔄 [Marker Watcher] Markers created, retrying highlight for:', postId)
+      // Small delay to ensure markers are fully ready
+      setTimeout(() => {
+        focusPostOnMap(postId, { openDrawer: true })
+      }, 500)
+    }
+  }
 )
 
 watch(
@@ -1241,6 +1259,16 @@ function addPinsWith(GMarker) {
       map: map.value,
       title: `${pin.name} • ${pin.cuisine}`,
     })
+    
+    // ⭐ CRITICAL: Attach the post data to the marker
+    // This allows us to find markers by post ID later
+    marker.post = pin.post || {
+      id: pin.post_id, // fallback to post_id if post object is missing
+      restaurant_id: pin.restaurant_id
+    }
+    
+    // console.log('📍 [markers] Created marker with post ID:', marker.post?.id)
+
     marker.addListener('click', () => {
       const html = renderInfoWindow(pin)
       infoWindow.value.setContent(html)
@@ -1254,16 +1282,20 @@ function addPinsWith(GMarker) {
           return
         }
         btn.addEventListener('click', async () => {
-        selected.value = pin
-        selectedPost.value = null
-        selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
-        infoWindow.value.close()
-      })
+          selected.value = pin
+          selectedPost.value = null
+          selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
+          infoWindow.value.close()
+        })
       })
     })
+    
     ALL_MARKERS.add(marker)
     markers.value.push(marker)
   }
+  
+  // console.log('📍 [markers] Total markers created:', markers.value.length)
+  // console.log('📍 [markers] Marker post IDs:', markers.value.map(m => m.post?.id))
 }
 
 async function focusRestaurant(restaurantId, { openDrawer = false } = {}) {
