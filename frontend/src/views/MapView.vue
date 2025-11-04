@@ -591,14 +591,16 @@ async function focusPostOnMap(postId, { openDrawer = true } = {}) {
 
   if (!restaurantId && postsByRestaurant?.value instanceof Map) {
     for (const [rKey, posts] of postsByRestaurant.value.entries()) {
-      if (posts.some((p) => String(p.id) === id)) {
+      // Handle both array and proxy array structures
+      const postsArray = Array.isArray(posts) ? posts : Array.from(posts || [])
+      if (postsArray.some((p) => String(p?.id || p?.postid) === id)) {
         restaurantId = rKey
         break
       }
     }
   }
   if (!restaurantId) {
-    console.warn('[map] post not found in index:', id)
+    console.warn('[map] post not found in index:', id, 'Available restaurants:', Array.from(postsByRestaurant.value?.keys() || []))
     return
   }
 
