@@ -531,7 +531,24 @@ function viewOnMap(p) {
     return
   }
   const pid = String(post.id || post.postid)
-  router.push({ path: '/map', query: { postId: pid } })
+  
+  // Determine feed scope from post visibility
+  const isPublic = isPublicBool.value
+  const rawVis = post?.is_public ?? post?.raw?.public ?? null
+  let scope = 'public' // default
+  
+  if (isPublic !== null && isPublic !== undefined) {
+    scope = isPublic ? 'public' : 'friends'
+  } else if (rawVis !== null && rawVis !== undefined) {
+    const str = typeof rawVis === 'string' ? rawVis.trim().toLowerCase() : rawVis
+    if (str === false || str === 0 || str === '0' || str === 'false' || str === 'f' || str === 'friends' || str === 'friends_only' || str === 'private') {
+      scope = 'friends'
+    } else if (str === true || str === 1 || str === '1' || str === 'true' || str === 't' || str === 'public' || str === 'everyone') {
+      scope = 'public'
+    }
+  }
+  
+  router.push({ path: '/map', query: { postId: pid, feed: scope } })
 }
 
 // local like/comment counters (hydrated from backend)
