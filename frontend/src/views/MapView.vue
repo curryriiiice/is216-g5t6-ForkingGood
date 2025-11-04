@@ -953,7 +953,7 @@ watch(
     while ((!map.value || !markers.value.length) && tries < 50) {
       await new Promise((r) => setTimeout(r, 100))
       tries++
-      console.log(`⏳ Waiting for map/markers... (attempt ${tries})`)
+      // console.log(`⏳ Waiting for map/markers... (attempt ${tries})`)
     }
     
     if (!map.value) {
@@ -1267,7 +1267,7 @@ function addPinsWith(GMarker) {
       restaurant_id: pin.restaurant_id
     }
     
-    console.log('📍 [markers] Created marker with post ID:', marker.post?.id)
+    // console.log('📍 [markers] Created marker with post ID:', marker.post?.id)
 
     marker.addListener('click', () => {
       const html = renderInfoWindow(pin)
@@ -1294,8 +1294,8 @@ function addPinsWith(GMarker) {
     markers.value.push(marker)
   }
   
-  console.log('📍 [markers] Total markers created:', markers.value.length)
-  console.log('📍 [markers] Marker post IDs:', markers.value.map(m => m.post?.id))
+  // console.log('📍 [markers] Total markers created:', markers.value.length)
+  // console.log('📍 [markers] Marker post IDs:', markers.value.map(m => m.post?.id))
 }
 
 async function focusRestaurant(restaurantId, { openDrawer = false } = {}) {
