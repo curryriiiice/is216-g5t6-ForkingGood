@@ -872,6 +872,17 @@ async function ensureMapsApiLoaded(key) {
   })
 }
 
+function getRawData(data) {
+  // In production, always unwrap; in development, be more careful
+  if (import.meta.env.PROD) {
+    return toRaw(data) || data
+  }
+  return data
+}
+
+// Usage:
+const rawPins = getRawData(filteredPins.value)
+
 /* -----------------
    Lifecycle
 ------------------*/
@@ -1275,23 +1286,22 @@ function addPinsWith(GMarker) {
       title: `${pin.name} • ${pin.cuisine}`,
     })
     marker.addListener('click', () => {
-      const html = renderInfoWindow(pin)
+      const html = renderInfoWindow(rawPin)
       infoWindow.value.setContent(html)
       infoWindow.value.open({ anchor: marker, map: map.value })
 
       google.maps.event.addListenerOnce(infoWindow.value, 'domready', () => {
-        const id = `view-post-btn-${pin.post_id || pin.restaurant_id}`
+        const id = `view-post-btn-${rawPin.post_id || rawPin.restaurant_id}`
         const btn = document.getElementById(id)
-        if (!btn) {
-          console.warn('[infoWindow] view-post button not found for', id, pin)
-          return
-        }
+        if (!btn) return
         btn.addEventListener('click', async () => {
-        selected.value = pin
-        selectedPost.value = null
-        selectedPosts.value = postsByRestaurant.value.get(pin.restaurant_id) || []
-        infoWindow.value.close()
-      })
+          selected.value = rawPin
+          selectedPost.value = null
+          // Use getRawData here too
+          const restaurantPosts = getRawData(postsByRestaurant.value.get(rawPin.restaurant_id)) || []
+          selectedPosts.value = restaurantPosts
+          infoWindow.value.close()
+        })
       })
     })
     ALL_MARKERS.add(marker)
@@ -1381,21 +1391,26 @@ function findPostById(postId) {
   const id = String(postId || '')
   if (!id) return null
 
-  const groups = postsByRestaurant.value
-  if (!(groups instanceof Map)) return null
+  // Use getRawData
+  const rawGroups = getRawData(postsByRestaurant.value) || postsByRestaurant.value
+  const rawPostIdMap = getRawData(postIdToRestaurantId.value) || postIdToRestaurantId.value
+  
+  if (!(rawGroups instanceof Map)) return null
 
-  const rid = postIdToRestaurantId.value.get(id)
+  const rid = rawPostIdMap.get(id)
   if (rid) {
-    const arr = groups.get(rid)
+    const arr = rawGroups.get(rid)
     if (Array.isArray(arr)) {
-      const hit = arr.find((p) => String(p?.id ?? '') === id)
+      const rawArr = arr.map(post => getRawData(post) || post)
+      const hit = rawArr.find((p) => String(p?.id ?? '') === id)
       if (hit) return hit
     }
   }
 
-  for (const arr of groups.values()) {
+  for (const arr of rawGroups.values()) {
     if (!Array.isArray(arr)) continue
-    const hit = arr.find((p) => String(p?.id ?? '') === id)
+    const rawArr = arr.map(post => getRawData(post) || post)
+    const hit = rawArr.find((p) => String(p?.id ?? '') === id)
     if (hit) return hit
   }
   return null
