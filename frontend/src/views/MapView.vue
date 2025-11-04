@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onUnmounted, watch, nextTick, computed, toRaw } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
@@ -96,6 +96,14 @@ function applyStoredTheme() {
 
 // --- Filter + data endpoints --- //
 // Suggestions (searchable dropdowns if you later hook @search)
+function getRawData(data) {
+  // In production, always unwrap; in development, be more careful
+  if (import.meta.env.PROD) {
+    return toRaw(data) || data
+  }
+  return data
+}
+
 async function getAllCuisines(query = '') {
   try {
     const r = await api.get('/map/getAllCuisines', { params: query ? { q: query } : {} })
@@ -870,14 +878,6 @@ async function ensureMapsApiLoaded(key) {
     s.onerror = () => reject(new Error('Failed to load Google Maps JS API'))
     document.head.appendChild(s)
   })
-}
-
-function getRawData(data) {
-  // In production, always unwrap; in development, be more careful
-  if (import.meta.env.PROD) {
-    return toRaw(data) || data
-  }
-  return data
 }
 
 // Usage:
