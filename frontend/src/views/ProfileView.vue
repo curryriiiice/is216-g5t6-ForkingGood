@@ -209,14 +209,11 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
 import { useRouter } from 'vue-router'
 import api from "@/lib/api";
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient.js'
 import Modal from '@/components/Modal.vue'
 
 // Use shared API client (baseURL from env in lib/api.js)
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 const router = useRouter()
 
 /* ===== Default avatar SVG (Instagram-like silhouette) ===== */
