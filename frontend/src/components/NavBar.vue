@@ -243,14 +243,11 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, reactive } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
-import { createClient } from '@supabase/supabase-js'
+import supabase from '@/lib/supabaseClient.js'
 import Modal from '@/components/Modal.vue'
 import api from '@/lib/api'
 
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 const DEFAULT_NAV_AVATAR = '/images/default-avatar.jpg'
 
 /* ------------------------- Props ------------------------- */
@@ -755,17 +752,15 @@ onMounted(async () => {
       let profile = null
       try {
         const { data: row } = await supabase
-          .from('users')
-          .select('username, first_name, last_name, user_email, profile_image_url')
-          .eq('uid', user.id)
+          .from('user')
+          .select('username, user_email, profile_image_url')
+          .eq('UID', user.id)
           .maybeSingle()
         profile = row || null
       } catch (_) {}
 
       localUser.value = {
         username: profile?.username ?? user.user_metadata?.username ?? null,
-        first_name: profile?.first_name ?? user.user_metadata?.first_name ?? null,
-        last_name: profile?.last_name ?? user.user_metadata?.last_name ?? null,
         email: profile?.user_email ?? user.email ?? null,
         avatar_url: profile?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
       }
@@ -801,14 +796,12 @@ onMounted(async () => {
     }
     try {
       const { data: row } = await supabase
-        .from('users')
-        .select('username, first_name, last_name, user_email, profile_image_url')
-        .eq('uid', user.id)
+        .from('user')
+        .select('username, user_email, profile_image_url')
+        .eq('UID', user.id)
         .maybeSingle()
       localUser.value = {
         username: row?.username ?? user.user_metadata?.username ?? null,
-        first_name: row?.first_name ?? user.user_metadata?.first_name ?? null,
-        last_name: row?.last_name ?? user.user_metadata?.last_name ?? null,
         email: row?.user_email ?? user.email ?? null,
         avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
       }

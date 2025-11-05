@@ -8,7 +8,6 @@ import api from '@/lib/api'
 /* =========================
    Route + shell state
    ========================= */
-const searchTerm = ref('')
 const user = ref(null)
 const pendingRequestsCount = ref(0)
 const router = useRouter()
@@ -168,7 +167,6 @@ function toggleCollapse() {
    Boot: restore state + load user
    ========================= */
 onMounted(async () => {
-
   // Restore panel state/position
   try {
     const saved = JSON.parse(localStorage.getItem(SWITCHER_POS_KEY) || 'null')
@@ -183,15 +181,9 @@ onMounted(async () => {
     collapsed.value = JSON.parse(localStorage.getItem(SWITCHER_COLLAPSED_KEY) || 'false')
   } catch { collapsed.value = false }
 
-  // Load user (soft-fail)
-  try {
-    const { data } = await api.get('/me')
-    user.value = data?.user ?? data?.data ?? data ?? null
-  } catch {
-    user.value = null
-  } finally {
-    loading.value = false
-  }
+  // Remove user logic entirely
+  user.value = null
+  loading.value = false
 
   // Ensure html[data-theme] reflects current cuisine on boot
   applyRootThemeFromCuisine(theme.value)
@@ -218,7 +210,6 @@ const pageClass = computed(() => ({
     <div v-else class="content-safe">
       <NavBar
         v-if="!hideNavbar"
-        v-model:searchTerm="searchTerm"
         :user="user"
         :pendingRequestsCount="pendingRequestsCount"
         :themeCuisine="theme"

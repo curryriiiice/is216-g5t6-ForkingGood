@@ -1,7 +1,7 @@
 // src/main.js
 import { createApp } from "vue";
 import App from "./App.vue";
-import router from "./router"; // ✅ import your router
+import router from "./router"; // import router
 import '@/assets/css/theme.css';
 import 'https://unpkg.com/@googlemaps/extended-component-library@0.6'
 import 'animate.css';
@@ -19,5 +19,17 @@ if (apiKey) {
 }
 
 const app = createApp(App);
-app.use(router);               // ✅ tell Vue to use it
+app.use(router);               // use router
+
+// Global error handler
+app.config.errorHandler = (err, instance, info) => {
+  console.error('Global Vue error:', err)
+}
+
+// Handle unhandled promise rejections
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled promise rejection:', event.reason)
+  event.preventDefault()
+})
+
 app.mount("#app");

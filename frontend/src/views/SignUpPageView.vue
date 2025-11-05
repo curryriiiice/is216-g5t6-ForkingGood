@@ -131,14 +131,11 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabaseClient.js'
 import api from '@/lib/api'
 
 const router = useRouter()
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 const email = ref('')
 const username = ref('')

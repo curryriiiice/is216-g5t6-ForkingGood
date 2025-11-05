@@ -1243,8 +1243,53 @@ function handleOutsidePointerDown(e) {
 onMounted(() => {
   document.addEventListener('pointerdown', handleOutsidePointerDown, true)
 })
+
 onBeforeUnmount(() => {
+  console.log('[MapView] Cleaning up...')
+  
+  // 1. Remove event listeners
+  document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('pointerdown', handleOutsidePointerDown, true)
+  window.removeEventListener('resize', updateIsMobile)
+  
+  // 2. Clear all Google Maps markers
+  if (markers.value.length) {
+    markers.value.forEach(marker => {
+      if (marker.setMap) marker.setMap(null)
+    })
+    markers.value = []
+  }
+  
+  // 3. Clear ALL_MARKERS global set
+  if (ALL_MARKERS.size) {
+    ALL_MARKERS.forEach(marker => {
+      if (marker.setMap) marker.setMap(null)
+    })
+    ALL_MARKERS.clear()
+  }
+  
+  // 4. Close info window
+  if (infoWindow.value) {
+    infoWindow.value.close()
+    infoWindow.value = null
+  }
+  
+  // 5. Revoke object URLs if you have any blob URLs
+  // blobCache.clear() // if you have blobCache
+  
+  // 6. Clear intervals and timeouts
+  // Clear any setInterval/setTimeout you might have
+  
+  // 7. Remove map from DOM
+  if (map.value) {
+    map.value.unbindAll()
+    const mapElement = mapEl.value
+    if (mapElement) {
+      mapElement.innerHTML = '' // Clear map container
+    }
+  }
+  
+  console.log('[MapView] Cleanup completed')
 })
 
 /* -----------------

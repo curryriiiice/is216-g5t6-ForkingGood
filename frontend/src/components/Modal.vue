@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-overlay" @click="onBackdrop">
+    <div v-if="show" class="modal-overlay" @click="onBackdrop" v-bind="$attrs">
       <div
         class="modal-panel"
         role="dialog"
@@ -29,6 +29,26 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 
+// page visibility handler for memory leak prevention
+const isPageVisible = ref(true)
+
+const handleVisibilityChange = () => {
+  isPageVisible.value = !document.hidden
+  if (!isPageVisible.value) {
+    // Page/tab hidden - clean up modal to prevent memory leaks
+    console.log('Modal: Page hidden, cleaning up modal resources')
+    // Force close modal when tab becomes inactive to prevent zombie modals
+    if (props.show && props.closeOnBackdrop) {
+      emit('close')
+    }
+  }
+}
+
+// to prevent auto-inheritance
+defineOptions({
+  inheritAttrs: false
+})
+
 const props = defineProps({
   show: { type: Boolean, default: false },
   title: { type: String, default: '' },
@@ -53,9 +73,14 @@ watch(
   }
 )
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   document.body.style.overflow = ''
 })
 </script>

@@ -1,5 +1,6 @@
 ﻿<script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch, onBeforeUnmount } from 'vue'
+import { Vue3Lottie } from 'vue3-lottie'
 import PostCard from '@/components/PostCard.vue'
 import Modal from '@/components/Modal.vue'
 import AddRecommendationForm from '@/components/AddRecommendationForm.vue'
@@ -326,6 +327,7 @@ const showRandomiseAnim = ref(false)
 const hasRandomised = ref(false)
 const RANDOMISE_LOTTIE_SRC =
   'https://lottie.host/f11c47cc-d1ca-463f-9c91-40c8fb0103d2/eyb3qWbh7d.json'
+const randomiseAnimationData = ref(null)
 const RANDOMISE_ANIM_MS = 1600
 // Randomiser-specific filters (independent from main feed filters)
 const randomFilters = ref({
@@ -1461,10 +1463,17 @@ watch(
 )
 
 // === Animate.css scroll-reveal ===
-let _revealObserver
+let _revealObserver = null
 
 function initRevealUp() {
+  // Clean up existing observer first
+  if (_revealObserver) {
+    _revealObserver.disconnect()
+    _revealObserver = null
+  }
+  
   if (typeof window === 'undefined') return
+  
   const nodes = document.querySelectorAll('[data-animate]')
   if (!nodes || !nodes.length) return
 
@@ -1472,20 +1481,16 @@ function initRevealUp() {
   const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   const reveal = (el) => {
+    if (!el || !el.isConnected) return // Check if element is still in DOM
+    
     const anim = el.getAttribute('data-animate') || 'fadeInUp'
     const delay = el.getAttribute('data-delay') || '0s'
     const duration = el.getAttribute('data-duration') || '0.42s'
     const easing = el.getAttribute('data-ease') || 'cubic-bezier(0.22, 1, 0.36, 1)'
 
-    // Apply style properties first
     el.style.animationDelay = delay
     el.style.setProperty('--animate-duration', duration)
     el.style.animationTimingFunction = easing
-
-    // Promote to its own layer for smoother motion
-    el.style.willChange = 'opacity, transform'
-    el.style.backfaceVisibility = 'hidden'
-    el.style.transform = 'translateZ(0)'
 
     // Reduce motion: skip animation classes, just show
     if (prefersReduced) {
@@ -1493,10 +1498,11 @@ function initRevealUp() {
       return
     }
 
-    // Add classes on the next frame to avoid batching/jank
     requestAnimationFrame(() => {
-      el.classList.add('animate__animated', `animate__${anim}`)
-      el.classList.add('show')
+      if (el.isConnected) { // Double check element is still connected
+        el.classList.add('animate__animated', `animate__${anim}`)
+        el.classList.add('show')
+      }
     })
   }
 
@@ -1505,17 +1511,20 @@ function initRevealUp() {
     return
   }
 
-  if (_revealObserver) _revealObserver.disconnect()
   _revealObserver = new IntersectionObserver(
     (entries) => {
       entries.forEach((entry) => {
-        if (entry.isIntersecting) {
+        if (entry.isIntersecting && entry.target.isConnected) {
           reveal(entry.target)
           _revealObserver.unobserve(entry.target)
         }
       })
     },
-    { root: null, rootMargin: '0px 0px -8% 0px', threshold: 0.12 },
+    { 
+      root: null, 
+      rootMargin: '0px 0px -8% 0px', 
+      threshold: 0.12 
+    }
   )
 
   nodes.forEach((el, i) => {
@@ -1554,20 +1563,157 @@ function handleKeydown(e) {
     showRAreaList.value = false
   }
 }
+async function loadRandomiseAnimation() {
+  try {
+    const response = await fetch(RANDOMISE_LOTTIE_SRC)
+    randomiseAnimationData.value = await response.json()
+  } catch (error) {
+    console.warn('Failed to load randomise animation, using fallback')
+  }
+}
+
+// Track tab visibility state
+const isTabVisible = ref(true)
+
+const handleVisibilityChange = () => {
+  isTabVisible.value = document.visibilityState === 'visible'
+
+    if (isTabVisible.value) {
+      // Tab became visible - reinitialize everything
+      console.log('Tab visible - reinitializing...')
+      nextTick(() => {
+        initRevealUp()
+        initTooltips()
+      })
+    } else {
+      // Tab hidden - clean up resources
+      console.log('Tab hidden - cleaning up...')
+      cleanupBackgroundResources()
+    }
+  
+  if (document.visibilityState === 'hidden') {
+    // Clean up when tab is not visible
+    clearAllTimers()
+    clearAllObservers()
+    // Reduce memory usage by clearing some data
+    cuisineSuggestions.value = []
+    areaSuggestions.value = []
+    rCuisineSuggestions.value = []
+    rAreaSuggestions.value = []
+  } else {
+    // Reinitialize when tab becomes visible again
+    nextTick(() => {
+      initRevealUp()
+      initTooltips()
+    })
+  }
+}
+
+// Clean up only non-essential resources when tab is hidden
+function cleanupBackgroundResources() {
+  // Clear timers that aren't critical
+  clearTimeout(cuisineTimer)
+  clearTimeout(areaTimer)
+  clearTimeout(rCuisineTimer)
+  clearTimeout(rAreaTimer)
+  cuisineTimer = areaTimer = rCuisineTimer = rAreaTimer = null
+  
+  // Clear non-essential data
+  cuisineSuggestions.value = []
+  areaSuggestions.value = []
+  rCuisineSuggestions.value = []
+  rAreaSuggestions.value = []
+}
+
 onMounted(() => {
+  loadRandomiseAnimation()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   document.addEventListener('click', handleGlobalClick, true)
   document.addEventListener('pointerdown', handleGlobalPointerDown, true)
   document.addEventListener('keydown', handleKeydown, true)
 })
+
 onUnmounted(() => {
-  document.removeEventListener('click', handleGlobalClick, true)
-  document.removeEventListener('pointerdown', handleGlobalPointerDown, true)
-  document.removeEventListener('keydown', handleKeydown, true)
+  cleanupAllResources()
+  
+  // Clear any remaining timeouts
+  const highestTimeoutId = setTimeout(() => {}, 0)
+  for (let i = 0; i < highestTimeoutId; i++) {
+    clearTimeout(i)
+  }
+  
+  console.log('Dashboard component fully cleaned up')
+})
+
+onBeforeUnmount(() => {
+  cleanupAllResources()
+})
+
+
+watch(
+  () => route.fullPath,
+  () => {
+    // Clean up when navigating away
+    clearAllTimers()
+    clearAllObservers()
+  }
+)
+
+function cleanupAllResources() {
+  // Clear all timers
+  clearAllTimers()
+  
+  // Clear all observers
+  clearAllObservers()
+  
+  // Clear all caches and large data structures
+  clearAllCaches()
+  
+  // Clear all event listeners
+  removeAllEventListeners()
+  
+}
+
+function clearAllTimers() {
+  clearTimeout(cuisineTimer)
+  clearTimeout(areaTimer)
+  clearTimeout(rCuisineTimer)
+  clearTimeout(rAreaTimer)
+  cuisineTimer = null
+  areaTimer = null
+  rCuisineTimer = null
+  rAreaTimer = null
+}
+
+function clearAllObservers() {
   if (_revealObserver) {
     _revealObserver.disconnect()
     _revealObserver = null
   }
-})
+}
+
+function clearAllCaches() {
+  commentProfileCache.value.clear()
+  engagementMemo.value = {}
+  pendingCommentProfiles.clear()
+  // Clear large arrays
+  posts.value = []
+  comments.value = []
+  cuisineSuggestions.value = []
+  areaSuggestions.value = []
+  rCuisineSuggestions.value = []
+  rAreaSuggestions.value = []
+  allCuisines.value = []
+  allAreas.value = []
+}
+
+function removeAllEventListeners() {
+  document.removeEventListener('click', handleGlobalClick, true)
+  document.removeEventListener('pointerdown', handleGlobalPointerDown, true)
+  document.removeEventListener('keydown', handleKeydown, true)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+}
+
 
 // Scope toggle
 function setFriends() {
@@ -2500,14 +2646,19 @@ watch(
         <!-- /collapse -->
 
         <div v-if="showRandomiseAnim" class="randomise-anim-overlay fullscreen-center">
-          <lottie-player
-            :src="RANDOMISE_LOTTIE_SRC"
-            background="transparent"
-            speed="1"
-            autoplay
-            loop
-            style="width: 240px; height: 240px"
-          ></lottie-player>
+            <Vue3Lottie
+              v-if="randomiseAnimationData"
+              :animationData="randomiseAnimationData"
+              :height="240"
+              :width="240"
+              :speed="1"
+              :loop="true"
+              :autoPlay="true"
+            />
+            <div v-else class="loading-fallback">
+              <div class="spinner"></div>
+              <p>Randomising...</p>
+            </div>
         </div>
         <!-- Randomised post result -->
         <div
@@ -2531,7 +2682,6 @@ watch(
               (randomPost?.raw?.comments?.length || 0)
             "
             @open-comments="onOpenComments"
-            @open-profile="handleOpenProfile"
             @updated="applyPostPatch"
             @post-updated="applyPostPatch"
             @liked="applyPostPatch"
@@ -2798,7 +2948,6 @@ watch(
                     (p?.raw?.comments?.length || 0)
                   "
                   @open-comments="onOpenComments"
-                  @open-profile="handleOpenProfile"
                   @updated="applyPostPatch"
                   @post-updated="applyPostPatch"
                   @liked="applyPostPatch"
@@ -2873,7 +3022,6 @@ watch(
             (previewPost?.raw?.comments?.length || 0)
           "
           @open-comments="onOpenComments"
-          @open-profile="handleOpenProfile"
           @updated="applyPostPatch"
           @post-updated="applyPostPatch"
           @liked="applyPostPatch"

@@ -27,10 +27,10 @@ const router = createRouter({
     },
 
     // Main app views
-    { path: '/dashboard', name: 'dashboard', component: DashboardView },
-    { path: '/map', name: 'map', component: MapView },
+    { path: '/dashboard', name: 'dashboard', component: DashboardView},
+    { path: '/map', name: 'map', component: MapView},
     { path: '/activity', name: 'activity', component: ActivityView },
-    { path: '/friends', name: 'friends', component: FriendsView },
+    { path: '/friends', name: 'friends', component: FriendsView},
     { path: '/profile', name: 'profile', component: ProfileView },
 
     // Reverse Image Results page
