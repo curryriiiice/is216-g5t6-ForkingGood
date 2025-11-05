@@ -207,6 +207,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from "vue";
+import { useRouter } from 'vue-router'
 import api from "@/lib/api";
 import { createClient } from '@supabase/supabase-js'
 import Modal from '@/components/Modal.vue'
@@ -216,6 +217,7 @@ import Modal from '@/components/Modal.vue'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabase = createClient(supabaseUrl, supabaseAnonKey)
+const router = useRouter()
 
 /* ===== Default avatar SVG (Instagram-like silhouette) ===== */
 const DEFAULT_AVATAR =
@@ -600,8 +602,8 @@ async function save() {
         detail: { email: meOriginal.email, avatar_url: meOriginal.avatar_url }
       }))
     } catch {}
-    // Hard refresh instead of showing a status modal
-    window.location.reload()
+    // Hard refresh after saving profile changes (photo, bio, username)
+    try { window.location.reload() } catch {}
     return
   } catch (e) {
     console.error('editProfile failed:', e?.response?.status, e?.response?.data || e);
@@ -628,7 +630,7 @@ async function deleteAccount() {
     await api.delete('/user/deleteUserAccount', { data: { user_email: email } });
     try { await supabase.auth.signOut(); } catch {}
     alert('Your account has been deleted. Goodbye!');
-    window.location.assign('/signup');
+    try { router.replace('/signup') } catch {}
   } catch (e) {
     const msg = e?.response?.data?.message || e?.message || 'Failed to delete account.';
     alert(msg);

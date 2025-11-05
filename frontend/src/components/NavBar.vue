@@ -15,6 +15,16 @@
         <img src="/images/Upload.png" alt="Photo" aria-hidden="true" class="btn-icon" />
         <span class="rev-text">Image Search</span>
       </button>
+
+      <!-- Theme switch (button, no title) -->
+      <button
+        type="button"
+        class="theme-btn"
+        @click="cycleTheme"
+        :aria-label="`Change theme (current: ${themeCuisine})`"
+      >
+        {{ themeCuisine }}
+      </button>
     </div>
 
     <!-- Center links -->
@@ -247,7 +257,10 @@ const DEFAULT_NAV_AVATAR = '/images/default-avatar.jpg'
 const props = defineProps({
   user: { type: Object, default: null },
   pendingRequestsCount: { type: Number, default: 0 },
+  themeCuisine: { type: String, default: 'Taro' },
 })
+
+const emit = defineEmits(['change-theme'])
 
 /* ------------------------- State ------------------------- */
 const router = useRouter()
@@ -267,6 +280,18 @@ const avatarMenuRef = ref(null)
 const showAvatarMenu = ref(false)
 function toggleAvatarMenu() {
   showAvatarMenu.value = !showAvatarMenu.value
+}
+
+function pickTheme(cuisine) {
+  emit('change-theme', cuisine)
+  showAvatarMenu.value = false
+}
+
+const themes = ['Taro', 'Matcha', 'Vanilla', 'Blueberry']
+function cycleTheme() {
+  const idx = themes.indexOf(props.themeCuisine)
+  const next = themes[(idx + 1 + themes.length) % themes.length]
+  pickTheme(next)
 }
 
 const isMobile = ref(false)
@@ -562,11 +587,7 @@ async function goLogoutPage() {
   try {
     await router.replace('/')
   } catch (_) {}
-  setTimeout(() => {
-    if (location.pathname !== '/') {
-     window.location.assign('/')
-   }
-  }, 50)
+  // Avoid hard refresh; rely on SPA navigation
 }
 
 function closeReversePopup() {
@@ -934,7 +955,19 @@ onBeforeUnmount(() => {
 }
 .avatar-menu-item:hover { background: #f3f4f6; }
 .avatar-menu-item.danger { color: #b91c1c; }
-.avatar-menu-item.danger:hover { background: #fee2e2; }
+
+/* Inline theme chips (replaced by dropdown) */
+.nav-theme { display: none; gap: 6px; align-items: center; margin: 0 10px; }
+.nav-theme .chip { appearance: none; border: 1px solid #e5e7eb; background: #fff; color: #374151; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 999px; cursor: pointer; }
+.nav-theme .chip.active { background: var(--sage-600, #8b9d83); color: #fff; border-color: var(--sage-600, #8b9d83); }
+@media (min-width: 768px) { .nav-theme { display: inline-flex; } }
+
+/* Theme picker inside avatar menu */
+.avatar-menu-section { border-top: 1px solid #e5e7eb; margin: 6px 0 0; padding: 8px 4px 4px; }
+.avatar-menu-section .menu-label { font-size: 11px; font-weight: 800; color: #6b7280; margin: 0 0 6px 4px; text-transform: uppercase; letter-spacing: .03em; }
+.theme-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.theme-chips .chip { appearance: none; border: 1px solid #e5e7eb; background: #fff; color: #374151; font-weight: 700; font-size: 11px; padding: 6px 10px; border-radius: 999px; cursor: pointer; }
+.theme-chips .chip.active { background: var(--sage-600, #8b9d83); color: #fff; border-color: var(--sage-600, #8b9d83); }
 
 .welcome { display: none; color: #374151; }
 @media (min-width: 640px) { .welcome { display: inline; } }
@@ -950,6 +983,25 @@ onBeforeUnmount(() => {
 }
 .rev-btn:hover { filter: brightness(1.03); }
 .rev-btn:active { transform: translateY(1px); }
+
+/* Theme switch button */
+.theme-btn {
+  margin-left: 0.5rem;
+  white-space: nowrap;
+  background: #ffffff;
+  color: #374151;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 0.45rem 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, transform 0.05s ease, background-color 0.15s ease;
+}
+.theme-btn:hover {
+  background: #f9fafb;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage-600, #8b9d83) 25%, transparent);
+}
+.theme-btn:active { transform: translateY(1px); }
 
 /* Reverse modal bits */
 .rev-title { font-weight: 600; color: var(--charcoal, #2c3333); }
@@ -1068,3 +1120,10 @@ onBeforeUnmount(() => {
 }
 .rev-btn .rev-text { color: #fff; }
 </style>
+
+/* Theme dropdown */
+.nav-theme { display: none; gap: 8px; align-items: center; margin: 0 10px; }
+.nav-theme-label { font-size: 12px; font-weight: 800; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; }
+.nav-theme-select { appearance: none; border: 1.5px solid #e5e7eb; background: #fff; color: #374151; font-weight: 700; font-size: 12px; padding: 6px 10px; border-radius: 10px; cursor: pointer; }
+.nav-theme-select:focus { outline: none; border-color: var(--sage-600, #8b9d83); box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage-600, #8b9d83) 35%, transparent); }
+@media (min-width: 768px) { .nav-theme { display: inline-flex; } }

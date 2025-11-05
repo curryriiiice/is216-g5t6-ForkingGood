@@ -19,6 +19,8 @@ const isEditMode = computed(() => !!props.postToEdit)
 const comment = ref('')
 const rating = ref(0)
 const cuisine = ref('')
+// Localized theme brand for this form only
+
 
 /** Place fields (filled by Google Places) */
 const placeName = ref('')
@@ -1303,6 +1305,8 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-md);
   padding: 18px 20px 22px;
 }
+
+
 
 /* Labels visible on dark */
 .form-label {
