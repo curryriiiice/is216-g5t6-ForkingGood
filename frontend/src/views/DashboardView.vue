@@ -24,6 +24,38 @@ function resolveImageUrl(p) {
 const { user: authUser, refresh: refreshAuthUser } = useAuthUser()
 const activeEmail = computed(() => authUser.value?.email ?? null)
 
+// === Pagination ===
+const postsPerPage = 10
+const totalPages = computed(() => Math.ceil(posts.value.length / postsPerPage))
+const paginatedPosts = computed(() => {
+  const start = (currentPage.value - 1) * postsPerPage
+  const end = start + postsPerPage
+  return posts.value.slice(start, end)
+})
+const hasNextPage = computed(() => currentPage.value < totalPages.value)
+const hasPrevPage = computed(() => currentPage.value > 1)
+
+function nextPage() {
+  if (hasNextPage.value) {
+    currentPage.value++
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function prevPage() {
+  if (hasPrevPage.value) {
+    currentPage.value--
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
 // === Comments modal state ===
 const showComments = ref(false)
 const commentsForPostId = ref(null)
@@ -283,6 +315,7 @@ function setCommentCountForPost(postId, count) {
 }
 
 const posts = ref([])
+const currentPage = ref(1)
 const showAdd = ref(false)
 const highlightedPostId = ref(null)
 const anchoredPostId = ref(null)
@@ -1304,6 +1337,24 @@ async function scrollToPostIfAny() {
 
   await nextTick()
 
+  // Calculate which page contains the target post and switch to it
+  const findPostIndex = () => {
+    if (!Array.isArray(posts.value)) return -1
+    return posts.value.findIndex((p) => String(p?.id ?? p?.postid ?? '') === targetId)
+  }
+  
+  const postIndex = findPostIndex()
+  if (postIndex >= 0) {
+    const targetPage = Math.floor(postIndex / postsPerPage) + 1
+    if (currentPage.value !== targetPage) {
+      currentPage.value = targetPage
+      // Wait for pagination to update before scrolling
+      await nextTick()
+      // Additional small delay to ensure DOM is updated
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+
   const tryScroll = () => {
     const el = document.getElementById(`post-${targetId}`)
     if (!el) return false
@@ -1354,6 +1405,16 @@ async function scrollToPostIfAny() {
   if (!ok) {
     const ensured = await ensureAnchoredPost(targetId)
     if (ensured) {
+      // Recalculate page after post is added
+      const postIndex = findPostIndex()
+      if (postIndex >= 0) {
+        const targetPage = Math.floor(postIndex / postsPerPage) + 1
+        if (currentPage.value !== targetPage) {
+          currentPage.value = targetPage
+          await nextTick()
+          await new Promise((r) => setTimeout(r, 100))
+        }
+      }
       await nextTick()
       tryScroll()
     }
@@ -1388,6 +1449,14 @@ watch(
     if (q.postId || q.postID || q.postid) {
       scrollToPostIfAny()
     }
+  },
+)
+
+// Watch friendsOnly to reset page when toggling
+watch(
+  () => friendsOnly.value,
+  () => {
+    currentPage.value = 1
   },
 )
 
@@ -1503,11 +1572,13 @@ onUnmounted(() => {
 // Scope toggle
 function setFriends() {
   friendsOnly.value = true
+  currentPage.value = 1
   runSearch()
 }
 
 function setPublic() {
   friendsOnly.value = false
+  currentPage.value = 1
   runSearch()
 }
 
@@ -2706,7 +2777,7 @@ watch(
         </div>
         <template v-if="posts.length">
           <div class="row g-3 g-md-4">
-            <div v-for="p in posts" :key="String(p.id ?? p.postid)" class="col-12 col-lg-6">
+            <div v-for="p in paginatedPosts" :key="String(p.id ?? p.postid)" class="col-12 col-lg-6">
               <div
                 class="card themed-card position-relative post-clickable"
                 data-duration="0.35s"
@@ -2735,6 +2806,31 @@ watch(
                 />
               </div>
             </div>
+          </div>
+          <!-- Pagination Controls -->
+          <div v-if="totalPages > 1" class="d-flex justify-content-center align-items-center gap-3 mt-4 mb-4">
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              :disabled="!hasPrevPage"
+              @click="prevPage"
+            >
+              Previous
+            </button>
+            <div class="d-flex gap-2 align-items-center">
+              <span class="text-muted">Page</span>
+              <span class="fw-semibold">{{ currentPage }}</span>
+              <span class="text-muted">of</span>
+              <span class="fw-semibold">{{ totalPages }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              :disabled="!hasNextPage"
+              @click="nextPage"
+            >
+              Next
+            </button>
           </div>
         </template>
         <div v-else class="empty" data-animate="fadeIn" data-delay=".06s">
