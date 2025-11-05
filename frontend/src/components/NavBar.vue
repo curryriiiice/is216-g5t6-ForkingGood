@@ -702,7 +702,7 @@ function handleVisibilityChange() {
     closeMobileMenu()
     showAvatarMenu.value = false
   } else {
-    unbindInteractionListeners()
+    // Keep listeners bound to avoid losing click/keydown after tab switches
     closeMobileMenu()
     showAvatarMenu.value = false
   }
@@ -715,7 +715,10 @@ function handleWindowFocus() {
 }
 
 function handleWindowBlur() {
-  unbindInteractionListeners()
+  // Do not unbind on blur; some browsers won't reliably fire focus/pageshow
+  // Keep listeners active and just ensure menus aren't left open
+  closeMobileMenu()
+  showAvatarMenu.value = false
 }
 
 function handlePageShow() {
@@ -723,7 +726,7 @@ function handlePageShow() {
 }
 
 function handlePageHide() {
-  unbindInteractionListeners()
+  // Avoid unbinding on pagehide; keep UI responsive on restore
   closeMobileMenu()
   showAvatarMenu.value = false
 }

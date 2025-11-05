@@ -21,3 +21,31 @@ if (apiKey) {
 const app = createApp(App);
 app.use(router);               // ✅ tell Vue to use it
 app.mount("#app");
+
+// Global safeguard: restore interactivity after tab regains focus or is restored
+function restoreInteractivity() {
+  try {
+    const targets = [document.documentElement, document.body, document.getElementById('app')];
+    for (const el of targets) {
+      if (!el) continue;
+      // Re-enable pointer events if they were disabled
+      if (getComputedStyle(el).pointerEvents === 'none' || el.style.pointerEvents === 'none') {
+        el.style.pointerEvents = 'auto';
+      }
+      // Clear accidental inert and overflow locks if any
+      if (el.hasAttribute && el.hasAttribute('inert')) el.removeAttribute('inert');
+      if (el.style && el.style.overflow === 'hidden') el.style.overflow = '';
+    }
+    // Close any stray mobile menu overlays if present (NavBar listens to clicks/esc)
+    const mm = document.getElementById('mobile-menu');
+    if (mm && typeof mm.click === 'function') {
+      mm.click();
+    }
+  } catch {}
+}
+
+window.addEventListener('focus', restoreInteractivity);
+window.addEventListener('pageshow', restoreInteractivity);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') restoreInteractivity();
+});
