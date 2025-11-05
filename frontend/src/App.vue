@@ -15,11 +15,7 @@ const router = useRouter()
 const route = useRoute()
 const loading = ref(true)
 
-// Global visibility-change handler (defined at module scope so we can remove it)
-// Refresh when the tab becomes visible again (avoid interfering with navigation)
-function onVisChange() {
-  try { if (document.visibilityState === 'visible') window.location.reload() } catch {}
-}
+// Removed hard refresh on tab visibility change to avoid jarring reloads
 
 /** Hide navbar on routes with meta.hideNavbar (e.g. /login, /signup) */
 const hideNavbar = computed(() => !!route.meta?.hideNavbar)
@@ -172,8 +168,6 @@ function toggleCollapse() {
    Boot: restore state + load user
    ========================= */
 onMounted(async () => {
-  // Hard-refresh when the tab becomes hidden (user switches away)
-  document.addEventListener('visibilitychange', onVisChange)
 
   // Restore panel state/position
   try {
@@ -206,7 +200,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('pointermove', onDrag)
   document.removeEventListener('pointerup', endDrag)
-  document.removeEventListener('visibilitychange', onVisChange)
 })
 
 /* =========================
@@ -228,11 +221,13 @@ const pageClass = computed(() => ({
         v-model:searchTerm="searchTerm"
         :user="user"
         :pendingRequestsCount="pendingRequestsCount"
+        :themeCuisine="theme"
+        @change-theme="setTheme"
       />
 
       
-      <!-- Draggable Theme Switcher -->
-      <template v-if="!hideNavbar">
+      <!-- Draggable Theme Switcher (disabled) -->
+      <template v-if="false">
         <!-- Collapsed mini FAB -->
         <button
           v-if="collapsed"
