@@ -1853,7 +1853,7 @@ function rowToPostRandom(row) {
       email: posterEmail || null,
       name: posterName,
       username: posterUsername || posterEmail || '@user',
-      avatar: resolvedAvatar || '/images/avatar1.png',
+      avatar: resolvedAvatar || '/images/default-avatar.jpg',
     },
     restaurant: {
       id: row.restaurant_name,
