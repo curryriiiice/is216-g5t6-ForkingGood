@@ -38,6 +38,74 @@ const loadingLikedPosts = ref(true)
 const errorLikedPosts = ref('')
 const showAdd = ref(false)
 
+// Pagination State
+const postsPerPage = 9
+const currentPageMyPosts = ref(1)
+const currentPageLikedPosts = ref(1)
+
+// Pagination Computed Properties
+const totalPagesMyPosts = computed(() => Math.ceil(myPosts.value.length / postsPerPage))
+const paginatedMyPosts = computed(() => {
+  const start = (currentPageMyPosts.value - 1) * postsPerPage
+  const end = start + postsPerPage
+  return myPosts.value.slice(start, end)
+})
+const hasNextPageMyPosts = computed(() => currentPageMyPosts.value < totalPagesMyPosts.value)
+const hasPrevPageMyPosts = computed(() => currentPageMyPosts.value > 1)
+
+const totalPagesLikedPosts = computed(() => Math.ceil(likedPosts.value.length / postsPerPage))
+const paginatedLikedPosts = computed(() => {
+  const start = (currentPageLikedPosts.value - 1) * postsPerPage
+  const end = start + postsPerPage
+  return likedPosts.value.slice(start, end)
+})
+const hasNextPageLikedPosts = computed(() => currentPageLikedPosts.value < totalPagesLikedPosts.value)
+const hasPrevPageLikedPosts = computed(() => currentPageLikedPosts.value > 1)
+
+// Pagination Functions for My Posts
+function nextPageMyPosts() {
+  if (hasNextPageMyPosts.value) {
+    currentPageMyPosts.value++
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function prevPageMyPosts() {
+  if (hasPrevPageMyPosts.value) {
+    currentPageMyPosts.value--
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function goToPageMyPosts(page) {
+  if (page >= 1 && page <= totalPagesMyPosts.value) {
+    currentPageMyPosts.value = page
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+// Pagination Functions for Liked Posts
+function nextPageLikedPosts() {
+  if (hasNextPageLikedPosts.value) {
+    currentPageLikedPosts.value++
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function prevPageLikedPosts() {
+  if (hasPrevPageLikedPosts.value) {
+    currentPageLikedPosts.value--
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
+function goToPageLikedPosts(page) {
+  if (page >= 1 && page <= totalPagesLikedPosts.value) {
+    currentPageLikedPosts.value = page
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
 // Avatar Cache
 const avatarCache = ref(new Map())
 
@@ -347,9 +415,17 @@ function tryOpenPostFromMyPosts(postId) {
   const pid = String(postId || '')
   if (!pid) return false
   const list = Array.isArray(myPosts.value) ? myPosts.value : []
-  const found = list.find((p) => String(p?.id ?? p?.postid ?? '') === pid)
-  if (!found) return false
+  const foundIndex = list.findIndex((p) => String(p?.id ?? p?.postid ?? '') === pid)
+  if (foundIndex < 0) return false
+  const found = list[foundIndex]
   activeTab.value = 'myPosts'
+  // Switch to the page containing this post
+  if (foundIndex >= 0) {
+    const targetPage = Math.floor(foundIndex / postsPerPage) + 1
+    if (currentPageMyPosts.value !== targetPage) {
+      currentPageMyPosts.value = targetPage
+    }
+  }
   openPreview(found)
   return true
 }
@@ -659,49 +735,7 @@ async function confirmDeletePost() {
 // === NEW: Animation on Scroll ===
 let _revealObserver = null;
 function initRevealUp() {
-  if (typeof window === 'undefined') return;
-  // Select all elements with the .reveal class that don't have .show
-  const nodes = document.querySelectorAll('.reveal:not(.show)');
-  if (!nodes || !nodes.length) return;
-
-  const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-  const reveal = (el) => {
-    if (prefersReduced) {
-      el.classList.add('show'); // Show immediately if motion is reduced
-      return;
-    }
-    // Add staggered delay based on index
-    const delay = parseInt(el.dataset.index || 0, 10) * 50; // 50ms stagger
-    el.style.transitionDelay = `${delay}ms`;
-    el.classList.add('show');
-  };
-
-  if (!('IntersectionObserver' in window)) {
-    nodes.forEach((el, i) => {
-      el.dataset.index = i;
-      reveal(el);
-    });
-    return;
-  }
-
-  if (_revealObserver) _revealObserver.disconnect();
-  _revealObserver = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          reveal(entry.target);
-          _revealObserver.unobserve(entry.target);
-        }
-      });
-    },
-    { root: null, rootMargin: '0px 0px -10% 0px', threshold: 0.1 }
-  );
-
-  nodes.forEach((el, i) => {
-    el.dataset.index = i; // Add index for staggering
-    _revealObserver.observe(el);
-  });
+  // animations disabled
 }
 // === End Animation ===
 
@@ -743,6 +777,26 @@ watch(
   { flush: 'post' },
 )
 
+watch(totalPagesMyPosts, (next) => {
+  const t = Number(next) || 0
+  if (t === 0) {
+    currentPageMyPosts.value = 1
+    return
+  }
+  if (currentPageMyPosts.value > t) currentPageMyPosts.value = t
+  if (currentPageMyPosts.value < 1) currentPageMyPosts.value = 1
+})
+
+watch(totalPagesLikedPosts, (next) => {
+  const t = Number(next) || 0
+  if (t === 0) {
+    currentPageLikedPosts.value = 1
+    return
+  }
+  if (currentPageLikedPosts.value > t) currentPageLikedPosts.value = t
+  if (currentPageLikedPosts.value < 1) currentPageLikedPosts.value = 1
+})
+
 onMounted(async () => {
   await refreshAuthUser()
   await Promise.all([fetchMyPosts(), fetchLikedPosts()])
@@ -763,10 +817,27 @@ watch(activeEmail, async (newEmail, oldEmail) => {
   }
 })
 
-// Re-run animation logic when tab changes
+// Re-run animation logic when tab changes and reset pagination
 watch(activeTab, () => {
+  currentPageMyPosts.value = 1
+  currentPageLikedPosts.value = 1
   nextTick(() => initRevealUp());
 });
+
+// Reset pagination when posts change
+watch(
+  () => myPosts.value.length,
+  () => {
+    currentPageMyPosts.value = 1
+  }
+)
+
+watch(
+  () => likedPosts.value.length,
+  () => {
+    currentPageLikedPosts.value = 1
+  }
+)
 
 </script>
 
@@ -812,7 +883,7 @@ watch(activeTab, () => {
             You haven't created any posts yet.
           </div>
           <div class="row g-3" v-else>
-            <div v-for="post in myPosts" :key="'my-' + post.id" class="col-12 col-md-6 col-lg-4 reveal">
+            <div v-for="post in paginatedMyPosts" :key="'my-' + post.id" class="col-12 col-md-6 col-lg-4">
               <div
                 class="card-clickable h-100"
                 @click="onCardClick($event, post)"
@@ -840,6 +911,31 @@ watch(activeTab, () => {
               </div>
             </div>
           </div>
+          <!-- Pagination Controls for My Posts -->
+          <div v-if="totalPagesMyPosts > 1" class="d-flex justify-content-center align-items-center gap-3 mt-4 mb-4">
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              :disabled="!hasPrevPageMyPosts"
+              @click="prevPageMyPosts"
+            >
+              Previous
+            </button>
+            <div class="d-flex gap-2 align-items-center">
+              <span class="text-muted">Page</span>
+              <span class="fw-semibold">{{ currentPageMyPosts }}</span>
+              <span class="text-muted">of</span>
+              <span class="fw-semibold">{{ totalPagesMyPosts }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              :disabled="!hasNextPageMyPosts"
+              @click="nextPageMyPosts"
+            >
+              Next
+            </button>
+          </div>
         </div>
 
         <div v-show="activeTab === 'likedPosts'">
@@ -852,7 +948,7 @@ watch(activeTab, () => {
             You haven't liked any posts yet.
           </div>
           <div class="row g-3" v-else>
-            <div v-for="post in likedPosts" :key="'liked-' + post.id" class="col-12 col-md-6 col-lg-4 reveal">
+            <div v-for="post in paginatedLikedPosts" :key="'liked-' + post.id" class="col-12 col-md-6 col-lg-4">
                <div
                 class="card-clickable h-100"
                 @click="onCardClick($event, post)"
@@ -877,6 +973,31 @@ watch(activeTab, () => {
                 />
               </div>
             </div>
+          </div>
+          <!-- Pagination Controls for Liked Posts -->
+          <div v-if="totalPagesLikedPosts > 1" class="d-flex justify-content-center align-items-center gap-3 mt-4 mb-4">
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              :disabled="!hasPrevPageLikedPosts"
+              @click="prevPageLikedPosts"
+            >
+              Previous
+            </button>
+            <div class="d-flex gap-2 align-items-center">
+              <span class="text-muted">Page</span>
+              <span class="fw-semibold">{{ currentPageLikedPosts }}</span>
+              <span class="text-muted">of</span>
+              <span class="fw-semibold">{{ totalPagesLikedPosts }}</span>
+            </div>
+            <button
+              type="button"
+              class="btn btn-outline-secondary"
+              :disabled="!hasNextPageLikedPosts"
+              @click="nextPageLikedPosts"
+            >
+              Next
+            </button>
           </div>
         </div>
       </div>
