@@ -23,7 +23,14 @@
         @click="cycleTheme"
         :aria-label="`Change theme (current: ${themeCuisine})`"
       >
-        {{ themeCuisine }}
+
+        <img
+          v-if="currentThemeIcon"
+          :src="currentThemeIcon"
+          :alt="`${themeCuisine} theme icon`"
+          class="theme-icon"
+        />
+        <span>{{ themeCuisine }}</span>
       </button>
     </div>
 
@@ -285,6 +292,13 @@ function pickTheme(cuisine) {
 }
 
 const themes = ['Taro', 'Matcha', 'Vanilla', 'Blueberry']
+const THEME_ICONS = {
+  Taro: '/images/icecream/taro.png',
+  Matcha: '/images/icecream/matcha.png',
+  Vanilla: '/images/icecream/vanilla.png',
+  Blueberry: '/images/icecream/blueberry.png',
+}
+const currentThemeIcon = computed(() => THEME_ICONS[props.themeCuisine] || null)
 function cycleTheme() {
   const idx = themes.indexOf(props.themeCuisine)
   const next = themes[(idx + 1 + themes.length) % themes.length]
@@ -989,10 +1003,19 @@ onBeforeUnmount(() => {
   font-weight: 700;
   cursor: pointer;
   transition: box-shadow 0.15s ease, transform 0.05s ease, background-color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .theme-btn:hover {
   background: #f9fafb;
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage-600, #8b9d83) 25%, transparent);
+}
+.theme-btn .theme-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  display: block;
 }
 .theme-btn:active { transform: translateY(1px); }
 

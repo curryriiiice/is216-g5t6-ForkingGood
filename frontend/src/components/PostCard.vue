@@ -1418,6 +1418,14 @@ const captionClampInlineStyle = computed(() => {
     font-size: 11px;
     padding: 4px 8px;
   }
+  .hero .chip {
+    top: 40px;
+    right: auto;
+    left: 10px;
+    max-width: calc(100% - 20px);
+    white-space: normal;
+    line-height: 1.2;
+  }
   .visibility-tag {
     font-size: 10px;
     padding: 3px 7px;
