@@ -1,6 +1,6 @@
 // src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
-import { supabase } from '@/lib/supabaseClient'
+import { useAuthUser, fetchPromise } from '@/lib/useAuthUser' 
 
 // Eager-loaded views
 import DashboardView from '@/views/DashboardView.vue'
@@ -15,73 +15,49 @@ const LoginPageView = () => import('@/views/LogInPageView.vue')
 const SignupPageView = () => import('@/views/SignUpPageView.vue')
 const ReverseImageView = () => import('@/views/ReverseImageView.vue')
 const AuthCallbackView = () => import('@/views/AuthCallbackView.vue')
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    // Public landing (use our new Lottie page)
-    {
-      path: '/',
-      name: 'landing',
-      component: ForkingGoodLanding,
-      meta: { public: true, hideNavbar: true },
-    },
-
-    // Main app views
+    { path: '/', name: 'landing', component: ForkingGoodLanding, meta: { public: true, hideNavbar: true },},
     { path: '/dashboard', name: 'dashboard', component: DashboardView},
     { path: '/map', name: 'map', component: MapView},
     { path: '/activity', name: 'activity', component: ActivityView },
     { path: '/friends', name: 'friends', component: FriendsView},
     { path: '/profile', name: 'profile', component: ProfileView },
-
-    // Reverse Image Results page
     { path: '/reverseimage', name: 'reverseimage', component: ReverseImageView },
-
-    // Auth pages (hide navbar)
-    {
-      path: '/login',
-      name: 'login',
-      component: LoginPageView,
-      meta: { public: true, hideNavbar: true },
-    },
-    {
-      path: '/signup',
-      name: 'signup',
-      component: SignupPageView,
-      meta: { public: true, hideNavbar: true },
-    },
-    {
-      path: '/auth/callback',
-      name: 'auth-callback',
-      component: AuthCallbackView,
-      meta: { public: true, hideNavbar: true },
-    },
-
-    // Catch-all fallback
+    { path: '/login', name: 'login', component: LoginPageView, meta: { public: true, hideNavbar: true },},
+    { path: '/signup', name: 'signup', component: SignupPageView, meta: { public: true, hideNavbar: true },},
+    { path: '/auth/callback', name: 'auth-callback', component: AuthCallbackView, meta: { public: true, hideNavbar: true },},
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
-
   scrollBehavior() {
     return { top: 0 }
   },
 })
 
 // Global auth guard:
-// - Routes with meta.public = true are always allowed
-// - All other routes require an authenticated Supabase user
 router.beforeEach(async (to, from, next) => {
-  try {
-    if (to.meta?.public) return next()
+  if (to.meta?.public) return next()
+    
+  const { user, ready } = useAuthUser()
 
-    const { data } = await supabase.auth.getUser()
-    const user = data?.user
-    if (!user) {
-      return next({ name: 'login', query: { redirect: to.fullPath } })
+  let currentUser = user.value
+  
+  if (!ready.value && fetchPromise) {
+    try {
+      currentUser = await fetchPromise
+    } catch (e) {
+      console.error('[router] Auth fetch failed:', e)
+      currentUser = null
     }
-    return next()
-  } catch (e) {
-    console.warn('[router] auth check failed, redirecting to login:', e)
+  }
+
+  if (!currentUser) {
     return next({ name: 'login', query: { redirect: to.fullPath } })
   }
+  
+  return next()
 })
 
 export default router

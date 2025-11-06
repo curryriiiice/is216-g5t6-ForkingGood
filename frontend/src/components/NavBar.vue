@@ -254,7 +254,6 @@ import supabase from '@/lib/supabaseClient.js'
 import Modal from '@/components/Modal.vue'
 import api from '@/lib/api'
 
-
 const DEFAULT_NAV_AVATAR = '/images/default-avatar.jpg'
 
 /* ------------------------- Props ------------------------- */
@@ -269,15 +268,13 @@ const emit = defineEmits(['change-theme'])
 /* ------------------------- State ------------------------- */
 const router = useRouter()
 const localUser = ref(props.user)
-const backendUsername = ref('')
+const avatarErrored = ref(false)
+
 const welcomeHandle = computed(() => {
-  const be = backendUsername.value && String(backendUsername.value).trim()
-  if (be) return be
   const u = localUser.value?.username || localUser.value?.first_name || ''
   if (!u) return ''
   return String(u).startsWith('@') ? u : '@' + u
 })
-const avatarErrored = ref(false)
 
 /* Avatar menu */
 const avatarMenuRef = ref(null)
@@ -315,40 +312,28 @@ function updateIsMobile() {
   }
 }
 updateIsMobile()
-if (typeof window !== 'undefined') {
-  window.addEventListener('resize', updateIsMobile)
-}
-onBeforeUnmount(() => {
-  if (typeof window !== 'undefined') {
-    window.removeEventListener('resize', updateIsMobile)
-  }
-})
 
-/* === Reverse Image Search (single file + cropper) === */
+/* === Reverse Image Search (Your cropper code) === */
 const showReversePopup = ref(false)
 const fileInputRef = ref(null)
-const areaRef = ref(null) // for wheel-zoom anchoring
-const selectedFile = ref(null) // File | null
+const areaRef = ref(null) 
+const selectedFile = ref(null)
 const previewUrl = ref('')
 const fileError = ref('')
 const submitting = ref(false)
-
-/* Cropper state (square) */
-const cropSrc = ref('') // object URL of selected image
-const cropScale = ref(1) // zoom
-const fitScale = ref(1) // scale to keep whole image inside D×D
-const minZoom = computed(() => fitScale.value) // floor at fit-to-mask
-const C = 420 // outer square
-const D = 360 // inner mask square
-const OUT = 640 // export size
-const pos = reactive({ left: 0, top: 0 }) // image top-left in container coords
+const cropSrc = ref('') 
+const cropScale = ref(1) 
+const fitScale = ref(1) 
+const minZoom = computed(() => fitScale.value) 
+const C = 420 
+const D = 360 
+const OUT = 640
+const pos = reactive({ left: 0, top: 0 }) 
 const dragging = ref(false)
 const dragStart = reactive({ x: 0, y: 0 })
 const posStart = reactive({ left: 0, top: 0 })
 const imgMeta = reactive({ naturalW: 0, naturalH: 0, ready: false })
 let cropBlob = null
-
-/* -------------------- Reverse helpers -------------------- */
 const MAX_BYTES = 6 * 1024 * 1024
 const ALLOWED_TYPES = [
   'image/jpeg',
@@ -373,7 +358,6 @@ function handleSingleFile(e) {
     fileError.value = 'Image is too large (max 6MB).'; e.target.value = ''; return
   }
   selectedFile.value = f
-
   if (cropSrc.value) { try { URL.revokeObjectURL(cropSrc.value) } catch {} }
   cropSrc.value = URL.createObjectURL(f)
   imgMeta.ready = false
@@ -421,6 +405,7 @@ function onDragStart(ev) {
   posStart.top = pos.top
   ev.preventDefault()
 }
+
 function onDragMove(ev) {
   if (!dragging.value) return
   const p = getPoint(ev)
@@ -428,7 +413,9 @@ function onDragMove(ev) {
   pos.top = posStart.top + (p.y - dragStart.y)
   constrainPosition()
 }
+
 function onDragEnd() { dragging.value = false }
+
 function getPoint(ev) {
   if (ev.touches?.[0]) return { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
   return { x: ev.clientX, y: ev.clientY }
@@ -442,28 +429,24 @@ function constrainPosition() {
   const maskRight = C / 2 + half
   const maskTop = C / 2 - half
   const maskBottom = C / 2 + half
-
   if (w <= D) { pos.left = C / 2 - w / 2 }
   else { pos.left = Math.min(Math.max(pos.left, maskRight - w), maskLeft) }
-
   if (h <= D) { pos.top = C / 2 - h / 2 }
   else { pos.top = Math.min(Math.max(pos.top, maskBottom - h), maskTop) }
 }
 
-/* Anchored Zoom */
 function setZoom(nextScale, anchorX, anchorY) {
   nextScale = Math.max(minZoom.value, Math.min(3, Number(nextScale)))
   const old = cropScale.value
   if (!imgMeta.ready || nextScale === old) return
-
   const u = (anchorX - pos.left) / old
   const v = (anchorY - pos.top) / old
-
   cropScale.value = nextScale
   pos.left = anchorX - u * nextScale
   pos.top = anchorY - v * nextScale
   constrainPosition()
 }
+
 function onWheelZoom(e) {
   if (!imgMeta.ready || !areaRef.value) return
   const rect = areaRef.value.getBoundingClientRect()
@@ -472,19 +455,17 @@ function onWheelZoom(e) {
   const factor = 1 - Math.sign(e.deltaY) * 0.12
   setZoom(cropScale.value * factor, x, y)
 }
+
 function onZoomChange(val) {
   if (!imgMeta.ready) return
   const cx = C / 2, cy = C / 2
   setZoom(val, cx, cy)
 }
-function resetCrop() { cropScale.value = fitScale.value; centerImage() }
-function zoomToFit() { cropScale.value = fitScale.value; centerImage() }
 
-// Center-anchored zoom (match Rec Form behavior)
+function resetCrop() { cropScale.value = fitScale.value; centerImage() }
 const zoomFactor = computed(() => (fitScale.value ? cropScale.value / fitScale.value : 1))
 const baseW = computed(() => imgMeta.naturalW * fitScale.value)
 const baseH = computed(() => imgMeta.naturalH * fitScale.value)
-// Convert existing top-left positioning into center-anchored translate offsets
 const offsetX = computed(() => pos.left - (C / 2 - (baseW.value * zoomFactor.value) / 2))
 const offsetY = computed(() => pos.top - (C / 2 - (baseH.value * zoomFactor.value) / 2))
 const imgStyleRS = computed(() => ({
@@ -504,12 +485,12 @@ function zoomInBtn() {
   const cx = C / 2, cy = C / 2
   setZoom(cropScale.value * (1 + ZSTEP), cx, cy)
 }
+
 function zoomOutBtn() {
   const cx = C / 2, cy = C / 2
   setZoom(cropScale.value * (1 - ZSTEP), cx, cy)
 }
 
-/* Build crop and store cropBlob */
 async function buildCropBlob() {
   if (!cropSrc.value || !imgMeta.ready) return null
   const canvas = document.createElement('canvas')
@@ -530,7 +511,6 @@ async function buildCropBlob() {
   return cropBlob
 }
 
-/* File/Blob -> dataURL for sessionStorage */
 function readAsDataURL(fileOrBlob) {
   return new Promise((resolve, reject) => {
     const fr = new FileReader()
@@ -540,31 +520,27 @@ function readAsDataURL(fileOrBlob) {
   })
 }
 
-/* Submit reverse image search and go to /reverseimage */
 async function submitReverseSearch() {
   if (submitting.value) return
   if (!selectedFile.value && !cropBlob) return
   submitting.value = true
   fileError.value = ''
-
   try {
     let blobToSend = cropBlob
     if (!blobToSend && cropSrc.value) blobToSend = await buildCropBlob()
     const fileToSend = blobToSend
       ? new File([blobToSend], 'reverse-crop.png', { type: 'image/png' })
       : selectedFile.value
-
     const dataUrl = await readAsDataURL(fileToSend)
-    // Save only the image; the Reverse Image page will show a loader and call the API
     sessionStorage.setItem('reverseImagePayload', JSON.stringify({ images: [dataUrl] }))
     showReversePopup.value = false
     removeFile()
+    submitting.value = false
     router.push('/reverseimage')
     return
   } catch (err) {
     console.warn('Reverse-image request failed, falling back to local route:', err?.message || err)
   }
-
   try {
     let dataUrl
     if (cropBlob) dataUrl = await readAsDataURL(cropBlob)
@@ -582,21 +558,22 @@ async function submitReverseSearch() {
 
 /* Avatar menu actions */
 async function goLogoutPage() {
-  showAvatarMenu.value = false;
+  showAvatarMenu.value = false
   try {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    // The onAuthStateChange listener below will catch this event 
-    // and handle the state change and redirect automatically.
+    await supabase.auth.signOut()
   } catch (e) {
-    console.warn('Supabase signOut failed, logging out manually:', e);
-    // Manual fallback just in case
-    localUser.value = null;
-    backendUsername.value = '';
-    localStorage.clear();
-    sessionStorage.clear();
-    window.location.href = '/login?loggedOut=true';
+    console.warn('Supabase signOut failed (continuing):', e)
   }
+  try {
+    localStorage.removeItem('token')
+    sessionStorage.removeItem('token')
+    localStorage.removeItem('sb-access-token')
+    sessionStorage.removeItem('sb-access-token')
+  } catch (_) {}
+  localUser.value = null
+  try {
+    await router.replace('/')
+  } catch (_) {}
 }
 
 function closeReversePopup() {
@@ -605,7 +582,10 @@ function closeReversePopup() {
 }
 
 /* Keep user in sync with prop */
-watch(() => props.user, (u) => { if (u) localUser.value = u }, { immediate: true })
+watch(() => props.user, (u) => { 
+  localUser.value = u 
+}, { immediate: true })
+
 watch(
   () => localUser.value?.avatar_url,
   () => { avatarErrored.value = false },
@@ -615,8 +595,13 @@ function resolveAvatarUrl(raw) {
   if (!raw || avatarErrored.value) return null
   let s = String(raw).trim()
   if (!s) return null
-  if (/^https?:\/\//i.test(s) || s.startsWith('data:')) return s
+  // Check for full URLs (http, https, data)
+  if (/^(https?:\/\/|data:)/i.test(s)) return s
+
+  // Handle supabase: or other non-standard prefixes
   s = s.replace(/^supabase:\/\//, '')
+
+  // Restore logic to prepend the API base URL
   if (s.startsWith('/')) {
     if (api.defaults.baseURL) return `${api.defaults.baseURL}${s}`
     return s
@@ -657,12 +642,6 @@ function closeMobileMenu() {
   showMobileMenu.value = false
   toggleBodyScroll(false)
 }
-function onEscClose(ev) {
-  if (ev.key === 'Escape') {
-    if (showMobileMenu.value) closeMobileMenu()
-    if (showAvatarMenu.value) showAvatarMenu.value = false
-  }
-}
 function toggleBodyScroll(lock) {
   try { document.documentElement.style.overflow = lock ? 'hidden' : '' } catch {}
 }
@@ -674,254 +653,52 @@ function handleOutsideClick(ev) {
   }
 }
 
+/* Close menus on Escape key */
+function onEscClose(ev) {
+  if (ev.key === 'Escape') {
+    if (showMobileMenu.value) closeMobileMenu()
+    if (showAvatarMenu.value) showAvatarMenu.value = false
+  }
+}
+
+/* Update isMobile and close mobile menu on resize */
 function handleResize() {
+  updateIsMobile()
   if (window.innerWidth >= 768) {
     closeMobileMenu()
   }
 }
 
-const listenersBound = ref(false)
-
-function bindInteractionListeners() {
-  if (listenersBound.value) return
-  document.addEventListener('mousedown', handleOutsideClick)
-  document.addEventListener('keydown', onEscClose)
-  window.addEventListener('resize', handleResize)
-  listenersBound.value = true
-  handleResize()
+/* Close menus if window loses focus */
+function closeMenusOnBlur() {
+  showAvatarMenu.value = false
+  closeMobileMenu()
 }
 
-function unbindInteractionListeners() {
-  if (!listenersBound.value) return
-  document.removeEventListener('mousedown', handleOutsideClick)
-  document.removeEventListener('keydown', onEscClose)
-  window.removeEventListener('resize', handleResize)
-  listenersBound.value = false
-  toggleBodyScroll(false)
-}
-
-// function ensureFreshListeners() {
-//   unbindInteractionListeners()
-//   bindInteractionListeners()
-// }
-
-// function handleVisibilityChange() {
-//   if (document.visibilityState === 'visible') {
-//     ensureFreshListeners()
-//     closeMobileMenu()
-//     showAvatarMenu.value = false
-//   } else {
-//     unbindInteractionListeners()
-//     closeMobileMenu()
-//     showAvatarMenu.value = false
-//   }
-// }
-
-// function handleWindowFocus() {
-//   ensureFreshListeners()
-//   closeMobileMenu()
-//   showAvatarMenu.value = false
-// }
-
-// function handleWindowBlur() {
-//   unbindInteractionListeners()
-// }
-
-// function handlePageShow() {
-//   ensureFreshListeners()
-// }
-
-// function handlePageHide() {
-//   unbindInteractionListeners()
-//   closeMobileMenu()
-//   showAvatarMenu.value = false
-// }
-
+/* Close menus on route change */
 watch(
   () => router.currentRoute.value.fullPath,
   () => {
     closeMobileMenu()
     showAvatarMenu.value = false
-    ensureFreshListeners()
   },
 )
 
-/* Lifecycle */
+/* Lifecycle for UI Listeners */
 onMounted(async () => {
   updateIsMobile()
-  bindInteractionListeners()
-  // document.addEventListener('visibilitychange', handleVisibilityChange)
-  // window.addEventListener('focus', handleWindowFocus)
-  // window.addEventListener('blur', handleWindowBlur)
-  // window.addEventListener('pageshow', handlePageShow)
-  // window.addEventListener('pagehide', handlePageHide)
-
-  // Load current Supabase user and profile
-  try {
-    const { data } = await supabase.auth.getUser()
-    const user = data?.user || null
-    if (user) {
-      let profile = null
-      try {
-        const { data: row } = await supabase
-          .from('user')
-          .select('username, user_email, profile_image_url')
-          .eq('UID', user.id)
-          .maybeSingle()
-        profile = row || null
-      } catch (_) {}
-
-      localUser.value = {
-        username: profile?.username ?? user.user_metadata?.username ?? null,
-        email: profile?.user_email ?? user.email ?? null,
-        avatar_url: profile?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
-      }
-      // Ensure avatar from backend if missing
-      try {
-        if (!localUser.value?.avatar_url && localUser.value?.email) {
-          const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
-          const url = r?.data?.data
-          if (url) localUser.value.avatar_url = url
-        }
-        if (localUser.value?.email) {
-          try {
-            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
-            backendUsername.value = r2?.data?.data || ''
-          } catch (_) { backendUsername.value = '' }
-        }
-      } catch {}
-    } else if (props.user) {
-      localUser.value = props.user
-    } else {
-      localUser.value = null
-    }
-  } catch (e) {
-    console.error('Failed to load navbar user (Supabase):', e)
-  }
-
-  // Keep navbar in sync with auth changes
-  // supabase.auth.onAuthStateChange(async (_event, session) => {
-  //   const user = session?.user || null
-  //   if (!user) {
-  //     localUser.value = null
-  //     return
-  //   }
-  //   try {
-  //     const { data: row } = await supabase
-  //       .from('user')
-  //       .select('username, user_email, profile_image_url')
-  //       .eq('UID', user.id)
-  //       .maybeSingle()
-  //     localUser.value = {
-  //       username: row?.username ?? user.user_metadata?.username ?? null,
-  //       email: row?.user_email ?? user.email ?? null,
-  //       avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
-  //     }
-  //     try {
-  //       if (!localUser.value?.avatar_url && localUser.value?.email) {
-  //         const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
-  //         const url = r?.data?.data
-  //         if (url) localUser.value.avatar_url = url
-  //       }
-  //       if (localUser.value?.email) {
-  //         try {
-  //           const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
-  //           backendUsername.value = r2?.data?.data || ''
-  //         } catch (_) { backendUsername.value = '' }
-  //       }
-  //     } catch {}
-  //   } catch (_) {
-  //     localUser.value = {
-  //       username: user.user_metadata?.username ?? null,
-  //       first_name: user.user_metadata?.first_name ?? null,
-  //       last_name: user.user_metadata?.last_name ?? null,
-  //       email: user.email ?? null,
-  //       avatar_url: user.user_metadata?.avatar_url ?? null,
-  //     }
-  //     try {
-  //       if (!localUser.value?.avatar_url && localUser.value?.email) {
-  //         const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
-  //         const url = r?.data?.data
-  //         if (url) localUser.value.avatar_url = url
-  //       }
-  //       if (localUser.value?.email) {
-  //         try {
-  //           const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
-  //           backendUsername.value = r2?.data?.data || ''
-  //         } catch (_) { backendUsername.value = '' }
-  //       }
-  //     } catch {}
-  //   }
-  // })
-  supabase.auth.onAuthStateChange(async (_event, session) => {
-    
-    // DEBUG: See what's happening
-    console.log('Auth State Change:', _event, session);
-
-    if (_event === 'SIGNED_OUT') {
-      // User explicitly signed out
-      localUser.value = null;
-      backendUsername.value = '';
-      
-      // Force redirect to login page
-      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
-        window.location.href = '/login?loggedOut=true';
-      }
-      return;
-    }
-
-    if ((_event === 'SIGNED_IN' || _event === 'TOKEN_REFRESHED' || _event === 'INITIAL_SESSION') && session) {
-      // User is signed in or session was refreshed
-      const user = session.user;
-      try {
-        // Fetch user profile from 'user' table
-        const { data: row } = await supabase
-          .from('user')
-          .select('username, user_email, profile_image_url')
-          .eq('UID', user.id)
-          .maybeSingle();
-        
-        localUser.value = {
-          username: row?.username ?? user.user_metadata?.username ?? null,
-          email: row?.user_email ?? user.email ?? null,
-          avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
-        };
-
-        // Fetch additional data from your custom backend API
-        if (localUser.value.email) {
-          // Get pfp from API if Supabase profile didn't have it
-          if (!localUser.value.avatar_url) {
-            try {
-              const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email });
-              if (r?.data?.data) localUser.value.avatar_url = r.data.data;
-            } catch (e) { console.warn('Failed to getPfpByEmail', e); }
-          }
-          // Get username from API
-          try {
-            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email });
-            backendUsername.value = r2?.data?.data || '';
-          } catch (e) { console.warn('Failed to getUsernamebyEmail', e); }
-        }
-
-      } catch (e) {
-        console.error('Failed to fetch user profile row, logging out.', e);
-        // If we can't get the profile, something is wrong. Log out.
-        await supabase.auth.signOut();
-      }
-    } else if ((_event === 'INITIAL_SESSION' || _event === 'TOKEN_REFRESHED') && !session) {
-      // This is the idle-bug case: A refresh event happened but there's no session.
-      // DO NOTHING. Don't set user to null. Wait for the next event.
-      console.warn('Auth event received with null session, ignoring to prevent logout.');
-    }
-  });
+  document.addEventListener('mousedown', handleOutsideClick)
+  document.addEventListener('keydown', onEscClose)
+  window.addEventListener('resize', handleResize)
+  window.addEventListener('blur', closeMenusOnBlur)
 })
+
 onBeforeUnmount(() => {
-  // document.removeEventListener('visibilitychange', handleVisibilityChange)
-  // window.removeEventListener('focus', handleWindowFocus)
-  // window.removeEventListener('blur', handleWindowBlur)
-  // window.removeEventListener('pageshow', handlePageShow)
-  // window.removeEventListener('pagehide', handlePageHide)
-  unbindInteractionListeners()
+  document.removeEventListener('mousedown', handleOutsideClick)
+  document.removeEventListener('keydown', onEscClose)
+  window.removeEventListener('resize', handleResize)
+  window.removeEventListener('blur', closeMenusOnBlur)
+
   toggleBodyScroll(false)
 })
 </script>
