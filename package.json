@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "animate.css": "^4.1.1"
+    "animate.css": "^4.1.1",
+    "vue3-lottie": "^3.3.1"
   }
 }
