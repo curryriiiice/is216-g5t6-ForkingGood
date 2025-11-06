@@ -1627,7 +1627,7 @@ function cleanupBackgroundResources() {
 
 onMounted(() => {
   loadRandomiseAnimation()
-  document.addEventListener('visibilitychange', handleVisibilityChange)
+  // document.addEventListener('visibilitychange', handleVisibilityChange)
   document.addEventListener('click', handleGlobalClick, true)
   document.addEventListener('pointerdown', handleGlobalPointerDown, true)
   document.addEventListener('keydown', handleKeydown, true)
@@ -1711,7 +1711,7 @@ function removeAllEventListeners() {
   document.removeEventListener('click', handleGlobalClick, true)
   document.removeEventListener('pointerdown', handleGlobalPointerDown, true)
   document.removeEventListener('keydown', handleKeydown, true)
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  // document.removeEventListener('visibilitychange', handleVisibilityChange)
 }
 
 
