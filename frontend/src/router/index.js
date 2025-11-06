@@ -84,4 +84,24 @@ router.beforeEach(async (to, from, next) => {
   }
 })
 
+// After each navigation, aggressively clean up any lingering overlays
+router.afterEach(() => {
+  try {
+    if (typeof window !== 'undefined' && typeof window.enableUI === 'function') {
+      window.enableUI()
+    } else {
+      const selectors = [
+        '.modal-backdrop', '.offcanvas-backdrop', '.overlay',
+        '.drawer-mask', '.backdrop', '.mask', '.scrim',
+        '.mm-overlay', '.modal-overlay', '.cropper-modal', '#loading-screen'
+      ]
+      document.querySelectorAll(selectors.join(',')).forEach((el) => { try { el.remove() } catch {} })
+      document.body.style.overflow = ''
+      document.documentElement.style.overflow = ''
+      const appEl = document.getElementById('app')
+      if (appEl) appEl.style.pointerEvents = 'auto'
+    }
+  } catch {}
+})
+
 export default router

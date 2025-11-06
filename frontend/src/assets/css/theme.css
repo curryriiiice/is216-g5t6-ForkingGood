@@ -68,6 +68,15 @@
   --space-2xl: 3rem;
 }
 
+/* --- CSS safety rails --- */
+#app { pointer-events: auto !important; }
+body.is-loading, body.no-interact, body.page-hidden { pointer-events: auto !important; }
+.modal-backdrop.is-hidden,
+.overlay.is-hidden,
+.drawer-mask.is-hidden,
+.backdrop.is-hidden,
+.scrim.is-hidden { pointer-events: none !important; opacity: 0 !important; }
+
 /* ---------- Brand themes (override accents + background) ---------- */
 :root[data-theme='brand-mint'] {
   --sage-600: #2fb686;

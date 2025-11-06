@@ -727,6 +727,26 @@ function updateIsMobile() {
 onMounted(() => updateIsMobile())
 window.addEventListener('resize', updateIsMobile)
 
+// Ensure full-screen overlays (drawer/backdrop) don't linger after tab switch
+const onVisibilityChange = () => {
+  if (document.visibilityState !== 'visible') {
+    selected.value = null
+    showAdd.value = false
+  }
+}
+const onWindowBlur = () => {
+  selected.value = null
+  showAdd.value = false
+}
+onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  window.addEventListener('blur', onWindowBlur)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  window.removeEventListener('blur', onWindowBlur)
+})
+
 watch(
   () => filtersOpen.value,
   (open) => {
@@ -2276,7 +2296,8 @@ function clearFilters() {
 .backdrop {
   position: fixed;
   inset: 0;
-  z-index: 5000; /* above filter bar + map */
+  /* Lower than navbar (now 11000) but above content */
+  z-index: 40;
   background: transparent !important;
   backdrop-filter: none !important;
 }
@@ -2287,7 +2308,8 @@ function clearFilters() {
   width: 420px;
   max-width: 92vw;
   height: 100vh;
-  z-index: 5100; /* above backdrop */
+  /* above its backdrop but below navbar */
+  z-index: 50;
   overflow-y: auto; /* allow scrolling inside the drawer */
   -webkit-overflow-scrolling: touch; /* smooth iOS scroll */
   overscroll-behavior: contain; /* stop scroll from propagating to map/body */

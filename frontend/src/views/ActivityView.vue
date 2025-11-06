@@ -200,6 +200,36 @@ async function ensureProfileForCommenter(email) {
   return request
 }
 
+// --- Ensure modals/overlays are closed when tab loses focus ---
+function closeAllOverlays() {
+  try {
+    showComments.value = false
+    showPreview.value = false
+    showProfileModal.value = false
+    showConfirmRemoveModal.value = false
+    showEdit.value = false
+    showConfirmDelete.value = false
+    showAdd.value = false
+  } catch {}
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState !== 'visible') closeAllOverlays()
+}
+function handleWindowBlur() {
+  closeAllOverlays()
+}
+
+onMounted(() => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('blur', handleWindowBlur)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('blur', handleWindowBlur)
+})
+
 async function enrichCommentsWithProfiles(list) {
   if (!Array.isArray(list) || list.length === 0) return []
   const uniqueEmails = [...new Set(list.map((row) => row.commenter_email).filter(Boolean))]

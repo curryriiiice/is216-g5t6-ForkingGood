@@ -701,10 +701,12 @@ function handleVisibilityChange() {
     ensureFreshListeners()
     closeMobileMenu()
     showAvatarMenu.value = false
+    showReversePopup.value = false
   } else {
     unbindInteractionListeners()
     closeMobileMenu()
     showAvatarMenu.value = false
+    showReversePopup.value = false
   }
 }
 
@@ -712,10 +714,15 @@ function handleWindowFocus() {
   ensureFreshListeners()
   closeMobileMenu()
   showAvatarMenu.value = false
+  showReversePopup.value = false
 }
 
 function handleWindowBlur() {
   unbindInteractionListeners()
+  // Ensure overlays are closed when tab loses focus
+  closeMobileMenu()
+  showAvatarMenu.value = false
+  showReversePopup.value = false
 }
 
 function handlePageShow() {
@@ -726,6 +733,7 @@ function handlePageHide() {
   unbindInteractionListeners()
   closeMobileMenu()
   showAvatarMenu.value = false
+  showReversePopup.value = false
 }
 
 watch(
@@ -864,7 +872,8 @@ onBeforeUnmount(() => {
 .navbar {
   position: sticky;
   top: 0;
-  z-index: 20;
+  /* Elevated above any lingering overlays to keep nav clickable */
+  z-index: 11000;
   background: #fff;
 
   /* Grid keeps center perfectly centered */
@@ -1068,7 +1077,7 @@ onBeforeUnmount(() => {
 @media (min-width: 768px) { .hamburger { display: none; } }
 
 .mm-overlay {
-  position: fixed; inset: 0; z-index: 9998;
+  position: fixed; inset: 0; z-index: 40;
   background: rgba(17, 24, 39, 0.45);
   backdrop-filter: blur(2px);
 }
@@ -1105,10 +1114,7 @@ onBeforeUnmount(() => {
 .mm-fade-enter-from, .mm-fade-leave-to { opacity: 0; }
 </style>
 
-<style>
-/* Keep modal above everything */
-.modal-overlay { position: fixed !important; inset: 0 !important; z-index: 9999 !important; }
-
+<style scoped>
 /* Icon in the Image Search button */
 .rev-btn.with-icon { display: inline-flex; align-items: center; gap: 0.4rem; }
 .rev-btn .btn-icon {
@@ -1119,7 +1125,6 @@ onBeforeUnmount(() => {
   filter: brightness(0) invert(1);
 }
 .rev-btn .rev-text { color: #fff; }
-</style>
 
 /* Theme dropdown */
 .nav-theme { display: none; gap: 8px; align-items: center; margin: 0 10px; }
@@ -1127,3 +1132,5 @@ onBeforeUnmount(() => {
 .nav-theme-select { appearance: none; border: 1.5px solid #e5e7eb; background: #fff; color: #374151; font-weight: 700; font-size: 12px; padding: 6px 10px; border-radius: 10px; cursor: pointer; }
 .nav-theme-select:focus { outline: none; border-color: var(--sage-600, #8b9d83); box-shadow: 0 0 0 3px color-mix(in oklab, var(--sage-600, #8b9d83) 35%, transparent); }
 @media (min-width: 768px) { .nav-theme { display: inline-flex; } }
+
+</style>

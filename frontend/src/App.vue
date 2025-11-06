@@ -17,6 +17,51 @@ const loading = ref(true)
 
 // Removed hard refresh on tab visibility change to avoid jarring reloads
 
+// Global safety: clear any stale full-screen overlays after tab switch
+function cleanupOverlays() {
+  try {
+    // Unlock scroll in case any overlay locked it
+    document.body.style.overflow = ''
+    document.documentElement.style.overflow = ''
+
+    // Remove common teleported overlays that might linger
+    const selectors = [
+      '.mm-overlay',         // NavBar mobile menu overlay
+      '.modal-overlay',      // Generic modal overlay
+      '.cropper-modal',      // AddRecommendationForm cropper
+      '.backdrop',           // MapView drawer backdrop
+      '#loading-screen'      // Initial loading screen, if stuck
+    ]
+    document.querySelectorAll(selectors.join(',')).forEach((el) => {
+      try { el.remove() } catch {}
+    })
+
+    // Aggressive: if something still covers the top, neutralize it
+    const sampleXs = [20, Math.max(20, window.innerWidth / 2), Math.max(20, window.innerWidth - 20)]
+    const y = 10
+    const navbar = document.querySelector('.navbar')
+    const seen = new Set()
+    for (const x of sampleXs) {
+      const el = document.elementFromPoint(x, y)
+      if (!el) continue
+      if (navbar && navbar.contains(el)) continue
+      if (seen.has(el)) continue
+      seen.add(el)
+      const style = window.getComputedStyle(el)
+      const isFixed = style.position === 'fixed' || style.position === 'sticky'
+      if (!isFixed) continue
+      // If it spans across the viewport width or looks like a full-width bar
+      const rect = el.getBoundingClientRect()
+      if (rect.width > window.innerWidth * 0.8 && rect.height > 40) {
+        el.style.pointerEvents = 'none'
+      }
+    }
+  } catch {}
+}
+
+// Expose globally so router and other code can invoke it
+try { window.enableUI = cleanupOverlays } catch {}
+
 /** Hide navbar on routes with meta.hideNavbar (e.g. /login, /signup) */
 const hideNavbar = computed(() => !!route.meta?.hideNavbar)
 
@@ -195,6 +240,21 @@ onMounted(async () => {
 
   // Ensure html[data-theme] reflects current cuisine on boot
   applyRootThemeFromCuisine(theme.value)
+
+  // Clean up any stale overlays once app is interactive
+  cleanupOverlays()
+
+  // Also clean on tab visibility/focus changes
+  const onVis = () => { if (document.visibilityState === 'visible') cleanupOverlays() }
+  const onFocus = () => cleanupOverlays()
+  document.addEventListener('visibilitychange', onVis)
+  window.addEventListener('focus', onFocus)
+
+  // Remove listeners when app is torn down
+  onBeforeUnmount(() => {
+    document.removeEventListener('visibilitychange', onVis)
+    window.removeEventListener('focus', onFocus)
+  })
 })
 
 onBeforeUnmount(() => {
