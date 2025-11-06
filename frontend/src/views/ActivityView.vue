@@ -906,10 +906,10 @@ watch(
                   @unliked="applyPostPatch"
                   @edit-post="onEditPost"
                   @delete-post="onDeletePost"
-                  class="h-100"
+                  class="h-100 activity-card"
                 />
-              </div>
             </div>
+          </div>
           </div>
           <!-- Pagination Controls for My Posts -->
           <div v-if="totalPagesMyPosts > 1" class="d-flex justify-content-center align-items-center gap-3 mt-4 mb-4">
@@ -969,10 +969,10 @@ watch(
                   @post-updated="applyPostPatch"
                   @liked="applyPostPatch"
                   @unliked="applyPostPatch"
-                  class="h-100"
+                  class="h-100 activity-card"
                 />
-              </div>
             </div>
+          </div>
           </div>
           <!-- Pagination Controls for Liked Posts -->
           <div v-if="totalPagesLikedPosts > 1" class="d-flex justify-content-center align-items-center gap-3 mt-4 mb-4">
@@ -1037,17 +1037,18 @@ watch(
             :current-user-email="activeEmail"
             :external-comment-count="commentCounts[previewPost?.id] ?? commentCounts[previewPost?.postid] ?? (previewPost?.raw?.comments?.length || 0)"
             :show-owner-menu="previewPost?.user?.id === activeEmail"
-            @open-comments="onOpenComments"
-            @open-profile="viewProfile"
-            @view-on-map="viewOnMap"
-            @updated="applyPostPatch"
-            @post-updated="applyPostPatch"
-            @liked="applyPostPatch"
-            @unliked="applyPostPatch"
-            @edit-post="onEditPost"
-            @delete-post="onDeletePost"
-          />
-        </div>
+          @open-comments="onOpenComments"
+          @open-profile="viewProfile"
+          @view-on-map="viewOnMap"
+          @updated="applyPostPatch"
+          @post-updated="applyPostPatch"
+          @liked="applyPostPatch"
+          @unliked="applyPostPatch"
+          @edit-post="onEditPost"
+          @delete-post="onDeletePost"
+          class="activity-card"
+        />
+      </div>
       </div>
     </Modal>
    
@@ -1104,7 +1105,7 @@ watch(
                           @post-updated="applyPostPatch"
                           @liked="applyPostPatch"
                           @unliked="applyPostPatch"
-                          class="h-100"
+                          class="h-100 activity-card"
                         />
                     </div>
                  </div>
@@ -1420,5 +1421,17 @@ watch(
 :deep(.modal) .preview-card .photo-box {
   height: auto !important; max-height: none !important;
   aspect-ratio: auto !important; overflow: visible !important;
+}
+
+@media (min-width: 992px) and (max-width: 1199.98px) {
+  /* Mid screens: stack Activity hero tags similar to mobile PostCard layout */
+  :deep(.activity-card .hero .chip) {
+    top: 40px;
+    left: 10px;
+    right: auto;
+    max-width: calc(100% - 20px);
+    white-space: normal;
+    line-height: 1.2;
+  }
 }
 </style>

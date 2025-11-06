@@ -75,12 +75,12 @@ watch(
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
-  document.addEventListener('visibilitychange', handleVisibilityChange)
+  // document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  // document.removeEventListener('visibilitychange', handleVisibilityChange)
   document.body.style.overflow = ''
 })
 </script>

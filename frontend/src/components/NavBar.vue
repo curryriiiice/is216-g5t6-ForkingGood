@@ -752,7 +752,7 @@ watch(
 onMounted(async () => {
   updateIsMobile()
   bindInteractionListeners()
-  document.addEventListener('visibilitychange', handleVisibilityChange)
+  // document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
   window.addEventListener('blur', handleWindowBlur)
   window.addEventListener('pageshow', handlePageShow)
@@ -857,7 +857,7 @@ onMounted(async () => {
   })
 })
 onBeforeUnmount(() => {
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  // document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('focus', handleWindowFocus)
   window.removeEventListener('blur', handleWindowBlur)
   window.removeEventListener('pageshow', handlePageShow)
