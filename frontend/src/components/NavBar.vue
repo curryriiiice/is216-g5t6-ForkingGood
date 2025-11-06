@@ -582,23 +582,21 @@ async function submitReverseSearch() {
 
 /* Avatar menu actions */
 async function goLogoutPage() {
-  showAvatarMenu.value = false
+  showAvatarMenu.value = false;
   try {
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    // The onAuthStateChange listener below will catch this event 
+    // and handle the state change and redirect automatically.
   } catch (e) {
-    console.warn('Supabase signOut failed (continuing):', e)
+    console.warn('Supabase signOut failed, logging out manually:', e);
+    // Manual fallback just in case
+    localUser.value = null;
+    backendUsername.value = '';
+    localStorage.clear();
+    sessionStorage.clear();
+    window.location.href = '/login?loggedOut=true';
   }
-  try {
-    localStorage.removeItem('token')
-    sessionStorage.removeItem('token')
-    localStorage.removeItem('sb-access-token')
-    sessionStorage.removeItem('sb-access-token')
-  } catch (_) {}
-  localUser.value = null
-  try {
-    await router.replace('/')
-  } catch (_) {}
-  // Avoid hard refresh; rely on SPA navigation
 }
 
 function closeReversePopup() {
@@ -702,42 +700,42 @@ function unbindInteractionListeners() {
   toggleBodyScroll(false)
 }
 
-function ensureFreshListeners() {
-  unbindInteractionListeners()
-  bindInteractionListeners()
-}
+// function ensureFreshListeners() {
+//   unbindInteractionListeners()
+//   bindInteractionListeners()
+// }
 
-function handleVisibilityChange() {
-  if (document.visibilityState === 'visible') {
-    ensureFreshListeners()
-    closeMobileMenu()
-    showAvatarMenu.value = false
-  } else {
-    unbindInteractionListeners()
-    closeMobileMenu()
-    showAvatarMenu.value = false
-  }
-}
+// function handleVisibilityChange() {
+//   if (document.visibilityState === 'visible') {
+//     ensureFreshListeners()
+//     closeMobileMenu()
+//     showAvatarMenu.value = false
+//   } else {
+//     unbindInteractionListeners()
+//     closeMobileMenu()
+//     showAvatarMenu.value = false
+//   }
+// }
 
-function handleWindowFocus() {
-  ensureFreshListeners()
-  closeMobileMenu()
-  showAvatarMenu.value = false
-}
+// function handleWindowFocus() {
+//   ensureFreshListeners()
+//   closeMobileMenu()
+//   showAvatarMenu.value = false
+// }
 
-function handleWindowBlur() {
-  unbindInteractionListeners()
-}
+// function handleWindowBlur() {
+//   unbindInteractionListeners()
+// }
 
-function handlePageShow() {
-  ensureFreshListeners()
-}
+// function handlePageShow() {
+//   ensureFreshListeners()
+// }
 
-function handlePageHide() {
-  unbindInteractionListeners()
-  closeMobileMenu()
-  showAvatarMenu.value = false
-}
+// function handlePageHide() {
+//   unbindInteractionListeners()
+//   closeMobileMenu()
+//   showAvatarMenu.value = false
+// }
 
 watch(
   () => router.currentRoute.value.fullPath,
@@ -753,10 +751,10 @@ onMounted(async () => {
   updateIsMobile()
   bindInteractionListeners()
   // document.addEventListener('visibilitychange', handleVisibilityChange)
-  window.addEventListener('focus', handleWindowFocus)
-  window.addEventListener('blur', handleWindowBlur)
-  window.addEventListener('pageshow', handlePageShow)
-  window.addEventListener('pagehide', handlePageHide)
+  // window.addEventListener('focus', handleWindowFocus)
+  // window.addEventListener('blur', handleWindowBlur)
+  // window.addEventListener('pageshow', handlePageShow)
+  // window.addEventListener('pagehide', handlePageHide)
 
   // Load current Supabase user and profile
   try {
@@ -802,66 +800,127 @@ onMounted(async () => {
   }
 
   // Keep navbar in sync with auth changes
+  // supabase.auth.onAuthStateChange(async (_event, session) => {
+  //   const user = session?.user || null
+  //   if (!user) {
+  //     localUser.value = null
+  //     return
+  //   }
+  //   try {
+  //     const { data: row } = await supabase
+  //       .from('user')
+  //       .select('username, user_email, profile_image_url')
+  //       .eq('UID', user.id)
+  //       .maybeSingle()
+  //     localUser.value = {
+  //       username: row?.username ?? user.user_metadata?.username ?? null,
+  //       email: row?.user_email ?? user.email ?? null,
+  //       avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
+  //     }
+  //     try {
+  //       if (!localUser.value?.avatar_url && localUser.value?.email) {
+  //         const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
+  //         const url = r?.data?.data
+  //         if (url) localUser.value.avatar_url = url
+  //       }
+  //       if (localUser.value?.email) {
+  //         try {
+  //           const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
+  //           backendUsername.value = r2?.data?.data || ''
+  //         } catch (_) { backendUsername.value = '' }
+  //       }
+  //     } catch {}
+  //   } catch (_) {
+  //     localUser.value = {
+  //       username: user.user_metadata?.username ?? null,
+  //       first_name: user.user_metadata?.first_name ?? null,
+  //       last_name: user.user_metadata?.last_name ?? null,
+  //       email: user.email ?? null,
+  //       avatar_url: user.user_metadata?.avatar_url ?? null,
+  //     }
+  //     try {
+  //       if (!localUser.value?.avatar_url && localUser.value?.email) {
+  //         const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
+  //         const url = r?.data?.data
+  //         if (url) localUser.value.avatar_url = url
+  //       }
+  //       if (localUser.value?.email) {
+  //         try {
+  //           const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
+  //           backendUsername.value = r2?.data?.data || ''
+  //         } catch (_) { backendUsername.value = '' }
+  //       }
+  //     } catch {}
+  //   }
+  // })
   supabase.auth.onAuthStateChange(async (_event, session) => {
-    const user = session?.user || null
-    if (!user) {
-      localUser.value = null
-      return
-    }
-    try {
-      const { data: row } = await supabase
-        .from('user')
-        .select('username, user_email, profile_image_url')
-        .eq('UID', user.id)
-        .maybeSingle()
-      localUser.value = {
-        username: row?.username ?? user.user_metadata?.username ?? null,
-        email: row?.user_email ?? user.email ?? null,
-        avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
+    
+    // DEBUG: See what's happening
+    console.log('Auth State Change:', _event, session);
+
+    if (_event === 'SIGNED_OUT') {
+      // User explicitly signed out
+      localUser.value = null;
+      backendUsername.value = '';
+      
+      // Force redirect to login page
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+        window.location.href = '/login?loggedOut=true';
       }
-      try {
-        if (!localUser.value?.avatar_url && localUser.value?.email) {
-          const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
-          const url = r?.data?.data
-          if (url) localUser.value.avatar_url = url
-        }
-        if (localUser.value?.email) {
-          try {
-            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
-            backendUsername.value = r2?.data?.data || ''
-          } catch (_) { backendUsername.value = '' }
-        }
-      } catch {}
-    } catch (_) {
-      localUser.value = {
-        username: user.user_metadata?.username ?? null,
-        first_name: user.user_metadata?.first_name ?? null,
-        last_name: user.user_metadata?.last_name ?? null,
-        email: user.email ?? null,
-        avatar_url: user.user_metadata?.avatar_url ?? null,
-      }
-      try {
-        if (!localUser.value?.avatar_url && localUser.value?.email) {
-          const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email })
-          const url = r?.data?.data
-          if (url) localUser.value.avatar_url = url
-        }
-        if (localUser.value?.email) {
-          try {
-            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email })
-            backendUsername.value = r2?.data?.data || ''
-          } catch (_) { backendUsername.value = '' }
-        }
-      } catch {}
+      return;
     }
-  })
+
+    if ((_event === 'SIGNED_IN' || _event === 'TOKEN_REFRESHED' || _event === 'INITIAL_SESSION') && session) {
+      // User is signed in or session was refreshed
+      const user = session.user;
+      try {
+        // Fetch user profile from 'user' table
+        const { data: row } = await supabase
+          .from('user')
+          .select('username, user_email, profile_image_url')
+          .eq('UID', user.id)
+          .maybeSingle();
+        
+        localUser.value = {
+          username: row?.username ?? user.user_metadata?.username ?? null,
+          email: row?.user_email ?? user.email ?? null,
+          avatar_url: row?.profile_image_url ?? user.user_metadata?.avatar_url ?? null,
+        };
+
+        // Fetch additional data from your custom backend API
+        if (localUser.value.email) {
+          // Get pfp from API if Supabase profile didn't have it
+          if (!localUser.value.avatar_url) {
+            try {
+              const r = await api.post('/user/getPfpByEmail', { user_email: localUser.value.email });
+              if (r?.data?.data) localUser.value.avatar_url = r.data.data;
+            } catch (e) { console.warn('Failed to getPfpByEmail', e); }
+          }
+          // Get username from API
+          try {
+            const r2 = await api.post('/user/getUsernamebyEmail', { user_email: localUser.value.email });
+            backendUsername.value = r2?.data?.data || '';
+          } catch (e) { console.warn('Failed to getUsernamebyEmail', e); }
+        }
+
+      } catch (e) {
+        console.error('Failed to fetch user profile row, logging out.', e);
+        // If we can't get the profile, something is wrong. Log out.
+        await supabase.auth.signOut();
+      }
+    } else if ((_event === 'INITIAL_SESSION' || _event === 'TOKEN_REFRESHED') && !session) {
+      // This is the idle-bug case: A refresh event happened but there's no session.
+      // DO NOTHING. Don't set user to null. Wait for the next event.
+      console.warn('Auth event received with null session, ignoring to prevent logout.');
+    }
+  });
 })
 onBeforeUnmount(() => {
   // document.removeEventListener('visibilitychange', handleVisibilityChange)
-  window.removeEventListener('focus', handleWindowFocus)
-  window.removeEventListener('blur', handleWindowBlur)
-  window.removeEventListener('pageshow', handlePageShow)
-  window.removeEventListener('pagehide', handlePageHide)
+  // window.removeEventListener('focus', handleWindowFocus)
+  // window.removeEventListener('blur', handleWindowBlur)
+  // window.removeEventListener('pageshow', handlePageShow)
+  // window.removeEventListener('pagehide', handlePageHide)
   unbindInteractionListeners()
   toggleBodyScroll(false)
 })
