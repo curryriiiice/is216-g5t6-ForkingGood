@@ -1001,7 +1001,7 @@ onBeforeUnmount(() => {
 <template>
   <form ref="rootEl" class="rec-form" @submit.prevent="submit">
     <div class="mb-3">
-      <label class="form-label fw-semibold">Restaurant or Place</label>
+      <label class="form-label fw-semibold">Title (Restaurant)</label>
       <div ref="nameWrap" class="ac-wrap">
         <input
           ref="nameInputEl"
