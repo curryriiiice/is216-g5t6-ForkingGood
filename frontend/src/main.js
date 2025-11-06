@@ -33,3 +33,25 @@ window.addEventListener('unhandledrejection', (event) => {
 })
 
 app.mount("#app");
+
+// Global safety net: when the page regains focus or is shown from bfcache,
+// restore interactivity and dismiss any leaked full-screen overlays
+function restoreInteractivity() {
+  try {
+    document.body.style.pointerEvents = ''
+    const appEl = document.getElementById('app')
+    if (appEl) appEl.style.pointerEvents = ''
+    document.documentElement.style.overflow = ''
+  } catch {}
+
+  // Prefer triggering existing close handlers instead of hard-removing nodes
+  try {
+    document.querySelectorAll('.mm-overlay, .backdrop, .filter-sheet')
+      .forEach((el) => {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+  } catch {}
+}
+
+window.addEventListener('focus', restoreInteractivity)
+window.addEventListener('pageshow', restoreInteractivity)

@@ -85,3 +85,20 @@ router.beforeEach(async (to, from, next) => {
 })
 
 export default router
+
+// After each route, ensure no stray overlays remain that could block clicks
+router.afterEach(() => {
+  try {
+    document.body.classList.remove('is-loading', 'no-interact', 'page-hidden', 'blurred', 'disabled')
+    document.documentElement.style.overflow = ''
+    const appEl = document.getElementById('app')
+    if (appEl) appEl.style.pointerEvents = ''
+  } catch {}
+
+  try {
+    document.querySelectorAll('.modal-backdrop, .offcanvas-backdrop, .overlay, .drawer-mask, .backdrop, .mask, .scrim, .mm-overlay, .filter-sheet')
+      .forEach((el) => {
+        el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      })
+  } catch {}
+})

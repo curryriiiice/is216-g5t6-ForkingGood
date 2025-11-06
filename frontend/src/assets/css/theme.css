@@ -119,6 +119,9 @@ body {
   background: var(--bg);
 }
 
+/* Safety: ensure app remains clickable even if a class flips pointer-events elsewhere */
+#app { pointer-events: auto !important; }
+
 h1,
 h2,
 h3,
