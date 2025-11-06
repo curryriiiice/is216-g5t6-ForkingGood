@@ -2,6 +2,18 @@
 
 A web application to easily track food recommendations from friends and conveniently share food places and restaurants.
 
+## Description
+
+We love receiving food recommendations from friends, but we often struggle to keep track of them. Recommendations shared through messaging apps tend to get buried in conversations, making it challenging and tedious to scroll back and find them later. We realised that having a centralised, social platform to manage these recommendations would be both enjoyable and practical. This inspired us to create a web application that allows us to easily track food recommendations from friends and conveniently share places we personally enjoyed visiting.
+
+## Features
+
+- **Account Creation & Friend system**: User will be able to create a personal account that he can access his saved recommendations and add friends to view their recommendations to discover new places to eat. Friends can also like and comment on posts.
+- **Ranking system**: User can add new restaurant recommendations with details (photos, rating, review description)
+- **Interactive Map with Pinned Locations**: A map view containing a user's friend circle's recommendations 
+- **Search & Filtering**: randomise, search and filter recommendations based on cuisine type, price range and location
+- **Reverse Image Search and Recognition**: When a user snaps or uploads a photo of a dish, recommendations of restaurants serving similar dishes can be provided
+
 ## URLs
 
 - **Live Application**: [https://forking-good.netlify.app/]
@@ -85,15 +97,6 @@ VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-## Features
-
-- Share food recommendations with friends
-- Track and organize favorite restaurants
-- Rate and review food places
-- Social features for food discovery
-- User authentication and profiles
-- Reverse image searching to locate restaurants with similar dishes
-
 ## Technology Stack
 
 **Frontend:**
@@ -101,12 +104,19 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 - Bootstrap
 - CSS3
 - HTML5
+- **Deployed on Netlify**
 
 **Backend:**
 - Node.js
 - Express.js
 - Supabase
 - Supabase JWT Authentication
+- **Deployed on Netlify**
+
+## APIs Used
+
+- **Google Maps API**: [https://developers.google.com/maps](https://developers.google.com/maps) - For interactive maps and location services
+- **Google Cloud Vision API**: [https://cloud.google.com/vision](https://cloud.google.com/vision) - For reverse image search and dish recognition
 
 ## Support
 
