@@ -27,6 +27,7 @@ const activeEmail = computed(() => authUser.value?.email ?? null)
 
 // === Pagination ===
 const postsPerPage = 10
+const postsSectionRef = ref(null)
 const totalPages = computed(() => Math.ceil(posts.value.length / postsPerPage))
 const paginatedPosts = computed(() => {
   const start = (currentPage.value - 1) * postsPerPage
@@ -36,24 +37,33 @@ const paginatedPosts = computed(() => {
 const hasNextPage = computed(() => currentPage.value < totalPages.value)
 const hasPrevPage = computed(() => currentPage.value > 1)
 
+function scrollToPostsHeader() {
+  const target = postsSectionRef.value || document.getElementById('section-posts')
+  if (target?.scrollIntoView) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } else {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+}
+
 function nextPage() {
   if (hasNextPage.value) {
     currentPage.value++
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    scrollToPostsHeader()
   }
 }
 
 function prevPage() {
   if (hasPrevPage.value) {
     currentPage.value--
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    scrollToPostsHeader()
   }
 }
 
 function goToPage(page) {
   if (page >= 1 && page <= totalPages.value) {
     currentPage.value = page
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    scrollToPostsHeader()
   }
 }
 
