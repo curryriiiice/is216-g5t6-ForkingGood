@@ -55,7 +55,7 @@ const reverseSearch = async (imageBuffer) => {
         return { data: "No food items detected in the image" };
     }
 
-    console.log('Detected food labels:', foodLabels);
+
 
     // 3. Search for restaurants using the labels
     const restaurants = new Map();

@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { supabase } from './supabaseClient.js';
+// Import the token from our single source of truth
+import { activeToken } from './useAuthUser'; // <-- Adjust this path if needed
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 
   (import.meta.env.PROD ? '/api' : 'http://localhost:8000');
@@ -11,13 +12,9 @@ const api = axios.create({
   }
 });
 
-// Add request interceptor for Supabase auth token
-api.interceptors.request.use(async (config) => {
-  // Get the current Supabase session
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+api.interceptors.request.use((config) => {
+  if (activeToken.value) {
+    config.headers.Authorization = `Bearer ${activeToken.value}`;
   }
   
   return config;

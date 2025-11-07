@@ -2,9 +2,10 @@ import { ref, readonly, computed } from 'vue'
 import { supabase } from '@/lib/supabaseClient'
 
 const authUser = ref(null)
+const authToken = ref(null)
 const fetching = ref(false)
 let initialised = false
-let fetchPromise = null
+export let fetchPromise = null
 
 function extractEmail(user) {
   if (!user) return null
@@ -21,8 +22,10 @@ function extractEmail(user) {
 
 function normaliseUser(user) {
   if (!user) return null
+  
   const email = extractEmail(user)
   const meta = { ...user.user_metadata }
+  
   return {
     id: user.id,
     email,
@@ -30,42 +33,51 @@ function normaliseUser(user) {
     app_metadata: user.app_metadata ?? {},
     user_metadata: meta,
     raw: user,
-    ...meta,
+    ...meta, 
+    // We get avatar_url from metadata ONLY
+    avatar_url: meta?.avatar_url || null, 
   }
+}
+
+function setAuth(session) {
+  const user = session?.user ?? null
+  authUser.value = normaliseUser(user) 
+  authToken.value = session?.access_token ?? null
+  initialised = true
 }
 
 async function loadUser() {
   if (fetchPromise) return fetchPromise
+
   fetching.value = true
+  
   fetchPromise = supabase.auth
-    .getUser()
-    .then(({ data, error }) => {
+    .getSession()
+    .then(({ data, error }) => { // NOT async
       if (error) {
-        console.warn('[auth] getUser error:', error.message || error)
-        authUser.value = null
+        console.warn('[auth] getSession error:', error.message || error)
+        setAuth(null) // NOT awaited
         return null
       }
-      const result = normaliseUser(data?.user ?? null)
-      authUser.value = result
-      return result
+      setAuth(data.session) // NOT awaited
+      return authUser.value
     })
-    .catch((err) => {
-      console.error('[auth] getUser failed:', err)
-      authUser.value = null
+    .catch((err) => { // NOT async
+      console.error('[auth] getSession failed:', err)
+      setAuth(null) // NOT awaited
       return null
     })
     .finally(() => {
       fetching.value = false
-      initialised = true
-      fetchPromise = null
     })
   return fetchPromise
 }
 
 supabase.auth.onAuthStateChange((_event, session) => {
-  initialised = true
-  authUser.value = normaliseUser(session?.user ?? null)
+  setAuth(session)
 })
+
+export const activeToken = readonly(authToken)
 
 export function useAuthUser() {
   if (!initialised && !fetching.value) {
@@ -80,7 +92,7 @@ export function useAuthUser() {
 }
 
 export async function getActiveEmail({ forceRefresh = false } = {}) {
-  if (forceRefresh || (!initialised && !authUser.value)) {
+  if (forceRefresh || !initialised) {
     await loadUser()
   }
   return authUser.value?.email ?? null

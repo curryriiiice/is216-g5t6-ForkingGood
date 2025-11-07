@@ -1,33 +1,63 @@
-﻿<!-- src/App.vue -->
-<script setup>
+﻿<script setup>
 import { ref, onMounted, computed, watch, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import NavBar from '@/components/NavBar.vue'
-import api from '@/lib/api'
+import { supabase } from '@/lib/supabaseClient'
+
+// Import the composable
+import { useAuthUser } from '@/lib/useAuthUser'
+const { user: authUser, loading } = useAuthUser()
+
+const user = ref(null) 
 
 /* =========================
    Route + shell state
    ========================= */
-const user = ref(null)
 const pendingRequestsCount = ref(0)
 const router = useRouter()
 const route = useRoute()
-const loading = ref(true)
 
-// Removed hard refresh on tab visibility change to avoid jarring reloads
-
-/** Hide navbar on routes with meta.hideNavbar (e.g. /login, /signup) */
 const hideNavbar = computed(() => !!route.meta?.hideNavbar)
 
+
+// Fetches the extra data from your 'user' table
+async function fetchFullProfile(authUserData) {
+  if (!authUserData) {
+    user.value = null
+    return
+  }
+
+  try {
+    const { data: row } = await supabase
+      .from('user')
+      .select('username, user_email, profile_image_url')
+      .eq('UID', authUserData.id)
+      .maybeSingle()
+
+
+    user.value = {
+      ...authUserData,
+      ...row,
+      avatar_url: row?.profile_image_url || authUserData?.avatar_url || null
+    }
+  } catch (err) {
+    console.error('App.vue: Failed to fetch full profile:', err)
+    user.value = authUserData
+  }
+}
+
+
+watch(authUser, (newAuthUser) => {
+  fetchFullProfile(newAuthUser)
+}, { immediate: true })
+
+
 /* =========================
-   Cuisine Theme (global)
-   - Unified to html[data-theme] brands used in assets/css/theme.css
+   Cuisine Theme
    ========================= */
 const THEME_KEY_CUISINE = 'fg_cuisine_theme'
 const THEME_KEY_BRAND = 'fg_theme_v2'
-// Food-centric theme names
 const CUISINE_THEMES = ['Taro', 'Matcha', 'Vanilla', 'Blueberry']
-
 const BRAND_BY_CUISINE = {
   Taro: 'brand-plum',
   Matcha: 'brand-mint',
@@ -40,10 +70,6 @@ const CUISINE_BY_BRAND = {
   light: 'Vanilla',
   'brand-lagoon': 'Blueberry',
 }
-
-// Initialize cuisine from saved brand if present, else saved cuisine, else default
-const savedBrand = (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_BRAND)) || ''
-// Legacy-to-new cuisine name mapping
 function normalizeCuisineName(name) {
   switch (name) {
     case 'Plum': return 'Taro'
@@ -53,6 +79,7 @@ function normalizeCuisineName(name) {
     default: return name
   }
 }
+const savedBrand = (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_BRAND)) || ''
 const initialCuisineRaw = CUISINE_BY_BRAND[savedBrand] || (typeof localStorage !== 'undefined' && localStorage.getItem(THEME_KEY_CUISINE)) || 'Taro'
 const theme = ref(normalizeCuisineName(initialCuisineRaw))
 
@@ -61,21 +88,16 @@ function applyRootThemeFromCuisine(cuisine) {
   try { localStorage.setItem(THEME_KEY_BRAND, brand) } catch {}
   try { document.documentElement.setAttribute('data-theme', brand) } catch {}
 }
-
 function setTheme(t) {
   if (!CUISINE_THEMES.includes(t)) return
   theme.value = t
   try { localStorage.setItem(THEME_KEY_CUISINE, t) } catch {}
   applyRootThemeFromCuisine(t)
 }
-function cycleTheme() {
-  const i = CUISINE_THEMES.indexOf(theme.value)
-  const next = (i + 1) % CUISINE_THEMES.length
-  setTheme(CUISINE_THEMES[next])
-}
 watch(theme, (t) => {
   try { localStorage.setItem(THEME_KEY_CUISINE, t) } catch {}
 })
+
 
 /* =========================
    Draggable switcher panel
@@ -88,8 +110,7 @@ const didMove = ref(false)
 const justDragged = ref(false)
 const dragOffset = ref({ x: 0, y: 0 })
 const switcherPos = ref({ x: 12, y: 12 })
-const collapsed = ref(false) // collapsed → tiny draggable button
-
+const collapsed = ref(false) 
 function clampToViewport(pos) {
   const el = switcherEl.value
   const pad = 6
@@ -112,7 +133,6 @@ function alignTopRight() {
   })
   localStorage.setItem(SWITCHER_POS_KEY, JSON.stringify(switcherPos.value))
 }
-
 function startDrag(e) {
   const el = switcherEl.value
   if (!el) return
@@ -164,10 +184,10 @@ function toggleCollapse() {
 }
 
 /* =========================
-   Boot: restore state + load user
+   Boot: restore state
    ========================= */
 onMounted(async () => {
-  // Restore panel state/position
+  // Restore panel state
   try {
     const saved = JSON.parse(localStorage.getItem(SWITCHER_POS_KEY) || 'null')
     if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
@@ -176,16 +196,10 @@ onMounted(async () => {
       nextTick(() => alignTopRight())
     }
   } catch { nextTick(() => alignTopRight()) }
-
   try {
     collapsed.value = JSON.parse(localStorage.getItem(SWITCHER_COLLAPSED_KEY) || 'false')
   } catch { collapsed.value = false }
 
-  // Remove user logic entirely
-  user.value = null
-  loading.value = false
-
-  // Ensure html[data-theme] reflects current cuisine on boot
   applyRootThemeFromCuisine(theme.value)
 })
 
@@ -199,7 +213,7 @@ onBeforeUnmount(() => {
    ========================= */
 const pageClass = computed(() => ({
   [`theme-${theme.value}`]: true,
-  'themed-anim': true // keeps your subtle per-theme decorative ::after, if defined in CSS
+  'themed-anim': true
 }))
 </script>
 
@@ -217,9 +231,7 @@ const pageClass = computed(() => ({
       />
 
       
-      <!-- Draggable Theme Switcher (disabled) -->
       <template v-if="false">
-        <!-- Collapsed mini FAB -->
         <button
           v-if="collapsed"
           ref="switcherEl"
@@ -230,7 +242,6 @@ const pageClass = computed(() => ({
           @click.stop="onMiniClick"
         >🎨</button>
 
-        <!-- Expanded -->
         <div
           v-else
           ref="switcherEl"
@@ -238,7 +249,6 @@ const pageClass = computed(() => ({
           :class="{ dragging }"
           :style="{ left: switcherPos.x + 'px', top: switcherPos.y + 'px' }"
         >
-          <!-- Drag handle -->
           <div class="switcher-handle" title="Drag" @pointerdown.prevent.stop="startDrag">🎨</div>
 
           <div class="switcher-col">
@@ -250,7 +260,6 @@ const pageClass = computed(() => ({
             </div>
           </div>
 
-          <!-- Collapse control -->
           <div class="switcher-controls">
             <button class="chip ghost" title="Collapse" @click="toggleCollapse">x</button>
           </div>
@@ -263,11 +272,8 @@ const pageClass = computed(() => ({
 </template>
 
 <style>
+/* ... your style block is fine, no changes needed ... */
 html, body, #app { height: 100%; margin: 0; }
-
-/* (Lottie removed: no .bg-lottie needed) */
-
-/* Movable Theme Switcher */
 .theme-switcher.movable {
   position: fixed;
   z-index: 60;
@@ -296,7 +302,6 @@ html, body, #app { height: 100%; margin: 0; }
 .switcher-col { display: flex; flex-direction: column; gap: 6px; }
 .switcher-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .switcher-controls { display: flex; flex-direction: column; gap: 6px; margin-left: 6px; }
-
 .theme-switcher .chip {
   appearance: none;
   border: 1px solid rgba(24,24,27,.12);
@@ -319,8 +324,6 @@ html, body, #app { height: 100%; margin: 0; }
 }
 .theme-switcher .chip.cycle { font-weight: 800; }
 .theme-switcher .chip.ghost { background: #fff; color: var(--brand, #8e1f2f); }
-
-/* Collapsed mini button */
 .switcher-mini {
   position: fixed;
   z-index: 60;
