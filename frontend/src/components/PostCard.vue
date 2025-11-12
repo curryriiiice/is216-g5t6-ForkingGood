@@ -918,7 +918,7 @@ const captionClampInlineStyle = computed(() => {
     <div class="body">
       <div class="title-row">
         <h3 class="title">
-          {{ post.restaurant?.name || post.raw?.restaurant?.name || post.title || 'Untitled' }}
+          {{ post?.restaurant?.name || post?.raw?.restaurant?.name || post?.title || 'Untitled' }}
         </h3>
 
         <div v-if="ratingValue" class="rating">
@@ -956,12 +956,12 @@ const captionClampInlineStyle = computed(() => {
 
       </div>
 
-      <div v-if="post.restaurant?.address || post.raw?.restaurant?.address" class="address">
-        {{ post.restaurant?.address || post.raw?.restaurant?.address }}
+      <div v-if="post?.restaurant?.address || post?.raw?.restaurant?.address" class="address">
+        {{ post?.restaurant?.address || post?.raw?.restaurant?.address }}
       </div>
 
       <p
-        v-if="post.text"
+        v-if="post?.text"
         class="desc"
         :class="{ clamped: isCaptionClamped }"
         :style="captionClampInlineStyle"
