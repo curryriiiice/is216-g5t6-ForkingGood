@@ -125,15 +125,33 @@ function revokeAllBlobs() {
   blobCache.clear()
 }
 
+// --- Stabilize post data during transient nulls (e.g. while previews reload) ---
+const lastGoodPost = ref(null)
+function hasDisplayData(p) {
+  if (!p || typeof p !== 'object') return false
+  const r = p.restaurant || p.raw?.restaurant || {}
+  return Boolean(p.title || r.name)
+}
+watch(
+  () => props.post,
+  (p) => {
+    if (hasDisplayData(p)) lastGoodPost.value = p
+  },
+  { immediate: true },
+)
+const effectivePost = computed(() => {
+  return hasDisplayData(props.post) ? props.post : lastGoodPost.value || props.post || {}
+})
+
 // Use post.photos if present; otherwise fall back to post.pictures
 const resolvedPhotos = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   const arr = Array.isArray(p.photos) ? p.photos : Array.isArray(p.pictures) ? p.pictures : []
   return arr.map(resolveImageUrl).filter(Boolean)
 })
 
 const rawPhotos = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   return Array.isArray(p.photos) ? p.photos : Array.isArray(p.pictures) ? p.pictures : []
 })
 
@@ -375,7 +393,7 @@ watch(
 )
 
 const tagText = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   const r = p.restaurant || p.raw?.restaurant || {}
   const t1 = r.cuisine_type || p.cuisine_type
   const t2 = r.secondary_tag || r.category || p.category
@@ -384,7 +402,7 @@ const tagText = computed(() => {
 })
 
 const priceRangeText = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   const r = p.restaurant || p.raw?.restaurant || {}
   const price = p.price_range ?? r.price_range
   if (price == null) return null
@@ -394,7 +412,7 @@ const priceRangeText = computed(() => {
 })
 
 const areaText = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   return p.area || p.restaurant?.area || p.raw?.restaurant?.area || null
 })
 
@@ -442,13 +460,13 @@ const tagLine = computed(() => {
 })
 
 const ratingValue = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   const r = p.restaurant || p.raw?.restaurant || {}
   return p.rating || r.rating || r.avg_rating || null
 })
 
 const postDateText = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   // Accept common fields and nested raw fields
   const dateStr =
     p.created_at ||
@@ -479,13 +497,25 @@ const postDateText = computed(() => {
 const router = useRouter()
 
 const hasMapTarget = computed(() => {
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   return Boolean(p.id || p.postid)
+})
+
+const titleText = computed(() => {
+  const p = effectivePost.value || {}
+  const r = p.restaurant || p.raw?.restaurant || {}
+  return r.name || p.title || ''
+})
+
+const addressText = computed(() => {
+  const p = effectivePost.value || {}
+  const r = p.restaurant || p.raw?.restaurant || {}
+  return r.address || ''
 })
 
 const authorAvatarUrl = computed(() => {
   if (authorPfpUrl.value) return authorPfpUrl.value
-  const p = props.post || {}
+  const p = effectivePost.value || {}
   const candidates = [
     p.user?.avatar,
     p.user?.profile_pic,
@@ -525,7 +555,7 @@ const authorAvatarUrl = computed(() => {
 })
 
 function viewOnMap(p) {
-  const post = p || props.post
+  const post = p || effectivePost.value
   if (!post?.id && !post?.postid) {
     alert('No post id available to open on map.')
     return
@@ -537,17 +567,18 @@ function viewOnMap(p) {
 // local like/comment counters (hydrated from backend)
 const liked = ref(false)
 const likeCount = ref(
-  typeof props.post?.raw?.upvote_count === 'number' && !Number.isNaN(props.post.raw.upvote_count)
-    ? props.post.raw.upvote_count
-    : typeof props.post?.likes === 'number' && !Number.isNaN(props.post.likes)
-      ? props.post.likes
+  typeof effectivePost.value?.raw?.upvote_count === 'number' &&
+    !Number.isNaN(effectivePost.value.raw.upvote_count)
+    ? effectivePost.value.raw.upvote_count
+    : typeof effectivePost.value?.likes === 'number' && !Number.isNaN(effectivePost.value.likes)
+      ? effectivePost.value.likes
       : 0,
 )
 const commentCount = ref(
   typeof props.externalCommentCount === 'number' && !Number.isNaN(props.externalCommentCount)
     ? props.externalCommentCount
-    : typeof props.post.comments === 'number'
-      ? props.post.comments
+    : typeof effectivePost.value?.comments === 'number'
+      ? effectivePost.value.comments
       : 0,
 )
 // Prevent rapid double-taps that cause race conditions / count drift
@@ -564,7 +595,7 @@ watch(
 )
 
 function emitEngagementPatch({ nextLikes, nextLikedFlag, nextCommentCount }) {
-  const post = props.post || {}
+  const post = effectivePost.value || {}
   const pid = post.id || post.postid
   if (!pid) return
 
@@ -603,7 +634,7 @@ function emitEngagementPatch({ nextLikes, nextLikedFlag, nextCommentCount }) {
 }
 
 async function refreshLikes() {
-  const postId = props.post?.id || props.post?.postid
+  const postId = effectivePost.value?.id || effectivePost.value?.postid
   if (!postId) return
   try {
     const response = await api.post(ENDPOINTS.getLikes, { postid: String(postId) })
@@ -618,7 +649,7 @@ async function refreshLikes() {
 }
 
 async function refreshComments() {
-  const postId = props.post?.id || props.post?.postid
+  const postId = effectivePost.value?.id || effectivePost.value?.postid
   if (!postId) return
   try {
     const response = await api.post(ENDPOINTS.getComments, { postid: String(postId) })
@@ -636,7 +667,7 @@ async function refreshEngagement() {
 
 onMounted(refreshEngagement)
 watch(
-  () => props.post?.id || props.post?.postid,
+  () => effectivePost.value?.id || effectivePost.value?.postid,
   () => refreshEngagement(),
 )
 watch(
@@ -647,10 +678,10 @@ watch(
 // Keep local like state in sync when parent patches the post (e.g., from preview/dashboard)
 watch(
   () => ({
-    flatLikes: props.post?.likes,
-    flatFlag: props.post?.user_has_upvoted,
-    rawLikes: props.post?.raw?.upvote_count,
-    rawFlag: props.post?.raw?.user_has_upvoted,
+    flatLikes: effectivePost.value?.likes,
+    flatFlag: effectivePost.value?.user_has_upvoted,
+    rawLikes: effectivePost.value?.raw?.upvote_count,
+    rawFlag: effectivePost.value?.raw?.user_has_upvoted,
   }),
   (n) => {
     const nextCount =
@@ -672,7 +703,7 @@ watch(
 
 // Toggle like button (optimistic update, revert on error)
 async function toggleLike() {
-  const postId = props.post?.id || props.post?.postid
+  const postId = effectivePost.value?.id || effectivePost.value?.postid
   if (!postId) return
   if (isLiking.value) return
   isLiking.value = true
@@ -729,7 +760,7 @@ async function toggleLike() {
     
     // Notify parent(s) with a compact patch so lists/previews can sync instantly
     try {
-      const idStr = String(props.post?.id || props.post?.postid)
+      const idStr = String(effectivePost.value?.id || effectivePost.value?.postid)
       const safeCount = Math.max(0, Number(likeCount.value))
       const newFlag = Boolean(liked.value)
       const patch = {
@@ -756,7 +787,7 @@ async function toggleLike() {
 
 // Open comment modal or emit to parent
 function openComments() {
-  const postId = props.post?.id || props.post?.postid
+  const postId = effectivePost.value?.id || effectivePost.value?.postid
   if (!postId) return
   emit('open-comments', { postId })
 }
@@ -918,7 +949,7 @@ const captionClampInlineStyle = computed(() => {
     <div class="body">
       <div class="title-row">
         <h3 class="title">
-          {{ post?.restaurant?.name || post?.raw?.restaurant?.name || post?.title || 'Untitled' }}
+          {{ titleText || 'Untitled' }}
         </h3>
 
         <div v-if="ratingValue" class="rating">
@@ -956,17 +987,17 @@ const captionClampInlineStyle = computed(() => {
 
       </div>
 
-      <div v-if="post?.restaurant?.address || post?.raw?.restaurant?.address" class="address">
-        {{ post?.restaurant?.address || post?.raw?.restaurant?.address }}
+      <div v-if="addressText" class="address">
+        {{ addressText }}
       </div>
 
       <p
-        v-if="post?.text"
+        v-if="effectivePost?.text"
         class="desc"
         :class="{ clamped: isCaptionClamped }"
         :style="captionClampInlineStyle"
       >
-        {{ post?.text }}
+        {{ effectivePost?.text }}
       </p>
 
       <div class="meta">
@@ -1025,7 +1056,13 @@ const captionClampInlineStyle = computed(() => {
           <span class="name text-truncate">{{ authorDisplayName }}</span>
         </div>
 
-        <button v-if="hasMapTarget" class="map-btn" @click.stop="viewOnMap(post)" title="View on map" data-stop-preview>
+        <button
+          v-if="hasMapTarget"
+          class="map-btn"
+          @click.stop="viewOnMap(effectivePost)"
+          title="View on map"
+          data-stop-preview
+        >
           <img src="/images/map.png" alt="Map" class="icon-20 me-1" width="16" height="16" />
           Map
         </button>
