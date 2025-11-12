@@ -761,16 +761,16 @@ function openComments() {
   emit('open-comments', { postId })
 }
 
-function openProfile() {
-  const post = props.post || {}
-  const payloadUser =
-    post.user || {
-      email: normalizedAuthorEmail.value,
-      username: authorUsername.value,
-      name: authorDisplayName.value,
-    }
-  emit('open-profile', { post, user: payloadUser })
-}
+// function openProfile() {
+//   const post = props.post || {}
+//   const payloadUser =
+//     post.user || {
+//       email: normalizedAuthorEmail.value,
+//       username: authorUsername.value,
+//       name: authorDisplayName.value,
+//     }
+//   emit('open-profile', { post, user: payloadUser })
+// }
 
 const resolvedCaptionLines = computed(() => {
   const raw = props.captionMaxLines

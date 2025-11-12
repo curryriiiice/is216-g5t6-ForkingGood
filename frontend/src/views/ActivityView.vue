@@ -459,49 +459,49 @@ async function getPostById(postId) {
 }
 
 
-// --- Profile Modal Functions (MOCKED FRIENDSHIP STATUS) ---
-async function viewProfile(user) {
-  if (!user || !user.id) { console.warn('viewProfile called with invalid user object', user); return; }
-  // Don't open profile modal for yourself, navigate to profile page
-  if (user.id === activeEmail.value) {
-    router.push('/profile').catch(() => {});
-    return;
-  }
+// // --- Profile Modal Functions (MOCKED FRIENDSHIP STATUS) ---
+// async function viewProfile(user) {
+//   if (!user || !user.id) { console.warn('viewProfile called with invalid user object', user); return; }
+//   // Don't open profile modal for yourself, navigate to profile page
+//   if (user.id === activeEmail.value) {
+//     router.push('/profile').catch(() => {});
+//     return;
+//   }
 
-  showProfileModal.value = true
-  profileLoading.value = true
-  profileError.value = ''
-  profilePosts.value = []
+//   showProfileModal.value = true
+//   profileLoading.value = true
+//   profileError.value = ''
+//   profilePosts.value = []
   
-  try {
-    const userEmail = user.id; // user.id from PostCard is poster_email
+//   try {
+//     const userEmail = user.id; // user.id from PostCard is poster_email
     
-    // Call getPfpByEmail to get avatar
-    const pfpPromise = api.post('/user/getPfpByEmail', { user_email: userEmail });
+//     // Call getPfpByEmail to get avatar
+//     const pfpPromise = api.post('/user/getPfpByEmail', { user_email: userEmail });
     
-    // We have to mock friendship status as we don't know it here.
-    // We only fetch public posts.
-    // NOTE: This means 'Add/Remove Friend' buttons in this modal are placeholders
-    const pData = {
-        email: userEmail,
-        username: user.name || user.username,
-        name: user.name || user.username,
-        avatar: (await pfpPromise).data?.data || '/default-avatar.jpg',
-        isFriend: false, // Cannot know this from ActivityView
-        isPending: false, // Cannot know this from ActivityView
-    };
-    profileData.value = pData;
+//     // We have to mock friendship status as we don't know it here.
+//     // We only fetch public posts.
+//     // NOTE: This means 'Add/Remove Friend' buttons in this modal are placeholders
+//     const pData = {
+//         email: userEmail,
+//         username: user.name || user.username,
+//         name: user.name || user.username,
+//         avatar: (await pfpPromise).data?.data || '/default-avatar.jpg',
+//         isFriend: false, // Cannot know this from ActivityView
+//         isPending: false, // Cannot know this from ActivityView
+//     };
+//     profileData.value = pData;
     
-    // Fetch only public posts for this user
-    await fetchProfilePosts(pData, false); // Force fetch public posts
+//     // Fetch only public posts for this user
+//     await fetchProfilePosts(pData, false); // Force fetch public posts
     
-  } catch (e) {
-    console.error(`[ActivityView] viewProfile for ${user.id} failed`, e)
-    profileError.value = 'Failed to load profile.'
-    profileLoading.value = false
-  }
-  // loading is set to false inside fetchProfilePosts
-}
+//   } catch (e) {
+//     console.error(`[ActivityView] viewProfile for ${user.id} failed`, e)
+//     profileError.value = 'Failed to load profile.'
+//     profileLoading.value = false
+//   }
+//   // loading is set to false inside fetchProfilePosts
+// }
 async function fetchProfilePosts(user, isFriend = false) { // Default to fetching public posts
   if (!user || !user.email) {
     profileError.value = 'User data is missing.'; profileLoading.value = false; return;
@@ -898,7 +898,7 @@ watch(
                   :external-comment-count="commentCounts[post.id] ?? 0"
                   :show-owner-menu="false" 
                   @open-comments="onOpenComments"
-                  @open-profile="viewProfile"
+                  
                   @view-on-map="viewOnMap"
                   @updated="applyPostPatch"
                   @post-updated="applyPostPatch"
@@ -963,7 +963,6 @@ watch(
                   :external-comment-count="commentCounts[post.id] ?? 0"
                   :show-owner-menu="false"
                   @open-comments="onOpenComments"
-                  @open-profile="viewProfile"
                   @view-on-map="viewOnMap"
                   @updated="applyPostPatch"
                   @post-updated="applyPostPatch"
@@ -1038,9 +1037,8 @@ watch(
             :external-comment-count="commentCounts[previewPost?.id] ?? commentCounts[previewPost?.postid] ?? (previewPost?.raw?.comments?.length || 0)"
             :show-owner-menu="previewPost?.user?.id === activeEmail"
           @open-comments="onOpenComments"
-          @open-profile="viewProfile"
-          @view-on-map="viewOnMap"
-          @updated="applyPostPatch"
+                  @view-on-map="viewOnMap"
+                  @updated="applyPostPatch"
           @post-updated="applyPostPatch"
           @liked="applyPostPatch"
           @unliked="applyPostPatch"
@@ -1099,7 +1097,6 @@ watch(
                           :current-user-email="activeEmail"
                           :external-comment-count="commentCounts[post.id] ?? 0"
                           @open-comments="onOpenComments"
-                          @open-profile="viewProfile"
                           @view-on-map="viewOnMap"
                           @updated="applyPostPatch"
                           @post-updated="applyPostPatch"
