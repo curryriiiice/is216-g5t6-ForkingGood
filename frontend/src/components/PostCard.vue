@@ -130,7 +130,16 @@ const lastGoodPost = ref(null)
 function hasDisplayData(p) {
   if (!p || typeof p !== 'object') return false
   const r = p.restaurant || p.raw?.restaurant || {}
-  return Boolean(p.title || r.name)
+  const hasTitleOrName = Boolean(p.title || r.name)
+  const hasUsername =
+    Boolean(
+      p.user?.username ||
+      p.poster_username ||
+      p.username ||
+      p.raw?.user?.username ||
+      p.raw?.poster?.username
+    )
+  return hasTitleOrName || hasUsername
 }
 watch(
   () => props.post,
