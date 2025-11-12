@@ -2286,10 +2286,89 @@ watch(
   pointer-events: auto;
 }
 /* Lock Bootstrap modal width token for preview modal */
-.preview-modal { --bs-modal-width: 760px; }
+/* === Preview modal: proper sizing and layout === */
+.preview-modal .modal-dialog {
+  max-width: 760px;
+  margin: 1rem auto;
+}
+
+.preview-modal .modal-content {
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.preview-modal .modal-body {
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+}
+
+.preview-modal .preview-wrap {
+  height: 100%;
+}
+
+.preview-modal .preview-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-modal .card.themed-card {
+  border: none;
+  box-shadow: none;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-modal .card .body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure images maintain proper aspect ratio */
+.preview-modal .card .post-image,
+.preview-modal .card .media img,
+.preview-modal .card .photo-wrap img {
+  width: 100%;
+  height: auto;
+  max-height: 400px;
+  object-fit: cover;
+  object-position: center;
+}
+
+/* Mobile fixes */
+@media (max-width: 575.98px) {
+  .preview-modal .modal-dialog {
+    margin: 0;
+    height: 100vh;
+    max-width: 100vw;
+  }
+  
+  .preview-modal .modal-content {
+    border-radius: 0;
+    height: 100vh;
+  }
+  
+  .preview-modal .card.themed-card {
+    border-radius: 0;
+  }
+}
+
+/* Tablet and desktop */
+@media (min-width: 576px) {
+  .preview-modal .modal-dialog {
+    width: 760px;
+    max-width: 760px;
+  }
+}
 
 /* ========== Preview modal unified sizing (≥992px) ========== */
-@media (min-width: 992px) {
+/*@media (min-width: 992px) {
   .preview-modal { --bs-modal-width: 760px; }
   .preview-modal .modal-dialog {
     width: var(--bs-modal-width) !important;
@@ -2306,25 +2385,25 @@ watch(
     width: var(--bs-modal-width) !important;
     max-width: var(--bs-modal-width) !important;
   }
-  .preview-modal .modal-content {
+  /* .preview-modal .modal-content {
     max-height: 86vh;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     border-radius: 12px;
-  }
+  } */
   .preview-modal .modal-body {
     padding: 0;
     overflow: auto;
   }
-  .preview-modal .hero img {
+  /* .preview-modal .hero img {
     max-height: 42vh;
     width: 100%;
     height: auto;
     object-fit: cover;
     display: block;
-  }
-}
+  } */
+
 /* === Feed toolbar responsive fix: keep Filter pill inside on mobile === */
 .feed-shell .filter-toolbar {
   display: flex;            /* reinforce flex in case utility classes change */
@@ -3017,29 +3096,30 @@ watch(
   </Modal>
 
   <!-- Post Preview Modal -->
-  <Modal :show="showPreview" class="preview-modal" title="Post Preview" @close="closePreview">
-    <div class="preview-wrap">
-      <div class="card themed-card position-relative preview-card">
-        <PostCard
-          :post="previewPost"
-          :feed="previewPost?.is_public ? 'public' : 'friends'"
-          :controls="true"
-          :caption-max-lines="0"
-          :current-user-email="activeEmail"
-          :external-comment-count="
-            commentCounts[previewPost?.id] ??
-            commentCounts[previewPost?.postid] ??
-            (previewPost?.raw?.comments?.length || 0)
-          "
-          @open-comments="onOpenComments"
-          @updated="applyPostPatch"
-          @post-updated="applyPostPatch"
-          @liked="applyPostPatch"
-          @unliked="applyPostPatch"
-        />
-      </div>
+  <!-- Post Preview Modal -->
+<Modal :show="showPreview" class="preview-modal" title="Post Preview" @close="closePreview">
+  <div class="preview-wrap">
+    <div class="card themed-card position-relative preview-card">
+      <PostCard
+        :post="previewPost"
+        :feed="previewPost?.is_public ? 'public' : 'friends'"
+        :controls="true"
+        :caption-max-lines="0"
+        :current-user-email="activeEmail"
+        :external-comment-count="
+          commentCounts[previewPost?.id] ??
+          commentCounts[previewPost?.postid] ??
+          (previewPost?.raw?.comments?.length || 0)
+        "
+        @open-comments="onOpenComments"
+        @updated="applyPostPatch"
+        @post-updated="applyPostPatch"
+        @liked="applyPostPatch"
+        @unliked="applyPostPatch"
+      />
     </div>
-  </Modal>
+  </div>
+</Modal>
 
   <!-- Comments Modal -->
   <Modal :show="showComments" title="Comments" @close="closeComments">
